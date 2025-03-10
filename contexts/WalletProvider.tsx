@@ -1,13 +1,15 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { WalletKit } from '@reown/walletkit';
+import type { SignClientTypes } from '@walletconnect/types';
 import { Core } from '@walletconnect/core';
-import { SessionTypes, ProposalTypes, SignClientTypes } from '@walletconnect/types';
+import { SessionTypes, ProposalTypes } from '@walletconnect/types';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import config from '../api/config';
 
 // Initialize WalletConnect Core
 const core = new Core({
-  projectId: Constants.expoConfig?.extra?.WALLETCONNECT_PROJECT_ID || '',
+  projectId: config.projectIds.walletConnect,
   relayUrl: 'wss://relay.walletconnect.com',
 });
 
@@ -18,11 +20,18 @@ interface WalletContextType {
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
+  account: {
+    address: string;
+    chainId: number;
+    features: any;
+  } | null;
   connect: (uri: string) => Promise<void>;
   disconnect: () => Promise<void>;
   approveSession: (proposalId: number, namespaces: SessionTypes.Namespaces) => Promise<void>;
   rejectSession: (proposalId: number) => Promise<void>;
   respondToRequest: (topic: string, response: any) => Promise<void>;
+  executeTransaction: (transaction: any) => Promise<string>;
+  batchTransactions: (transactions: any[]) => Promise<string[]>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -40,12 +49,31 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [account, setAccount] = useState<WalletContextType['account']>(null);
   const [activeProposal, setActiveProposal] = useState<ProposalTypes.Struct | null>(null);
-  const [publicKey, setPublicKey] = useState<string | null>(null);
 
   useEffect(() => {
     initializeWalletKit();
+    loadStoredAccount();
   }, []);
+
+  const loadStoredAccount = async () => {
+    try {
+      const storedConfig = await SecureStore.getItemAsync("accountConfig");
+      const address = await SecureStore.getItemAsync("walletAddress");
+      
+      if (storedConfig && address) {
+        const config = JSON.parse(storedConfig);
+        setAccount({
+          address,
+          chainId: config.chainId,
+          features: config.features
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load stored account:", error);
+    }
+  };
 
   const initializeWalletKit = async () => {
     try {
@@ -53,7 +81,6 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsLoading(true);
       setError(null);
 
-      console.log('[WalletProvider] Creating WalletKit instance...');
       const kit = await WalletKit.init({
         core,
         metadata: {
@@ -65,16 +92,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             native: "com.concordianova.connectwallet://",
             universal: "https://newwallet.app"
           }
-        },
+        }
       });
-      console.log('[WalletProvider] WalletKit instance created successfully');
 
-      // Set up event listeners
-      console.log('[WalletProvider] Setting up event listeners...');
       kit.on("session_proposal", handleSessionProposal);
       kit.on("session_request", handleSessionRequest);
       kit.on("session_delete", handleSessionDelete);
-      console.log('[WalletProvider] Event listeners set up successfully');
 
       setWalletKit(kit);
       console.log('[WalletProvider] WalletKit initialization complete');
@@ -88,18 +111,53 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const handleSessionProposal = async (args: SignClientTypes.EventArguments['session_proposal']) => {
     setActiveProposal(args.params);
-    setPublicKey(args.params.proposer.publicKey);
   };
 
-  const handleSessionRequest = async (request: any) => {
-    // Handle session request
-    console.log('Session request received:', request);
+  const handleSessionRequest = async ({ topic, params, id }: SignClientTypes.EventArguments['session_request']) => {
+    if (!walletKit || !account) {
+      console.error('WalletKit not initialized or no account');
+      return;
+    }
+
+    try {
+      const { request } = params;
+      console.log('Session request received:', request);
+
+      // Here you would implement your actual request handling logic
+      // For now, we'll just respond with a success message
+      await walletKit.respondSessionRequest({
+        topic,
+        response: {
+          id,
+          jsonrpc: '2.0',
+          result: 'Request approved' // This should be replaced with actual handling logic
+        }
+      });
+    } catch (error) {
+      console.error('Error handling session request:', error);
+      await walletKit.respondSessionRequest({
+        topic,
+        response: {
+          id,
+          jsonrpc: '2.0',
+          error: {
+            code: 5000,
+            message: error instanceof Error ? error.message : 'User rejected.'
+          }
+        }
+      });
+    }
   };
 
   const handleSessionDelete = async (session: any) => {
     // Handle session deletion
     console.log('Session deleted:', session);
     setIsConnected(false);
+  };
+
+  const handleTransactionVerified = async (transaction: any) => {
+    console.log('Transaction verified:', transaction);
+    // Add any custom transaction verification logic here
   };
 
   const connect = async (uri: string) => {
@@ -209,6 +267,74 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const executeTransaction = async (transaction: any) => {
+    if (!walletKit || !account) {
+      setError('Wallet not initialized or no account');
+      return Promise.reject('Wallet not initialized or no account');
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // Create a unique request ID
+      const requestId = Date.now();
+      
+      // Format the transaction request according to EIP-1193
+      await walletKit.respondSessionRequest({
+        topic: account.address,
+        response: {
+          id: requestId,
+          jsonrpc: '2.0',
+          result: transaction // Send the transaction as the result
+        }
+      });
+
+      return requestId.toString();
+    } catch (err) {
+      setError('Failed to execute transaction');
+      console.error('Transaction error:', err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const batchTransactions = async (transactions: any[]): Promise<string[]> => {
+    if (!walletKit || !account) {
+      setError('Wallet not initialized or no account');
+      return Promise.reject([]);
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // Execute batch transactions using WalletKit's session requests
+      const requestIds = await Promise.all(
+        transactions.map(tx => {
+          const requestId = Date.now();
+          return walletKit.respondSessionRequest({
+            topic: account.address,
+            response: {
+              id: requestId,
+              jsonrpc: '2.0',
+              result: tx // Send the transaction as the result
+            }
+          }).then(() => requestId.toString());
+        })
+      );
+
+      return requestIds;
+    } catch (err) {
+      setError('Failed to execute batch transaction');
+      console.error('Batch transaction error:', err);
+      return Promise.reject([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <WalletContext.Provider
       value={{
@@ -216,11 +342,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isConnected,
         isLoading,
         error,
+        account,
         connect,
         disconnect,
         approveSession,
         rejectSession,
         respondToRequest,
+        executeTransaction,
+        batchTransactions,
       }}
     >
       {children}

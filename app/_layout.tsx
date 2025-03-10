@@ -1,15 +1,23 @@
 import React from "react";
 import { Stack } from "expo-router";
-import BottomNav from "../components/ui/BottomNav"; // ✅ Import your custom BottomNav
+import { AuthProvider } from "../contexts/AuthContext";
+import { SettingsProvider } from "../contexts/SettingsContext";
+import { ProtectedRoute } from "../components/ProtectedRoute";
+import BottomNav from "../components/ui/BottomNav";
+import { usePathname } from "expo-router";
 import { useEffect, useState } from "react";
-import { usePathname } from "expo-router"; // ✅ Detect which page is currently active
+
+// Required crypto polyfills
+import 'react-native-get-random-values';
+import { Buffer } from 'buffer';
+global.Buffer = Buffer;
 
 export default function RootLayout() {
-  const pathname = usePathname(); // ✅ Get the current route
+  const pathname = usePathname();
   const [showBottomNav, setShowBottomNav] = useState(true);
 
   useEffect(() => {
-    // ✅ Define which screens should NOT show BottomNav
+    // Define which screens should NOT show BottomNav
     const excludedScreens = [
       "ImportWalletScreen",
       "ImportPrivateKeyScreen",
@@ -18,47 +26,51 @@ export default function RootLayout() {
       "SecureWalletScreen",
       "WalletCreatedScreen",
       "ImportWalletSuccessScreen",
-      "Import_CreatePasswordScreen",
       "CreatePasswordScreen",
       "SeedPhraseScreen",
       "ImportSuccessScreen",
       "SignInScreen",
+      "WelcomeScreen"
     ];
 
-    // ✅ Hide BottomNav for excluded screens
+    // Hide BottomNav for excluded screens
     setShowBottomNav(!excludedScreens.includes(pathname));
   }, [pathname]);
 
   return (
-    <>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="portfolio" />
-        <Stack.Screen name="pay" />
-        <Stack.Screen name="receive" />
-        <Stack.Screen name="settings" />
-        <Stack.Screen name="nft" />
-        <Stack.Screen name="NFTDetailsScreen" />
-        <Stack.Screen name="SwapScreen" />
-        <Stack.Screen name="TransactionHistoryScreen" />
-        <Stack.Screen name="TransactionDetailsScreen" />
-        <Stack.Screen name="ImportWalletScreen" />
-        <Stack.Screen name="ImportPrivateKeyScreen" />
-        <Stack.Screen name="ImportSeedPhraseScreen" />
-        <Stack.Screen name="ConfirmSeedPhraseScreen" />
-        <Stack.Screen name="SecureWalletScreen" />
-        <Stack.Screen name="WalletCreatedScreen" />
-        <Stack.Screen name="ImportWalletSuccessScreen" />
-        <Stack.Screen name="Import_CreatePasswordScreen" />
-        <Stack.Screen name="CreatePasswordScreen" />
-        <Stack.Screen name="SeedPhraseScreen" />
-        <Stack.Screen name="ImportSuccessScreen" />
-        <Stack.Screen name="SignInScreen" />
-      </Stack>
+    <AuthProvider>
+      <SettingsProvider>
+        <ProtectedRoute>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="WelcomeScreen" />
+            <Stack.Screen name="SignInScreen" />
+            <Stack.Screen name="CreatePasswordScreen" />
+            <Stack.Screen name="SeedPhraseScreen" />
+            <Stack.Screen name="ConfirmSeedPhraseScreen" />
+            <Stack.Screen name="SecureWalletScreen" />
+            <Stack.Screen name="WalletCreatedScreen" />
+            <Stack.Screen name="ImportWalletScreen" />
+            <Stack.Screen name="ImportSeedPhraseScreen" />
+            <Stack.Screen name="ImportPrivateKeyScreen" />
+            <Stack.Screen name="ImportSuccessScreen" />
+            <Stack.Screen name="ImportWalletSuccessScreen" />
+            <Stack.Screen name="portfolio" />
+            <Stack.Screen name="nft" />
+            <Stack.Screen name="NFTDetailsScreen" />
+            <Stack.Screen name="pay" />
+            <Stack.Screen name="receive" />
+            <Stack.Screen name="settings" />
+            <Stack.Screen name="SwapScreen" />
+            <Stack.Screen name="TransactionDetailsScreen" />
+            <Stack.Screen name="TransactionHistoryScreen" />
+          </Stack>
 
-      {/* ✅ Only show BottomNav on selected screens */}
-      {showBottomNav && <BottomNav />}
-    </>
+          {/* Only show BottomNav on selected screens */}
+          {showBottomNav && <BottomNav />}
+        </ProtectedRoute>
+      </SettingsProvider>
+    </AuthProvider>
   );
 }
 

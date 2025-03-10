@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import config from "../api/config";
 
-const SendTokenScreen = () => {
+const pay = () => {
   const [selectedToken, setSelectedToken] = useState("ETH");
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
@@ -264,5 +264,5 @@ const styles = StyleSheet.create({
   },
 });
 
-export default SendTokenScreen;
+export default pay;
 

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 
-const ReceiveScreen = () => {
+const receive = () => {
   const [selectedNetwork, setSelectedNetwork] = useState("ethereum");
   const [walletAddress, setWalletAddress] = useState(null);
   const [networkId, setNetworkId] = useState(null);
@@ -173,4 +173,4 @@ const styles = {
   },
 };
 
-export default ReceiveScreen;
+export default receive;

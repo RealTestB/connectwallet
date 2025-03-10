@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 
-export default function PortfolioScreen() {
+export default function portfolio() {
   const navigation = useNavigation();
 
   const [tokens, setTokens] = useState([]);

@@ -23,14 +23,14 @@ import ImportWalletScreen from './app/ImportWalletScreen';
 import ImportSeedPhraseScreen from './app/ImportSeedPhraseScreen';
 import ImportPrivateKeyScreen from './app/ImportPrivateKeyScreen';
 import ImportSuccessScreen from './app/ImportSuccessScreen';
-import PortfolioScreen from './app/portfolio';
+import portfolio from './app/portfolio';
 import { SettingsProvider } from './contexts/SettingsContext';
 import ImportWalletSuccessScreen from './app/ImportWalletSuccessScreen';
 import NFTDetailsScreen from './app/NFTDetailsScreen';
-import NFTScreen from './app/nft';
-import PayScreen from './app/pay';
-import ReceiveScreen from './app/receive';
-import SettingsScreen from './app/settings';
+import nft from './app/nft';
+import pay from './app/pay';
+import receive from './app/receive';
+import settings from './app/settings';
 import SwapScreen from './app/SwapScreen';
 import TransactionDetailsScreen from './app/TransactionDetailsScreen';
 import TransactionHistoryScreen from './app/TransactionHistoryScreen';
@@ -85,7 +85,7 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Create protected versions of all screens except entry points
-const ProtectedPortfolioScreen = withSession(PortfolioScreen);
+const ProtectedPortfolioScreen = withSession(portfolio);
 const ProtectedCreatePasswordScreen = withSession(CreatePasswordScreen);
 const ProtectedSeedPhraseScreen = withSession(SeedPhraseScreen);
 const ProtectedConfirmSeedPhraseScreen = withSession(ConfirmSeedPhraseScreen);
@@ -97,13 +97,13 @@ const ProtectedImportPrivateKeyScreen = withSession(ImportPrivateKeyScreen);
 const ProtectedImportSuccessScreen = withSession(ImportSuccessScreen);
 const ProtectedImportWalletSuccessScreen = withSession(ImportWalletSuccessScreen);
 const ProtectedNFTDetailsScreen = withSession(NFTDetailsScreen);
-const ProtectedPayScreen = withSession(PayScreen);
-const ProtectedReceiveScreen = withSession(ReceiveScreen);
-const ProtectedSettingsScreen = withSession(SettingsScreen);
+const ProtectedPayScreen = withSession(pay);
+const ProtectedReceiveScreen = withSession(receive);
+const ProtectedSettingsScreen = withSession(settings);
 const ProtectedSwapScreen = withSession(SwapScreen);
 const ProtectedTransactionDetailsScreen = withSession(TransactionDetailsScreen);
 const ProtectedTransactionHistoryScreen = withSession(TransactionHistoryScreen);
-const ProtectedNFTScreen = withSession(NFTScreen);
+const ProtectedNFTScreen = withSession(nft);
 
 // Error boundary for crypto operations
 const initializeCrypto = async () => {

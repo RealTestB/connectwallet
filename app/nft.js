@@ -17,7 +17,7 @@ import {
 
 const PAGE_SIZE = 20; // Number of NFTs to load per page
 
-export default function NFTGalleryScreen({ navigation }) {
+export default function nft({ navigation }) {
   const [nfts, setNfts] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
