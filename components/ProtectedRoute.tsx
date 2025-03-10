@@ -10,16 +10,25 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
 
-    const publicScreens = ['WelcomeScreen', 'SignInScreen'];
-    const isPublicScreen = publicScreens.includes(pathname);
+    const publicScreens = [
+      'WelcomeScreen',
+      'SignInScreen',
+      'CreatePasswordScreen',
+      'ImportWalletScreen',
+      'ImportSeedPhraseScreen',
+      'ImportPrivateKeyScreen',
+      'ImportSuccessScreen',
+      'ImportWalletSuccessScreen'
+    ];
+    const isPublicScreen = publicScreens.includes(pathname.replace('/', ''));
 
     // If the user has no wallet, they can only access public screens
     if (!hasWallet && !isPublicScreen) {
       router.replace('/WelcomeScreen');
     }
     // If the user has a wallet but tries to access public screens (except SignIn)
-    else if (hasWallet && isPublicScreen && pathname !== 'SignInScreen') {
-      router.replace('/SignInScreen');
+    else if (hasWallet && isPublicScreen && pathname !== '/SignInScreen') {
+      router.replace('/portfolio');
     }
     // If the user has a wallet and is on the root path, redirect to portfolio
     else if (hasWallet && pathname === '/') {

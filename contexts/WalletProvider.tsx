@@ -44,6 +44,21 @@ export const useWallet = () => {
   return context;
 };
 
+// Add type definitions
+interface TransactionResponse {
+  hash?: string;
+  result?: any;
+}
+
+interface WalletKitResponse {
+  topic: string;
+  response: {
+    id: number;
+    jsonrpc: string;
+    result: any;
+  };
+}
+
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [walletKit, setWalletKit] = useState<WalletKitInstance | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -267,34 +282,35 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const executeTransaction = async (transaction: any) => {
+  const executeTransaction = async (transaction: any): Promise<string> => {
     if (!walletKit || !account) {
-      setError('Wallet not initialized or no account');
-      return Promise.reject('Wallet not initialized or no account');
+      throw new Error('Wallet not initialized or no account');
     }
 
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Create a unique request ID
-      const requestId = Date.now();
-      
-      // Format the transaction request according to EIP-1193
+
+      // Verify the transaction first
+      await handleTransactionVerified(transaction);
+
+      // Execute the transaction
+      const response = {
+        id: transaction.id,
+        jsonrpc: '2.0',
+        result: transaction.params
+      };
+
       await walletKit.respondSessionRequest({
-        topic: account.address,
-        response: {
-          id: requestId,
-          jsonrpc: '2.0',
-          result: transaction // Send the transaction as the result
-        }
+        topic: transaction.topic,
+        response
       });
 
-      return requestId.toString();
+      return response.result?.hash || response.result || '';
     } catch (err) {
-      setError('Failed to execute transaction');
-      console.error('Transaction error:', err);
-      throw err;
+      const error = err instanceof Error ? err.message : 'Transaction failed';
+      setError(error);
+      throw new Error(error);
     } finally {
       setIsLoading(false);
     }
@@ -302,34 +318,39 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const batchTransactions = async (transactions: any[]): Promise<string[]> => {
     if (!walletKit || !account) {
-      setError('Wallet not initialized or no account');
-      return Promise.reject([]);
+      throw new Error('Wallet not initialized or no account');
     }
 
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Execute batch transactions using WalletKit's session requests
-      const requestIds = await Promise.all(
-        transactions.map(tx => {
-          const requestId = Date.now();
-          return walletKit.respondSessionRequest({
-            topic: account.address,
-            response: {
-              id: requestId,
-              jsonrpc: '2.0',
-              result: tx // Send the transaction as the result
-            }
-          }).then(() => requestId.toString());
+
+      const results = await Promise.all(
+        transactions.map(async (tx) => {
+          // Verify each transaction
+          await handleTransactionVerified(tx);
+
+          // Execute the transaction
+          const response = {
+            id: tx.id,
+            jsonrpc: '2.0',
+            result: tx.params
+          };
+
+          await walletKit.respondSessionRequest({
+            topic: tx.topic,
+            response
+          });
+
+          return response.result?.hash || response.result || '';
         })
       );
 
-      return requestIds;
+      return results;
     } catch (err) {
-      setError('Failed to execute batch transaction');
-      console.error('Batch transaction error:', err);
-      return Promise.reject([]);
+      const error = err instanceof Error ? err.message : 'Batch transaction failed';
+      setError(error);
+      throw new Error(error);
     } finally {
       setIsLoading(false);
     }

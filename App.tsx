@@ -8,6 +8,10 @@ import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { Stack } from 'expo-router';
 import { updateLastActive } from './api/securityService';
+import * as SplashScreen from 'expo-splash-screen';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
 
 // Error boundary for crypto operations
 const initializeCrypto = async () => {
@@ -25,8 +29,13 @@ const initializeCrypto = async () => {
 export default function App() {
   useEffect(() => {
     const init = async () => {
-      await initializeCrypto();
-      await updateLastActive();
+      try {
+        await initializeCrypto();
+        await updateLastActive();
+      } finally {
+        // Hide splash screen once all resources are loaded
+        await SplashScreen.hideAsync();
+      }
     };
     init();
   }, []);

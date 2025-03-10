@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { View, ActivityIndicator, Alert } from 'react-native';
-import { Buffer } from 'buffer';
 import { authenticateUser } from '../api/authApi';
-import { updateLastActive } from '../api/securityService';
+import { updateLastActive } from '../utils/activity';
+import { initializeCrypto } from '../utils/crypto';
 
 type AuthContextType = {
   isLoading: boolean;
@@ -12,19 +12,6 @@ type AuthContextType = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Error boundary for crypto operations
-const initializeCrypto = async () => {
-  try {
-    // Ensure crypto polyfills are working
-    const testBuffer = Buffer.from('test');
-    if (!testBuffer) throw new Error('Buffer not initialized');
-    return true;
-  } catch (error) {
-    console.error('Crypto initialization failed:', error);
-    return false;
-  }
-};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);

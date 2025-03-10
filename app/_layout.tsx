@@ -1,20 +1,49 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { AuthProvider } from "../contexts/AuthContext";
 import { SettingsProvider } from "../contexts/SettingsContext";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import BottomNav from "../components/ui/BottomNav";
 import { usePathname } from "expo-router";
-import { useEffect, useState } from "react";
+import { View } from "react-native";
+import * as SplashScreen from 'expo-splash-screen';
 
-// Required crypto polyfills
-import 'react-native-get-random-values';
-import { Buffer } from 'buffer';
-global.Buffer = Buffer;
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const pathname = usePathname();
   const [showBottomNav, setShowBottomNav] = useState(true);
+  const [appIsReady, setAppIsReady] = useState(false);
+
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // Pre-load fonts, make any API calls you need to do here
+        // You can add more async initialization here
+        
+        // Artificially delay for two seconds to simulate a slow loading
+        // Remove this in production
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        // Tell the application to render
+        setAppIsReady(true);
+      }
+    }
+
+    prepare();
+  }, []);
+
+  useEffect(() => {
+    if (appIsReady) {
+      // This tells the splash screen to hide immediately
+      // If we call this after `setAppIsReady`, then we may see a blank screen
+      // while the app is loading its initial state and rendering its first pixels
+      SplashScreen.hideAsync();
+    }
+  }, [appIsReady]);
 
   useEffect(() => {
     // Define which screens should NOT show BottomNav
@@ -36,6 +65,10 @@ export default function RootLayout() {
     // Hide BottomNav for excluded screens
     setShowBottomNav(!excludedScreens.includes(pathname));
   }, [pathname]);
+
+  if (!appIsReady) {
+    return null;
+  }
 
   return (
     <AuthProvider>
