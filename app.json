@@ -3,26 +3,99 @@
     "name": "wallet-new",
     "slug": "wallet-new",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "icon": "./assets/images/icon.png",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/images/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/2eb87a1c-e5e8-44f5-8d81-cf90358b61aa"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "scheme": "com.concordianova.connectwallet",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.concordianova.connectwallet",
+      "associatedDomains": [
+        "applinks:newwallet.app"
+      ]
     },
     "android": {
+      "package": "com.concordianova.connectwallet",
+      "versionCode": 67,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "com.concordianova.connectwallet"
+            },
+            {
+              "scheme": "https",
+              "host": "newwallet.app"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/images/favicon.png"
+    },
+    "owner": "connectwallet",
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": true,
+            "targetSdkVersion": 34
+          },
+          "ios": {
+            "deploymentTarget": "17.0"
+          }
+        }
+      ],
+      [
+        "expo-asset"
+      ],
+      [
+        "expo-secure-store"
+      ],
+      "expo-router"
+    ],
+    "extra": {
+      "REOWN_PROJECT_ID": "fb9f9d116f749332dc04b5d789589262",
+      "WALLETCONNECT_PROJECT_ID": "fb9f9d116f749332dc04b5d789589262",
+      "ALCHEMY_ETH_MAINNET_KEY": "JiNzxNhzZnrtaGun9u6fvkuhZCnAiQ8D",
+      "CMC_API_KEY": "4813c99f-7496-4871-80ee-435e2d389e6e",
+      "LIFI_API_KEY": "25b58601-f86f-49ab-af4d-237603de13dc.a0755ec0-cb40-44ca-ab6e-19a40ded97c9",
+      "SUPABASE_URL": "https://fymuwcftwkzuomgphqjx.supabase.co",
+      "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5bXV3Y2Z0d2t6dW9tZ3BocWp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA2MTU3NzQsImV4cCI6MjA1NjE5MTc3NH0.wS-1aj-wYvR0RoopHPv9JVjGPfqRjBLon9fXnrCXGkU",
+      "eas": {
+        "projectId": "b10e8035-6c51-40f7-b8db-ac04478e981e"
+      }
     }
   }
 }
