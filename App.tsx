@@ -4,10 +4,10 @@ import { Buffer } from 'buffer';
 global.Buffer = Buffer;
 
 import 'react-native-gesture-handler';
-import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
-import { updateLastActive } from './api/securityService';
+import { StatusBar } from 'expo-status-bar';
 import { Stack } from 'expo-router';
+import { updateLastActive } from './api/securityService';
 
 // Error boundary for crypto operations
 const initializeCrypto = async () => {

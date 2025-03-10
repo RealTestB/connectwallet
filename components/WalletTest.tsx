@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Button, StyleSheet, TextInput } from 'react-native';
-import { useWallet } from '../context/WalletProvider';
+import { useWallet } from '../contexts/WalletProvider';
 import { SessionTypes, ProposalTypes, SignClientTypes } from '@walletconnect/types';
 
 export const WalletTest: React.FC = () => {

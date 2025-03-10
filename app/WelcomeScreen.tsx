@@ -1,8 +1,7 @@
 import 'react-native-gesture-handler';
 import { authenticateUser } from "../api/authApi";
 import { createSmartWallet } from "../api/walletService";
-import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { router } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -14,15 +13,13 @@ import {
   Vibration,
   View,
 } from "react-native";
-import type { RootStackParamList } from "../App";
 
 export default function WelcomeScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [loading, setLoading] = useState(false);
 
   const handleExistingUser = () => {
     Vibration.vibrate(50);
-    navigation.navigate("SignIn");
+    router.push("/SignInScreen");
   };
 
   const handleCreateSmartWallet = async () => {
@@ -30,9 +27,12 @@ export default function WelcomeScreen() {
     setLoading(true);
     try {
       const { address } = await createSmartWallet();
-      navigation.replace("Portfolio", { 
-        walletAddress: address,
-        walletType: 'smart'
+      router.replace({
+        pathname: "/portfolio",
+        params: { 
+          walletAddress: address,
+          walletType: 'smart'
+        }
       });
     } catch (error) {
       console.error("Smart wallet creation failed:", error);
@@ -43,12 +43,15 @@ export default function WelcomeScreen() {
 
   const handleCreateTraditional = () => {
     Vibration.vibrate(50);
-    navigation.navigate("CreatePassword", { mode: 'new', walletType: 'classic' });
+    router.push({
+      pathname: "/CreatePasswordScreen",
+      params: { mode: 'new', walletType: 'classic' }
+    });
   };
 
   const handleImportWallet = () => {
     Vibration.vibrate(50);
-    navigation.navigate("ImportWallet");
+    router.push("/ImportWalletScreen");
   };
 
   return (

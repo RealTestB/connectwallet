@@ -4,7 +4,6 @@ module.exports = function (api) {
     presets: ['babel-preset-expo'],
     plugins: [
       ['@babel/plugin-transform-private-methods', { 'loose': true }],
-      'react-native-reanimated/plugin',
       ['@babel/plugin-transform-private-property-in-object', { 'loose': true }],
       ['@babel/plugin-transform-class-properties', { 'loose': true }],
       '@babel/plugin-transform-flow-strip-types',
@@ -20,7 +19,15 @@ module.exports = function (api) {
         "whitelist": null,
         "safe": false,
         "allowUndefined": true
-      }]
+      }],
+      ["module-resolver", {
+        "alias": {
+          "crypto": "crypto-browserify",
+          "stream": "stream-browserify",
+          "buffer": "buffer"
+        }
+      }],
+      'react-native-reanimated/plugin',
     ],
   };
 };

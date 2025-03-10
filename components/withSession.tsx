@@ -8,8 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation, NavigationProp } from '@react-navigation/native';
-import { RootStackParamList } from '../App';
+import { router } from 'expo-router';
 
 export function withSession<T extends object>(WrappedComponent: React.ComponentType<T>) {
   return function WithSessionComponent(props: T) {
@@ -17,7 +16,6 @@ export function withSession<T extends object>(WrappedComponent: React.ComponentT
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isChecking, setIsChecking] = useState(true);
-    const navigation = useNavigation<NavigationProp<RootStackParamList>>();
 
     useEffect(() => {
       checkSession();
@@ -37,7 +35,7 @@ export function withSession<T extends object>(WrappedComponent: React.ComponentT
         const encryptedPassword = await getEncryptedData('encryptedPassword');
         if (!encryptedPassword) {
           setError('No password found. Please log in again.');
-          navigation.navigate('SignIn');
+          router.push('/SignInScreen');
           return;
         }
 

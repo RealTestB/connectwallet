@@ -1,4 +1,4 @@
-import { useSettings } from "../context/SettingsContext";
+import { useSettings } from "../contexts/SettingsContext";
 import { Picker } from "@react-native-picker/picker";
 import React from "react";
 import { StyleSheet, Switch, Text, View } from "react-native";
