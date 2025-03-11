@@ -2,11 +2,11 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "module": "CommonJS",
-    "moduleResolution": "node",
-    "forceConsistentCasingInFileNames": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "paths": {
       "@env": ["./node_modules/react-native-dotenv"]
     }
   }
 }
+
