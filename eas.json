@@ -8,7 +8,6 @@
       "developmentClient": true,
       "distribution": "internal",
       "android": {
-        "gradleCommand": ":app:assembleDebug --stacktrace --info",
         "buildType": "apk"
       },
       "ios": {
@@ -24,8 +23,7 @@
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease"
+        "buildType": "apk"
       },
       "ios": {
         "buildConfiguration": "Release"
@@ -40,8 +38,7 @@
     "production": {
       "distribution": "store",
       "android": {
-        "buildType": "app-bundle",
-        "gradleCommand": ":app:bundleRelease"
+        "buildType": "app-bundle"
       },
       "ios": {
         "buildConfiguration": "Release"
