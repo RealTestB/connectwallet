@@ -37,7 +37,6 @@
     },
     "android": {
       "package": "com.concordianova.connectwallet",
-      "versionCode": 67,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -72,6 +71,7 @@
     },
     "owner": "connectwallet",
     "plugins": [
+      ["expo-dev-client"],
       [
         "expo-build-properties",
         {
@@ -92,7 +92,7 @@
       [
         "expo-secure-store"
       ],
-      "expo-router",
+      ["expo-router"],
       [
         "expo-splash-screen",
         {
