@@ -97,8 +97,6 @@
     "@react-native-community/cli": "^17.0.0",
     "@react-native-community/netinfo": "^11.4.1",
     "@types/react": "~18.3.12",
-    "@walletconnect/jsonrpc-types": "^1.0.4",
-    "@walletconnect/react-native-compat": "^2.19.0",
     "assert": "^2.1.0",
     "babel-plugin-module-resolver": "^5.0.2",
     "buffer": "^6.0.3",
