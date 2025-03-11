@@ -1,0 +1,30 @@
+---
+description: Understanding and writing code
+globs: 
+alwaysApply: false
+---
+Always use official documentation when searching how to implement different things like alchemy, reown, supabase, etc. Here are the pages you can refer to. Below are the official docs and you should only use information from these when looking for how to work with any of them. You should always make sure that we're using wallet security best practices, and that you understand how everything you're working on works together before you start making changes. Read all the files that have to do with any certain part of the wallet and it's functionality, and then once you understand how they all work together then you can start making the changes in the code. Our wallet has 2 types, one a Smart Wallet that allows people to setup wallets easily using Reown, and the other are Classic Wallets that allow people to use a DeFi wallet with a SeedPhrase and Private Key like standard wallets. Everytime you work on some wallet functionality whether it be a screen, an api, or anything else, we need to make sure that it works for both types of wallets and making the correct calls to the SDKs or APIs.
+https://docs.alchemy.com/reference/how-to-use-alchemy-sdk-with-typescript
+https://docs.alchemy.com/reference/alchemy-sdk-api-surface-overview
+https://docs.alchemy.com/reference/sdk-core-methods
+https://docs.alchemy.com/reference/sdk-nft-methods
+https://docs.alchemy.com/reference/sdk-transact-methods
+https://docs.alchemy.com/reference/sdk-debug-endpoints
+https://docs.alchemy.com/reference/sdk-notify-methods
+https://docs.alchemy.com/reference/sdk-ethers-utils
+https://docs.reown.com/walletkit/react-native/installation
+https://docs.reown.com/walletkit/react-native/usage
+https://docs.reown.com/walletkit/react-native/one-click-auth
+https://docs.reown.com/walletkit/react-native/mobile-linking
+https://docs.reown.com/walletkit/react-native/link-mode
+https://docs.reown.com/walletkit/react-native/verify
+https://docs.reown.com/walletkit/react-native/eip5792
+https://docs.reown.com/walletkit/react-native/notifications/notify/overview
+https://docs.reown.com/walletkit/react-native/notifications/notify/installation
+https://docs.reown.com/walletkit/react-native/notifications/notify/usage
+https://docs.reown.com/walletkit/react-native/notifications/notify/spam-protection
+https://docs.reown.com/walletkit/react-native/notifications/push
+https://docs.reown.com/walletkit/react-native/best-practices
+https://docs.reown.com/walletkit/react-native/resources
+https://supabase.com/docs
+

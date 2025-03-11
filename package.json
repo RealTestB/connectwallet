@@ -47,6 +47,7 @@
     "@reown/walletkit": "^1.2.1",
     "@supabase/supabase-js": "^2.49.1",
     "abitype": "^1.0.8",
+    "alchemy-sdk": "^3.5.4",
     "bip39": "^3.1.0",
     "ethers": "^6.13.5",
     "expo": "~52.0.36",
@@ -93,6 +94,7 @@
     "@babel/plugin-transform-private-methods": "^7.25.9",
     "@babel/plugin-transform-private-property-in-object": "^7.25.9",
     "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-community/cli": "^17.0.0",
     "@react-native-community/netinfo": "^11.4.1",
     "@types/react": "~18.3.12",
     "@walletconnect/jsonrpc-types": "^1.0.4",
@@ -113,5 +115,6 @@
     "typescript": "^5.3.3",
     "url": "^0.11.4",
     "util": "^0.12.5"
-  }
+  },
+  "type": "module"
 }

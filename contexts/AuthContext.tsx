@@ -7,6 +7,7 @@ import { initializeCrypto } from '../utils/crypto';
 type AuthContextType = {
   isLoading: boolean;
   hasWallet: boolean;
+  isRecentlyActive: boolean;
   cryptoInitialized: boolean;
   updateActivity: () => Promise<void>;
 };
@@ -16,6 +17,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasWallet, setHasWallet] = useState(false);
+  const [isRecentlyActive, setIsRecentlyActive] = useState(false);
   const [cryptoInitialized, setCryptoInitialized] = useState(false);
 
   useEffect(() => {
@@ -41,10 +43,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const authData = await authenticateUser();
         console.log('[AuthProvider] Auth data:', authData);
         setHasWallet(!!authData?.hasSmartWallet || !!authData?.hasClassicWallet);
+        setIsRecentlyActive(!!authData?.isRecentlyActive);
         console.log('[AuthProvider] Wallet status set:', !!authData?.hasSmartWallet || !!authData?.hasClassicWallet);
+        console.log('[AuthProvider] Recent activity status:', !!authData?.isRecentlyActive);
       } catch (error) {
         console.error('[AuthProvider] Error during initialization:', error);
         setHasWallet(false);
+        setIsRecentlyActive(false);
       } finally {
         console.log('[AuthProvider] Initialization complete');
         setIsLoading(false);
@@ -55,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateActivity = async () => {
     await updateLastActive();
+    setIsRecentlyActive(true);
   };
 
   if (isLoading || !cryptoInitialized) {
@@ -66,7 +72,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isLoading, hasWallet, cryptoInitialized, updateActivity }}>
+    <AuthContext.Provider value={{ 
+      isLoading, 
+      hasWallet, 
+      isRecentlyActive,
+      cryptoInitialized, 
+      updateActivity 
+    }}>
       {children}
     </AuthContext.Provider>
   );

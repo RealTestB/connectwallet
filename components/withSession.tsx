@@ -1,4 +1,4 @@
-import { checkSessionValid, updateLastActive, verifyPassword, getEncryptedData } from '../api/securityService';
+import { checkSessionValid, updateLastActive, verifyPassword, getEncryptedData } from '../api/securityApi';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,

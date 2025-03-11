@@ -1,6 +1,5 @@
 import 'react-native-gesture-handler';
-import { authenticateUser } from "../api/authApi";
-import { createSmartWallet } from "../api/walletService";
+import { createSmartWallet } from "../api/walletApi";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -14,21 +13,21 @@ import {
   View,
 } from "react-native";
 
-export default function WelcomeScreen() {
-  const [loading, setLoading] = useState(false);
+export default function WelcomeScreen(): JSX.Element {
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const handleExistingUser = () => {
+  const handleExistingUser = (): void => {
     Vibration.vibrate(50);
     router.push("/SignInScreen");
   };
 
-  const handleCreateSmartWallet = async () => {
+  const handleCreateSmartWallet = async (): Promise<void> => {
     Vibration.vibrate(50);
     setLoading(true);
     try {
       const { address } = await createSmartWallet();
       router.replace({
-        pathname: "/portfolio",
+        pathname: "/Portfolio",
         params: { 
           walletAddress: address,
           walletType: 'smart'
@@ -41,15 +40,15 @@ export default function WelcomeScreen() {
     setLoading(false);
   };
 
-  const handleCreateTraditional = () => {
+  const handleCreateTraditional = (): void => {
     Vibration.vibrate(50);
     router.push({
       pathname: "/CreatePasswordScreen",
-      params: { mode: 'new', walletType: 'classic' }
+      params: { mode: 'create' }
     });
   };
 
-  const handleImportWallet = () => {
+  const handleImportWallet = (): void => {
     Vibration.vibrate(50);
     router.push("/ImportWalletScreen");
   };
