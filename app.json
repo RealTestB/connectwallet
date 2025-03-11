@@ -76,9 +76,9 @@
         "expo-build-properties",
         {
           "android": {
-            "newArchEnabled": true,
-            "targetSdkVersion": 34,
-            "compileSdkVersion": 34,
+            "newArchEnabled": false,
+            "targetSdkVersion": 33,
+            "compileSdkVersion": 33,
             "kotlinVersion": "1.8.0"
           },
           "ios": {
