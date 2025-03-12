@@ -6,8 +6,8 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/types';
 
-type ConfirmSeedPhraseScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ConfirmSeedPhrase'>;
-type ConfirmSeedPhraseScreenRouteProp = RouteProp<RootStackParamList, 'ConfirmSeedPhrase'>;
+type ConfirmSeedPhraseScreenNavigationProp = StackNavigationProp<RootStackParamList, 'confirm-seed-phrase'>;
+type ConfirmSeedPhraseScreenRouteProp = RouteProp<RootStackParamList, 'confirm-seed-phrase'>;
 
 export default function ConfirmSeedPhraseScreen(): JSX.Element {
   const navigation = useNavigation<ConfirmSeedPhraseScreenNavigationProp>();
@@ -54,7 +54,7 @@ export default function ConfirmSeedPhraseScreen(): JSX.Element {
     );
 
     if (isCorrect) {
-      navigation.navigate('SecureWallet');
+      navigation.navigate('secure-wallet', { password: route.params.password });
     } else {
       setError('Incorrect words. Please try again.');
     }

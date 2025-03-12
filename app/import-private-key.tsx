@@ -16,8 +16,8 @@ import type { StackNavigationProp } from "@react-navigation/stack";
 import type { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../navigation/types";
 
-type ImportPrivateKeyScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ImportPrivateKey'>;
-type ImportPrivateKeyScreenRouteProp = RouteProp<RootStackParamList, 'ImportPrivateKey'>;
+type ImportPrivateKeyScreenNavigationProp = StackNavigationProp<RootStackParamList, 'import-private-key'>;
+type ImportPrivateKeyScreenRouteProp = RouteProp<RootStackParamList, 'import-private-key'>;
 
 export default function ImportPrivateKeyScreen(): JSX.Element {
   const navigation = useNavigation<ImportPrivateKeyScreenNavigationProp>();
@@ -72,7 +72,7 @@ export default function ImportPrivateKeyScreen(): JSX.Element {
       const { address } = await importClassicWalletFromPrivateKey(privateKey);
 
       // Navigate to success screen with correct parameters
-      navigation.replace("ImportSuccess", {
+      navigation.replace("import-success", {
         walletAddress: address,
         walletType: 'classic'
       });

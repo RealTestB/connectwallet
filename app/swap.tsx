@@ -20,7 +20,7 @@ import { createWalletClient, http, isAddress } from "viem";
 import { mainnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
-type SwapScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Swap'>;
+type SwapScreenNavigationProp = StackNavigationProp<RootStackParamList, 'swap'>;
 
 interface Quote extends Route {
   steps: Route["steps"];

@@ -18,7 +18,7 @@ export default function WelcomeScreen(): JSX.Element {
 
   const handleExistingUser = (): void => {
     Vibration.vibrate(50);
-    router.push("/SignInScreen");
+    router.push("/signin");
   };
 
   const handleCreateSmartWallet = async (): Promise<void> => {
@@ -27,7 +27,7 @@ export default function WelcomeScreen(): JSX.Element {
     try {
       const { address } = await createSmartWallet();
       router.replace({
-        pathname: "/Portfolio",
+        pathname: "/portfolio",
         params: { 
           walletAddress: address,
           walletType: 'smart'
@@ -43,14 +43,14 @@ export default function WelcomeScreen(): JSX.Element {
   const handleCreateTraditional = (): void => {
     Vibration.vibrate(50);
     router.push({
-      pathname: "/CreatePasswordScreen",
+      pathname: "/create-password",
       params: { mode: 'create' }
     });
   };
 
   const handleImportWallet = (): void => {
     Vibration.vibrate(50);
-    router.push("/ImportWalletScreen");
+    router.push("/import-wallet");
   };
 
   return (

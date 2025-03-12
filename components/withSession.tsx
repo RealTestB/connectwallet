@@ -35,7 +35,7 @@ export function withSession<T extends object>(WrappedComponent: React.ComponentT
         const encryptedPassword = await getEncryptedData('encryptedPassword');
         if (!encryptedPassword) {
           setError('No password found. Please log in again.');
-          router.push('/SignInScreen');
+          router.push('/signin');
           return;
         }
 

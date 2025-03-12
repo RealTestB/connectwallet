@@ -15,8 +15,8 @@ import type { StackNavigationProp } from "@react-navigation/stack";
 import type { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../navigation/types";
 
-type ImportSeedPhraseScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ImportSeedPhrase'>;
-type ImportSeedPhraseScreenRouteProp = RouteProp<RootStackParamList, 'ImportSeedPhrase'>;
+type ImportSeedPhraseScreenNavigationProp = StackNavigationProp<RootStackParamList, 'import-seed-phrase'>;
+type ImportSeedPhraseScreenRouteProp = RouteProp<RootStackParamList, 'import-seed-phrase'>;
 
 type WordCount = 12 | 24;
 
@@ -84,7 +84,7 @@ export default function ImportSeedPhraseScreen(): JSX.Element {
       const { address } = await importClassicWalletFromSeedPhrase(seedPhrase);
 
       // Navigate to success screen with correct parameters
-      navigation.replace("ImportSuccess", { 
+      navigation.replace("import-success", { 
         walletAddress: address,
         walletType: 'classic'
       });

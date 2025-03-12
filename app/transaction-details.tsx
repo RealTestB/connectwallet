@@ -13,8 +13,8 @@ import type { StackNavigationProp } from "@react-navigation/stack";
 import type { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../navigation/types";
 
-type TransactionDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'TransactionDetails'>;
-type TransactionDetailsScreenRouteProp = RouteProp<RootStackParamList, 'TransactionDetails'>;
+type TransactionDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'transaction-details'>;
+type TransactionDetailsScreenRouteProp = RouteProp<RootStackParamList, 'transaction-details'>;
 
 interface Props {
   route: TransactionDetailsScreenRouteProp;

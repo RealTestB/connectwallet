@@ -9,7 +9,7 @@ import {
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { RootStackParamList } from "../navigation/types";
 
-type WalletCreatedScreenNavigationProp = StackNavigationProp<RootStackParamList, 'WalletCreated'>;
+type WalletCreatedScreenNavigationProp = StackNavigationProp<RootStackParamList, 'wallet-created'>;
 
 export default function WalletCreatedScreen(): JSX.Element {
   const navigation = useNavigation<WalletCreatedScreenNavigationProp>();
@@ -17,7 +17,13 @@ export default function WalletCreatedScreen(): JSX.Element {
   const handleStartUsingWallet = (): void => {
     navigation.reset({
       index: 0,
-      routes: [{ name: "Portfolio", params: { walletType: "smart", walletAddress: "" } }],
+      routes: [{ 
+        name: 'portfolio',
+        params: { 
+          walletType: 'smart',
+          walletAddress: ''
+        }
+      }],
     });
   };
 

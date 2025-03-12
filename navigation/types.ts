@@ -15,53 +15,58 @@ export interface NFT {
 
 export type RootStackParamList = {
   // Welcome & Initial Flow
-  Welcome: undefined;
+  welcome: undefined;
+  signin: undefined;
   
   // Password Creation/Import Flow
-  CreatePassword: {
+  'create-password': {
     mode: 'create' | 'import';
     type?: 'seed-phrase' | 'private-key';
   };
   
   // New Wallet Creation Flow
-  SeedPhrase: {
+  'seed-phrase': {
     password: string;
   };
-  ConfirmSeedPhrase: {
+  'confirm-seed-phrase': {
     password: string;
     seedPhrase: string;
   };
-  SecureWallet: {
+  'secure-wallet': {
     password: string;
   };
-  WalletCreated: {
+  'wallet-created': {
     walletAddress: string;
     walletType: 'smart' | 'classic';
   };
   
   // Import Flow
-  ImportWallet: undefined;
-  ImportSeedPhrase: {
+  'import-wallet': undefined;
+  'import-seed-phrase': {
     password: string;
   };
-  ImportPrivateKey: {
+  'import-private-key': {
     password: string;
   };
-  ImportSuccess: {
+  'import-success': {
     walletAddress: string;
     walletType: 'smart' | 'classic';
   };
   
   // Main App Screens
-  Home: undefined;
-  Portfolio: {
+  home: undefined;
+  portfolio: {
     walletAddress: string;
     walletType: 'smart' | 'classic';
   };
-  Swap: undefined;
+  swap: undefined;
+  nft: undefined;
+  pay: undefined;
+  receive: undefined;
+  settings: undefined;
   
   // NFT Related
-  NFTDetails: {
+  'nft-details': {
     nft: {
       tokenId: string;
       name: string;
@@ -76,10 +81,10 @@ export type RootStackParamList = {
       }>;
     };
   };
-  SendNFTScreen: { nft: NFT };
+  'send-nft': { nft: NFT };
   
   // Transaction Related
-  TransactionDetails: {
+  'transaction-details': {
     transaction: {
       type?: string;
       amount?: string;
@@ -95,4 +100,5 @@ export type RootStackParamList = {
       explorer?: string;
     };
   };
+  'transaction-history': undefined;
 }; 

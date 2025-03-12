@@ -10,32 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { RootStackParamList } from "../navigation/types";
 
-type RootStackParamList = {
-  CreatePassword: {
-    mode: 'new' | 'import';
-    type?: 'seed-phrase' | 'private-key';
-  };
-  SeedPhrase: {
-    password: string;
-  };
-  ImportSeedPhrase: {
-    password: string;
-  };
-  ImportPrivateKey: {
-    password: string;
-  };
-};
-
-type CreatePasswordScreenNavigationProp = StackNavigationProp<
-  RootStackParamList,
-  'CreatePassword'
->;
-
-type CreatePasswordScreenRouteProp = RouteProp<
-  RootStackParamList,
-  'CreatePassword'
->;
+type CreatePasswordScreenNavigationProp = StackNavigationProp<RootStackParamList, 'create-password'>;
+type CreatePasswordScreenRouteProp = RouteProp<RootStackParamList, 'create-password'>;
 
 type PasswordStrength = '' | 'Weak' | 'Medium' | 'Strong' | 'Very Strong';
 
@@ -110,15 +88,15 @@ export default function CreatePasswordScreen(): JSX.Element {
       await storePasswordSecurely(password);
 
       // Navigate based on mode and type
-      if (mode === 'new') {
+      if (mode === 'create') {
         // New wallet creation flow
-        navigation.navigate("SeedPhrase", { password });
+        navigation.navigate('seed-phrase', { password });
       } else if (mode === 'import') {
         // Import flow
         if (type === 'seed-phrase') {
-          navigation.navigate("ImportSeedPhrase", { password });
+          navigation.navigate('import-seed-phrase', { password });
         } else if (type === 'private-key') {
-          navigation.navigate("ImportPrivateKey", { password });
+          navigation.navigate('import-private-key', { password });
         }
       }
     } catch (err) {
@@ -141,7 +119,7 @@ export default function CreatePasswordScreen(): JSX.Element {
 
       <View style={styles.content}>
         <Text style={styles.subtitle}>
-          {mode === 'new' 
+          {mode === 'create' 
             ? "This password will unlock your wallet only on this device"
             : "Set a password to protect your imported wallet"}
         </Text>

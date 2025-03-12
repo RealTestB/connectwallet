@@ -1,4 +1,4 @@
-import { signIn } from "../api/authApi";
+import { signIn, authenticateUser } from "../api/authApi";
 import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import React, { useState } from "react";
@@ -11,13 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { RootStackParamList } from "../navigation/types";
 
-type RootStackParamList = {
-  Portfolio: undefined;
-  SignIn: undefined;
-};
-
-type SignInScreenNavigationProp = StackNavigationProp<RootStackParamList, "SignIn">;
+type SignInScreenNavigationProp = StackNavigationProp<RootStackParamList, 'signin'>;
 
 export default function SignInScreen(): JSX.Element {
   const navigation = useNavigation<SignInScreenNavigationProp>();
@@ -41,7 +37,14 @@ export default function SignInScreen(): JSX.Element {
       }
 
       if (response.data.user) {
-        navigation.replace("Portfolio");
+        // Get wallet information
+        const { hasSmartWallet, hasClassicWallet } = await authenticateUser();
+        
+        // Navigate to portfolio with wallet type
+        navigation.replace('portfolio', {
+          walletAddress: response.data.user.id, // Using user ID as wallet address for now
+          walletType: hasSmartWallet ? 'smart' : 'classic'
+        });
       } else {
         Alert.alert("Error", "Failed to sign in");
       }

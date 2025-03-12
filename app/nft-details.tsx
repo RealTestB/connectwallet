@@ -16,8 +16,8 @@ import type { StackNavigationProp } from "@react-navigation/stack";
 import type { RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "../navigation/types";
 
-type NFTDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'NFTDetails'>;
-type NFTDetailsScreenRouteProp = RouteProp<RootStackParamList, 'NFTDetails'>;
+type NFTDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'nft-details'>;
+type NFTDetailsScreenRouteProp = RouteProp<RootStackParamList, 'nft-details'>;
 
 export default function NFTDetailsScreen(): JSX.Element {
   const navigation = useNavigation<NFTDetailsScreenNavigationProp>();
@@ -33,7 +33,18 @@ export default function NFTDetailsScreen(): JSX.Element {
   };
 
   const handleSendNFT = (): void => {
-    navigation.navigate("SendNFTScreen", { nft });
+    navigation.navigate('send-nft', { 
+      nft: {
+        tokenId: nft.tokenId,
+        name: nft.name || '',
+        collection: nft.collection,
+        image: nft.image || '',
+        contractAddress: '', // Will be populated from blockchain data
+        owner: nft.owner,
+        chain: nft.chain,
+        attributes: nft.traits
+      }
+    });
   };
 
   return (

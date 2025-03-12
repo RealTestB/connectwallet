@@ -12,7 +12,7 @@ import {
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { RootStackParamList } from "../navigation/types";
 
-type ImportWalletScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ImportWallet'>;
+type ImportWalletScreenNavigationProp = StackNavigationProp<RootStackParamList, 'import-wallet'>;
 
 export default function ImportWalletScreen(): JSX.Element {
   const navigation = useNavigation<ImportWalletScreenNavigationProp>();
@@ -24,9 +24,9 @@ export default function ImportWalletScreen(): JSX.Element {
     setError(null);
     try {
       const { address } = await createSmartWallet();
-      navigation.replace("Portfolio", { 
+      navigation.replace('portfolio', { 
         walletAddress: address, 
-        walletType: "smart" 
+        walletType: 'smart' 
       });
     } catch (err) {
       console.error("Smart Wallet import failed:", err);
@@ -37,16 +37,16 @@ export default function ImportWalletScreen(): JSX.Element {
   };
 
   const handleImportSeedPhrase = (): void => {
-    navigation.navigate("CreatePassword", {
-      mode: "import",
-      type: "seed-phrase"
+    navigation.navigate('create-password', {
+      mode: 'import',
+      type: 'seed-phrase'
     });
   };
 
   const handleImportPrivateKey = (): void => {
-    navigation.navigate("CreatePassword", {
-      mode: "import",
-      type: "private-key"
+    navigation.navigate('create-password', {
+      mode: 'import',
+      type: 'private-key'
     });
   };
 

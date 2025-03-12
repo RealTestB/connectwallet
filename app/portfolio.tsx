@@ -16,6 +16,7 @@ import {
   ListRenderItem,
 } from "react-native";
 import { Network } from "alchemy-sdk";
+import { RootStackParamList } from "../navigation/types";
 
 interface Token {
   symbol: string;
@@ -35,12 +36,7 @@ interface Account {
   chainId?: number;
 }
 
-type RootStackParamList = {
-  TokenDetails: undefined;
-  Portfolio: undefined;
-};
-
-type NavigationProp = StackNavigationProp<RootStackParamList, 'Portfolio'>;
+type NavigationProp = StackNavigationProp<RootStackParamList, 'portfolio'>;
 
 export default function Portfolio(): JSX.Element {
   const navigation = useNavigation<NavigationProp>();
@@ -89,7 +85,7 @@ export default function Portfolio(): JSX.Element {
         throw new Error("Wallet data not available");
       }
 
-      const tokenBalances = await getTokenBalances(walletAddress, Network.ETH_MAINNET);
+      const tokenBalances = await getTokenBalances(walletAddress);
 
       if (!tokenBalances || 'error' in tokenBalances) {
         throw new Error(tokenBalances?.error?.toString() || "Failed to fetch portfolio data");
@@ -137,7 +133,7 @@ export default function Portfolio(): JSX.Element {
       balance: token.balance,
       address: token.address
     }));
-    navigation.navigate("TokenDetails");
+    // Navigation removed - will be implemented later with proper token details screen
   };
 
   const handleAccountChange = (account: Account): void => {
@@ -176,7 +172,7 @@ export default function Portfolio(): JSX.Element {
   return (
     <View style={styles.container}>
       <WalletHeader 
-        pageName="Portfolio"
+        pageName="portfolio"
         onAccountChange={handleAccountChange}
       />
 

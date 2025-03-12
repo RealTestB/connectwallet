@@ -11,7 +11,7 @@ import {
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { RootStackParamList } from "../navigation/types";
 
-type SecureWalletScreenNavigationProp = StackNavigationProp<RootStackParamList, 'SecureWallet'>;
+type SecureWalletScreenNavigationProp = StackNavigationProp<RootStackParamList, 'secure-wallet'>;
 
 interface SecurityTip {
   icon: string;
@@ -52,7 +52,10 @@ export default function SecureWalletScreen(): JSX.Element {
 
   const handleCompleteSetup = (): void => {
     if (confirmed) {
-      navigation.replace("WalletCreated");
+      navigation.replace('wallet-created', {
+        walletAddress: '', // This should be populated with the actual wallet address
+        walletType: 'classic'
+      });
     }
   };
 

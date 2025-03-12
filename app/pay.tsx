@@ -16,6 +16,9 @@ import {
 import { Picker } from "@react-native-picker/picker";
 import config from "../api/config";
 import { Alchemy, Network } from "alchemy-sdk";
+import { useNavigation } from "@react-navigation/native";
+import { StackNavigationProp } from "@react-navigation/stack";
+import { RootStackParamList } from "../navigation/types";
 
 interface Account {
   address: string;
@@ -44,7 +47,10 @@ export interface ExtendedTransactionRequest extends TransactionRequest {
   from?: string;
 }
 
+type NavigationProp = StackNavigationProp<RootStackParamList, 'pay'>;
+
 export default function Pay(): JSX.Element {
+  const navigation = useNavigation<NavigationProp>();
   const [selectedToken, setSelectedToken] = useState<string>("ETH");
   const [amount, setAmount] = useState<string>("");
   const [recipient, setRecipient] = useState<string>("");
@@ -95,7 +101,7 @@ export default function Pay(): JSX.Element {
       if (storedWalletType) setWalletType(storedWalletType);
 
       if (storedWallet && storedWalletType) {
-        const balances = await getTokenBalances(storedWallet, networkId);
+        const balances = await getTokenBalances(storedWallet);
         if (!balances || 'error' in balances) {
           throw new Error(balances?.error?.toString() || "Failed to fetch token balances");
         }
@@ -162,19 +168,16 @@ export default function Pay(): JSX.Element {
         to: validationResult.address || recipient,
         value: amount, // Amount in ETH
         chainId: networkId as unknown as number,
-        from: walletAddress
+        from: walletAddress,
+        walletType
       };
 
       // Get gas estimate
-      const gasEstimate = await estimateGas(transactionRequest, walletType, networkId);
+      const gasEstimate = await estimateGas(transactionRequest);
       setGasEstimate(gasEstimate.estimatedCost);
 
       // Send transaction
-      const txHash = await sendTransaction(
-        transactionRequest,
-        walletType,
-        networkId
-      );
+      const txHash = await sendTransaction(transactionRequest);
 
       console.log("Transaction Successful:", txHash);
     } catch (err) {
@@ -202,7 +205,7 @@ export default function Pay(): JSX.Element {
   return (
     <View style={styles.container}>
       <WalletHeader 
-        pageName="Send Token" 
+        pageName="pay"
         onAccountChange={handleAccountChange}
       />
 

@@ -33,6 +33,21 @@ interface NFT {
   contractAddress: string;
   owner: string;
   chain: string;
+  metadata?: {
+    name?: string;
+    image?: string;
+    description?: string;
+    attributes?: Array<{
+      trait_type: string;
+      value: string | number;
+    }>;
+  };
+  contractMetadata?: {
+    name?: string;
+  };
+  media?: Array<{
+    gateway?: string;
+  }>;
 }
 
 interface Account {
@@ -43,11 +58,11 @@ interface Account {
 }
 
 type RootStackParamList = {
-  NFTDetailsScreen: { nft: NFT };
-  NFT: undefined;
+  'nft-details': { nft: NFT };
+  nft: undefined;
 };
 
-type NavigationProp = StackNavigationProp<RootStackParamList, 'NFT'>;
+type NavigationProp = StackNavigationProp<RootStackParamList, 'nft'>;
 
 const PAGE_SIZE = 20; // Number of NFTs to load per page
 
@@ -107,7 +122,7 @@ export default function NFTScreen(): JSX.Element {
       }
       
       const pageKey = pageToLoad > 1 ? String(pageToLoad) : undefined;
-      const response = await getNFTs(address, pageKey, PAGE_SIZE, network);
+      const response = await getNFTs(address, pageKey, PAGE_SIZE);
       
       if (!response || !response.ownedNfts) {
         throw new Error('Failed to fetch NFTs');
@@ -115,14 +130,17 @@ export default function NFTScreen(): JSX.Element {
 
       const newNFTs = response.ownedNfts.map(nft => ({
         tokenId: nft.tokenId,
-        name: nft.metadata.name || '',
-        collection: nft.contractMetadata?.name || '',
-        image: nft.metadata.image || nft.media?.[0]?.gateway || '',
-        description: nft.metadata.description || '',
-        attributes: nft.metadata.attributes || [],
-        contractAddress: nft.contractAddress,
-        owner: nft.owner,
-        chain: nft.chain
+        name: nft.title || '',
+        collection: nft.contract?.name || '',
+        image: nft.metadata?.image || '',
+        description: nft.description || '',
+        attributes: nft.metadata?.attributes || [],
+        contractAddress: nft.contract?.address || '',
+        owner: address,
+        chain: network === Network.ETH_MAINNET ? 'Ethereum' :
+              network === Network.MATIC_MAINNET ? 'Polygon' :
+              network === Network.ETH_GOERLI ? 'Goerli' :
+              network === Network.MATIC_MUMBAI ? 'Mumbai' : 'Unknown'
       }));
 
       setHasMore(!!response.pageKey);
@@ -194,7 +212,7 @@ export default function NFTScreen(): JSX.Element {
   const renderNFTItem: ListRenderItem<NFT> = ({ item }) => (
     <TouchableOpacity
       style={styles.nftContainer}
-      onPress={() => navigation.navigate("NFTDetailsScreen", { nft: item })}
+      onPress={() => navigation.navigate('nft-details', { nft: item })}
     >
       <View style={styles.imageContainer}>
         <Image

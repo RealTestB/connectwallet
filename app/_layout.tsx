@@ -48,18 +48,18 @@ export default function RootLayout() {
   useEffect(() => {
     // Define which screens should NOT show BottomNav
     const excludedScreens = [
-      "ImportWalletScreen",
-      "ImportPrivateKeyScreen",
-      "ImportSeedPhraseScreen",
-      "ConfirmSeedPhraseScreen",
-      "SecureWalletScreen",
-      "WalletCreatedScreen",
-      "ImportWalletSuccessScreen",
-      "CreatePasswordScreen",
-      "SeedPhraseScreen",
-      "ImportSuccessScreen",
-      "SignInScreen",
-      "WelcomeScreen"
+      "import-wallet",
+      "import-private-key",
+      "import-seed-phrase",
+      "confirm-seed-phrase",
+      "secure-wallet",
+      "wallet-created",
+      "import-wallet-success",
+      "create-password",
+      "seed-phrase",
+      "import-success",
+      "signin",
+      "welcome"
     ];
 
     // Hide BottomNav for excluded screens
@@ -76,27 +76,27 @@ export default function RootLayout() {
         <ProtectedRoute>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
-            <Stack.Screen name="WelcomeScreen" />
-            <Stack.Screen name="SignInScreen" />
-            <Stack.Screen name="CreatePasswordScreen" />
-            <Stack.Screen name="SeedPhraseScreen" />
-            <Stack.Screen name="ConfirmSeedPhraseScreen" />
-            <Stack.Screen name="SecureWalletScreen" />
-            <Stack.Screen name="WalletCreatedScreen" />
-            <Stack.Screen name="ImportWalletScreen" />
-            <Stack.Screen name="ImportSeedPhraseScreen" />
-            <Stack.Screen name="ImportPrivateKeyScreen" />
-            <Stack.Screen name="ImportSuccessScreen" />
-            <Stack.Screen name="ImportWalletSuccessScreen" />
+            <Stack.Screen name="welcome" />
+            <Stack.Screen name="signin" />
+            <Stack.Screen name="create-password" />
+            <Stack.Screen name="seed-phrase" />
+            <Stack.Screen name="confirm-seed-phrase" />
+            <Stack.Screen name="secure-wallet" />
+            <Stack.Screen name="wallet-created" />
+            <Stack.Screen name="import-wallet" />
+            <Stack.Screen name="import-seed-phrase" />
+            <Stack.Screen name="import-private-key" />
+            <Stack.Screen name="import-success" />
+            <Stack.Screen name="import-wallet-success" />
             <Stack.Screen name="portfolio" />
             <Stack.Screen name="nft" />
-            <Stack.Screen name="NFTDetailsScreen" />
+            <Stack.Screen name="nft-details" />
             <Stack.Screen name="pay" />
             <Stack.Screen name="receive" />
             <Stack.Screen name="settings" />
-            <Stack.Screen name="SwapScreen" />
-            <Stack.Screen name="TransactionDetailsScreen" />
-            <Stack.Screen name="TransactionHistoryScreen" />
+            <Stack.Screen name="swap" />
+            <Stack.Screen name="transaction-details" />
+            <Stack.Screen name="transaction-history" />
           </Stack>
 
           {/* Only show BottomNav on selected screens */}

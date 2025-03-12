@@ -16,7 +16,7 @@ import { isAddress } from 'ethers';
 import { estimateNFTTransferGas, transferNFT } from '../api/nftTransactionsApi';
 import * as SecureStore from 'expo-secure-store';
 
-type SendNFTScreenRouteProp = RouteProp<RootStackParamList, 'SendNFTScreen'>;
+type SendNFTScreenRouteProp = RouteProp<RootStackParamList, 'send-nft'>;
 
 export default function SendNFTScreen(): JSX.Element {
   const navigation = useNavigation();
