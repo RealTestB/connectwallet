@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import config from "./config";
 import { SUPPORTED_CHAINS } from "./config";
 import { WalletKit } from "@reown/walletkit";
+import { Core } from "@walletconnect/core";
 
 export interface WalletData {
   address: string;
@@ -77,13 +78,13 @@ export const createSmartWallet = async (): Promise<WalletData> => {
     const kit = await WalletKit.init({
       projectId: config.projectIds.reown,
       metadata: {
-        name: "NewWallet",
-        description: "A modern wallet application",
-        url: "https://newwallet.app",
-        icons: [],
+        name: config.wallet.smart.metadata.name,
+        description: config.wallet.smart.metadata.description,
+        url: config.wallet.smart.metadata.url,
+        icons: config.wallet.smart.metadata.icons,
         redirect: {
-          native: "com.concordianova.connectwallet://",
-          universal: "https://newwallet.app"
+          native: config.wallet.smart.metadata.redirect.native,
+          universal: config.wallet.smart.metadata.url // Using the URL as universal redirect
         }
       }
     });

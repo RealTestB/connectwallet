@@ -11,8 +11,8 @@ module.exports = {
     userInterfaceStyle: "light",
     splash: {
       image: "./assets/images/splash.png",
-      resizeMode: "contain",
-      backgroundColor: "#ffffff"
+      resizeMode: "cover",
+      backgroundColor: "#232323"
     },
     updates: {
       enabled: true,
