@@ -103,12 +103,12 @@ export const WALLET_CONFIG: WalletConfig = {
       accounts: 'smartWalletAccounts'
     },
     metadata: {
-      name: 'Reown Wallet',
-      description: 'Reown Smart Wallet',
-      url: 'https://reown.com',
-      icons: ['https://your_wallet_icon.png'],
+      name: 'NewWallet',
+      description: 'Your secure gateway to the world of digital assets',
+      url: 'https://newwallet.app',
+      icons: ['https://newwallet.app/icon.png'],
       redirect: {
-        native: 'reownwallet://'
+        native: 'com.concordianova.connectwallet://'
       }
     }
   }

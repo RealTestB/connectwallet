@@ -1,7 +1,7 @@
 // Required crypto polyfills
+import 'react-native-get-random-values';
 import './src/crypto-polyfill';
 import '@walletconnect/react-native-compat';
-import 'react-native-get-random-values';
 import { Buffer } from 'buffer';
 global.Buffer = Buffer;
 
@@ -15,25 +15,13 @@ import * as SplashScreen from 'expo-splash-screen';
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
-// Error boundary for crypto operations
-const initializeCrypto = async () => {
-  try {
-    // Ensure crypto polyfills are working
-    const testBuffer = Buffer.from('test');
-    if (!testBuffer) throw new Error('Buffer not initialized');
-    return true;
-  } catch (error) {
-    console.error('Crypto initialization failed:', error);
-    return false;
-  }
-};
-
 export default function App() {
   useEffect(() => {
     const init = async () => {
       try {
-        await initializeCrypto();
         await updateLastActive();
+      } catch (e) {
+        console.error('Initialization failed:', e);
       } finally {
         // Hide splash screen once all resources are loaded
         await SplashScreen.hideAsync();

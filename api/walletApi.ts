@@ -1,9 +1,44 @@
 import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import config from "./config";
-import { SUPPORTED_CHAINS } from "./config";
 import { WalletKit } from "@reown/walletkit";
-import { Core } from "@walletconnect/core";
+
+// Define supported chains based on the Reown SDK documentation
+const CHAINS = {
+  mainnet: {
+    chainId: 1,
+    name: 'Ethereum Mainnet',
+    rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/',
+    blockExplorerUrl: 'https://etherscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    }
+  }
+};
+
+// Global WalletKit instance
+let walletKitInstance: WalletKit | null = null;
+
+const getWalletKit = async (): Promise<WalletKit> => {
+  if (!walletKitInstance) {
+    walletKitInstance = await WalletKit.init({
+      projectId: config.projectIds.reown,
+      metadata: {
+        name: config.wallet.smart.metadata.name,
+        description: config.wallet.smart.metadata.description,
+        url: config.wallet.smart.metadata.url,
+        icons: config.wallet.smart.metadata.icons,
+        redirect: {
+          native: config.wallet.smart.metadata.redirect.native,
+          universal: config.wallet.smart.metadata.url
+        }
+      }
+    });
+  }
+  return walletKitInstance;
+};
 
 export interface WalletData {
   address: string;
@@ -74,41 +109,26 @@ export const getStoredPrivateKey = async (password: string): Promise<string> => 
  */
 export const createSmartWallet = async (): Promise<WalletData> => {
   try {
-    // Initialize WalletKit with Reown configuration
-    const kit = await WalletKit.init({
-      projectId: config.projectIds.reown,
-      metadata: {
-        name: config.wallet.smart.metadata.name,
-        description: config.wallet.smart.metadata.description,
-        url: config.wallet.smart.metadata.url,
-        icons: config.wallet.smart.metadata.icons,
-        redirect: {
-          native: config.wallet.smart.metadata.redirect.native,
-          universal: config.wallet.smart.metadata.url // Using the URL as universal redirect
-        }
-      }
-    });
-
-    // Create a new smart account with advanced configuration
-    const account = await kit.createAccount({
-      config: {
-        enableBatchTransactions: true,
-        enablePaymaster: true,
-        chainConfig: {
-          defaultChain: SUPPORTED_CHAINS.mainnet,
-          supportedChains: Object.values(SUPPORTED_CHAINS)
-        }
-      }
-    });
-
-    if (!account || !account.address) {
-      throw new Error('Failed to create smart wallet: Invalid account data');
-    }
-
-    // Store account information securely
-    await SecureStore.setItemAsync("walletAddress", account.address);
-    await SecureStore.setItemAsync("walletType", "smart");
+    console.log('Initializing WalletKit...');
+    const walletKit = await getWalletKit();
     
+    console.log('Creating smart account...');
+    const account = await walletKit.createAccount({
+      config: {
+        chainConfig: {
+          defaultChain: CHAINS.mainnet,
+          supportedChains: [CHAINS.mainnet]
+        }
+      }
+    });
+
+    console.log('Smart account created:', account);
+
+    // Store the account information securely
+    await SecureStore.setItemAsync('walletAddress', account.address);
+    await SecureStore.setItemAsync('walletType', 'smart');
+    await SecureStore.setItemAsync('chainId', CHAINS.mainnet.chainId.toString());
+
     // Create default features object
     const features = {
       verify: true,
@@ -116,21 +136,14 @@ export const createSmartWallet = async (): Promise<WalletData> => {
       oneClickAuth: true
     };
 
-    // Store account configuration
-    await SecureStore.setItemAsync("accountConfig", JSON.stringify({
-      chainId: SUPPORTED_CHAINS.mainnet.chainId,
-      features,
-      recoveryEnabled: true
-    }));
-    
     return {
       address: account.address,
-      type: "smart",
-      chainId: SUPPORTED_CHAINS.mainnet.chainId,
+      type: 'smart',
+      chainId: CHAINS.mainnet.chainId,
       features
     };
   } catch (error) {
-    console.error("Smart Wallet creation failed:", error);
-    throw error;
+    console.error('Failed to create smart wallet:', error);
+    throw new Error('Failed to create smart wallet. Please try again.');
   }
 }; 

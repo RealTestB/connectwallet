@@ -47,8 +47,9 @@ export default function WalletHeader({ pageName, onAccountChange }: WalletHeader
     }
   };
 
-  const formatAddress = (address: string): string => {
-    return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "No Account";
+  const formatAddress = (address: string | undefined): string => {
+    if (!address) return "No Account";
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
   const handleAccountSelection = (account: Account): void => {
