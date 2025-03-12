@@ -80,7 +80,12 @@
             "newArchEnabled": false,
             "compileSdkVersion": 35,
             "targetSdkVersion": 34,
-            "kotlinVersion": "1.7.20"
+            "kotlinVersion": "1.7.20",
+            "buildToolsVersion": "33.0.0",
+            "extraProperties": {
+              "android.suppressKotlinVersionCompatibilityCheck": true,
+              "compose.kotlin.compiler.version": "1.7.20"
+            }
           },
           "ios": {
             "deploymentTarget": "17.0"
