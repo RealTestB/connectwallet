@@ -109,14 +109,12 @@ module.exports = {
           ios: {
             backgroundColor: "#232323",
             image: "./assets/images/splash.png",
-            imageWidth: 200,
-            resizeMode: "contain"
+            resizeMode: "cover"
           },
           android: {
             backgroundColor: "#232323",
             image: "./assets/images/splash.png",
-            imageWidth: 200,
-            resizeMode: "contain"
+            resizeMode: "cover"
           }
         }
       ]

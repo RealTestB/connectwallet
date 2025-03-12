@@ -85,21 +85,14 @@ export const createSmartWallet = async (): Promise<WalletData> => {
           native: "com.concordianova.connectwallet://",
           universal: "https://newwallet.app"
         }
-      },
-      // Enable Reown's advanced features
-      features: {
-        verify: true, // Enable phishing protection
-        notifications: true, // Enable push notifications
-        oneClickAuth: true // Enable simplified authentication
       }
     });
 
     // Create a new smart account with advanced configuration
     const account = await kit.createAccount({
       config: {
-        enableBatchTransactions: true, // Allow bundling multiple transactions
-        enablePaymaster: true, // Enable gas sponsorship
-        recoveryMethods: ['email', 'social'], // Enable multiple recovery options
+        enableBatchTransactions: true,
+        enablePaymaster: true,
         chainConfig: {
           defaultChain: SUPPORTED_CHAINS.mainnet,
           supportedChains: Object.values(SUPPORTED_CHAINS)
@@ -107,20 +100,33 @@ export const createSmartWallet = async (): Promise<WalletData> => {
       }
     });
 
+    if (!account || !account.address) {
+      throw new Error('Failed to create smart wallet: Invalid account data');
+    }
+
     // Store account information securely
     await SecureStore.setItemAsync("walletAddress", account.address);
     await SecureStore.setItemAsync("walletType", "smart");
+    
+    // Create default features object
+    const features = {
+      verify: true,
+      notifications: true,
+      oneClickAuth: true
+    };
+
+    // Store account configuration
     await SecureStore.setItemAsync("accountConfig", JSON.stringify({
-      chainId: account.chainId,
-      features: account.features,
+      chainId: SUPPORTED_CHAINS.mainnet.chainId,
+      features,
       recoveryEnabled: true
     }));
     
     return {
       address: account.address,
       type: "smart",
-      chainId: account.chainId,
-      features: account.features
+      chainId: SUPPORTED_CHAINS.mainnet.chainId,
+      features
     };
   } catch (error) {
     console.error("Smart Wallet creation failed:", error);
