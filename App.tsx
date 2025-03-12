@@ -1,4 +1,6 @@
 // Required crypto polyfills
+import './src/crypto-polyfill';
+import '@walletconnect/react-native-compat';
 import 'react-native-get-random-values';
 import { Buffer } from 'buffer';
 global.Buffer = Buffer;

@@ -10,8 +10,8 @@ module.exports = {
     icon: "./assets/images/icon.png",
     userInterfaceStyle: "light",
     splash: {
-      image: "./assets/images/splash.png",
-      resizeMode: "cover",
+      image: "./assets/images/splash-icon.png",
+      resizeMode: "native",
       backgroundColor: "#232323"
     },
     updates: {
@@ -108,13 +108,15 @@ module.exports = {
         {
           ios: {
             backgroundColor: "#232323",
-            image: "./assets/images/splash.png",
-            resizeMode: "cover"
+            image: "./assets/images/splash-icon.png",
+            resizeMode: "native",
+            imageResizeMode: "native"
           },
           android: {
             backgroundColor: "#232323",
-            image: "./assets/images/splash.png",
-            resizeMode: "cover"
+            image: "./assets/images/splash-icon.png",
+            resizeMode: "native",
+            imageResizeMode: "native"
           }
         }
       ]
