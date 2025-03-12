@@ -15,7 +15,8 @@
       },
       "cache": {
         "key": "development-1"
-      }
+      },
+      "node": "20.18.1"
     },
     "preview": {
       "distribution": "internal",
@@ -27,7 +28,8 @@
       },
       "cache": {
         "key": "preview-1"
-      }
+      },
+      "node": "20.18.1"
     },
     "production": {
       "distribution": "store",
@@ -39,7 +41,8 @@
       },
       "cache": {
         "key": "production-1"
-      }
+      },
+      "node": "20.18.1"
     }
   },
   "submit": {
