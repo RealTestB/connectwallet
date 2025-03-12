@@ -1,4 +1,4 @@
-declare module '@reown/kit' {
+declare module '@reown/walletkit' {
   export interface WalletKitConfig {
     projectId: string;
     metadata: {

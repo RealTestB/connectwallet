@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import config from "./config";
 import { SUPPORTED_CHAINS } from "./config";
-import { WalletKit } from "@reown/kit";
+import { WalletKit } from "@reown/walletkit";
 
 export interface WalletData {
   address: string;

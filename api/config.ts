@@ -114,6 +114,21 @@ export const WALLET_CONFIG: WalletConfig = {
   }
 };
 
+// Supported chains configuration
+export const SUPPORTED_CHAINS = {
+  mainnet: {
+    chainId: 1,
+    name: 'Ethereum Mainnet',
+    rpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${extra?.ALCHEMY_ETH_MAINNET_KEY || ''}`,
+    blockExplorerUrl: 'https://etherscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    }
+  }
+};
+
 // Environment configuration object
 const config = {
   // Alchemy API configuration
