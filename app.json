@@ -79,12 +79,16 @@
           "android": {
             "newArchEnabled": false,
             "compileSdkVersion": 35,
-            "targetSdkVersion": 34,
-            "kotlinVersion": "1.7.20",
-            "buildToolsVersion": "33.0.0",
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24,
+            "kotlinVersion": "1.9.25",
+            "buildToolsVersion": "35.0.0",
             "extraProperties": {
               "android.suppressKotlinVersionCompatibilityCheck": true,
-              "compose.kotlin.compiler.version": "1.7.20"
+              "android.defaults.buildfeatures.buildconfig": true,
+              "android.useAndroidX": true,
+              "android.enableJetifier": true,
+              "kotlinCompilerExtensionVersion": "1.5.15"
             }
           },
           "ios": {
