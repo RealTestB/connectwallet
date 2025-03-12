@@ -49,6 +49,7 @@ export default function WalletHeader({ pageName, onAccountChange }: WalletHeader
 
   const formatAddress = (address: string | undefined): string => {
     if (!address) return "No Account";
+    if (address.length < 10) return address; // Return full address if too short
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 

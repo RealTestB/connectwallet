@@ -109,6 +109,7 @@
     "@react-native-community/netinfo": "^11.4.1",
     "@react-native/metro-config": "^0.78.0",
     "@types/react": "~18.3.12",
+    "@walletconnect/jsonrpc-types": "^1.0.4",
     "assert": "^2.1.0",
     "babel-plugin-module-resolver": "^5.0.2",
     "buffer": "^6.0.3",

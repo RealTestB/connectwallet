@@ -2,10 +2,9 @@ import '@walletconnect/react-native-compat';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
-import { Core } from '@walletconnect/core';
 import { WalletKit } from '@reown/walletkit';
-import type { SessionTypes } from '@walletconnect/types';
 import config from './config';
+import { REOWN_PROJECT_ID } from '@env';
 
 export interface NFTTransferParams {
   contractAddress: string;
@@ -16,7 +15,7 @@ export interface NFTTransferParams {
 }
 
 let alchemyInstance: Alchemy | null = null;
-let walletKitInstance: Awaited<ReturnType<typeof WalletKit.init>> | null = null;
+let walletKitInstance: WalletKit | null = null;
 let provider: ethers.JsonRpcProvider | null = null;
 
 const getProvider = (): ethers.JsonRpcProvider => {
@@ -36,21 +35,18 @@ const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => 
   return alchemyInstance;
 };
 
-const getWalletKitInstance = async (): Promise<Awaited<ReturnType<typeof WalletKit.init>>> => {
+const getWalletKitInstance = async (): Promise<WalletKit> => {
   if (!walletKitInstance) {
-    const core = new Core({
-      projectId: config.projectIds.reown
-    });
-
     walletKitInstance = await WalletKit.init({
-      core,
+      projectId: REOWN_PROJECT_ID,
       metadata: {
-        name: 'Reown Wallet',
-        description: 'Reown Smart Wallet',
-        url: 'https://reown.com',
-        icons: ['https://your_wallet_icon.png'],
+        name: 'Wallet App',
+        description: 'Secure Wallet Application',
+        url: 'https://yourapp.com',
+        icons: ['https://yourapp.com/icon.png'],
         redirect: {
-          native: 'reownwallet://'
+          native: 'walletapp://',
+          universal: 'https://yourapp.com'
         }
       }
     });
@@ -59,14 +55,10 @@ const getWalletKitInstance = async (): Promise<Awaited<ReturnType<typeof WalletK
 };
 
 // Helper function to generate ERC721 transfer data
-const generateERC721TransferData = (from: string, to: string, tokenId: string): string => {
+const generateERC721TransferData = (tokenId: string, contractAddress: string): string => {
   const transferFunctionSignature = '0x23b872dd'; // transferFrom(address,address,uint256)
-  const params = [
-    from.slice(2).padStart(64, '0'),
-    to.slice(2).padStart(64, '0'),
-    BigInt(tokenId).toString(16).padStart(64, '0'),
-  ];
-  return transferFunctionSignature + params.join('');
+  const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, '0');
+  return `${transferFunctionSignature}${tokenIdHex}`;
 };
 
 // Classic wallet gas estimation
@@ -74,21 +66,18 @@ const estimateClassicWalletGas = async (params: NFTTransferParams): Promise<stri
   const provider = getProvider();
   
   try {
-    // Create transaction object for gas estimation
     const txObject = {
       to: params.contractAddress,
       from: params.fromAddress,
-      data: generateERC721TransferData(params.fromAddress, params.toAddress, params.tokenId),
+      data: generateERC721TransferData(params.tokenId, params.contractAddress),
       value: '0x0'
     };
 
-    // Get gas estimate and current gas price
     const [gasEstimate, feeData] = await Promise.all([
       provider.estimateGas(txObject),
       provider.getFeeData()
     ]);
 
-    // Calculate total cost in ETH
     const totalCost = gasEstimate * (feeData.gasPrice || BigInt(0));
     return ethers.formatEther(totalCost);
   } catch (error) {
@@ -97,73 +86,22 @@ const estimateClassicWalletGas = async (params: NFTTransferParams): Promise<stri
   }
 };
 
-// Helper function to get active session for an address
-const getActiveSession = async (address: string): Promise<SessionTypes.Struct> => {
-  const walletKit = await getWalletKitInstance();
-  const sessions = walletKit.getActiveSessions();
-  const session = Object.values(sessions).find((s: SessionTypes.Struct) => 
-    s.namespaces.eip155.accounts.some((account: string) => 
-      account.toLowerCase().includes(address.toLowerCase())
-    )
-  );
-  
-  if (!session) {
-    throw new Error('No active session found for address');
-  }
-  
-  return session;
-};
-
 // Smart wallet gas estimation using Reown
 const estimateSmartWalletGas = async (params: NFTTransferParams): Promise<string> => {
   try {
-    const walletKit = await getWalletKitInstance();
-    const session = await getActiveSession(params.fromAddress);
-    
-    // Create transaction data for gas estimation
-    const txData = {
+    const provider = getProvider();
+    const txObject = {
       to: params.contractAddress,
       from: params.fromAddress,
-      data: generateERC721TransferData(params.fromAddress, params.toAddress, params.tokenId),
+      data: generateERC721TransferData(params.tokenId, params.contractAddress),
       value: '0x0'
     };
 
-    // Get gas estimate from WalletKit
-    await walletKit.on('session_request', async (event) => {
-      const { topic, params, id } = event;
-      const { request } = params;
-      
-      if (request.method === 'eth_estimateGas') {
-        const gasEstimate = await request.params[0];
-        await walletKit.respondSessionRequest({
-          topic,
-          response: {
-            id,
-            result: gasEstimate,
-            jsonrpc: '2.0'
-          }
-        });
-        return ethers.formatEther(BigInt(gasEstimate));
-      }
-    });
-
-    return '0'; // Default return if no gas estimate is received
+    const gasEstimate = await provider.estimateGas(txObject);
+    return ethers.formatEther(gasEstimate);
   } catch (error) {
     console.error('Smart wallet gas estimation error:', error);
     throw new Error('Failed to estimate gas for smart wallet NFT transfer');
-  }
-};
-
-export const estimateNFTTransferGas = async (params: NFTTransferParams): Promise<string> => {
-  try {
-    if (params.walletType === 'classic') {
-      return await estimateClassicWalletGas(params);
-    } else {
-      return await estimateSmartWalletGas(params);
-    }
-  } catch (error) {
-    console.error('Error estimating gas:', error);
-    throw new Error('Failed to estimate gas for NFT transfer');
   }
 };
 
@@ -172,23 +110,20 @@ const transferNFTClassic = async (params: NFTTransferParams): Promise<string> =>
   const provider = getProvider();
   
   try {
-    // Get nonce and fee data for the transaction
     const [nonce, feeData] = await Promise.all([
       provider.getTransactionCount(params.fromAddress),
       provider.getFeeData()
     ]);
     
-    // Create transaction object
     const transaction = {
       to: params.contractAddress,
       from: params.fromAddress,
       nonce: nonce,
-      data: generateERC721TransferData(params.fromAddress, params.toAddress, params.tokenId),
+      data: generateERC721TransferData(params.tokenId, params.contractAddress),
       gasPrice: feeData.gasPrice,
-      gasLimit: ethers.parseUnits('250000', 'wei'), // Safe gas limit for NFT transfers
+      gasLimit: ethers.parseUnits('250000', 'wei')
     };
 
-    // Create a wallet instance to sign and send the transaction
     const privateKey = await SecureStore.getItemAsync('privateKey');
     if (!privateKey) {
       throw new Error('Private key not found');
@@ -207,48 +142,103 @@ const transferNFTClassic = async (params: NFTTransferParams): Promise<string> =>
 const transferNFTSmart = async (params: NFTTransferParams): Promise<string> => {
   try {
     const walletKit = await getWalletKitInstance();
-    const session = await getActiveSession(params.fromAddress);
+    const provider = getProvider();
     
-    // Create transaction data for NFT transfer
     const txData = {
       to: params.contractAddress,
       from: params.fromAddress,
-      data: generateERC721TransferData(params.fromAddress, params.toAddress, params.tokenId),
+      data: generateERC721TransferData(params.tokenId, params.contractAddress),
       value: '0x0'
     };
 
-    // Execute NFT transfer using WalletKit
-    let txHash: string = '';
-    await walletKit.on('session_request', async (event) => {
-      const { topic, params, id } = event;
-      const { request } = params;
-      
-      if (request.method === 'eth_sendTransaction') {
-        txHash = await request.params[0];
-        await walletKit.respondSessionRequest({
-          topic,
-          response: {
-            id,
-            result: txHash,
-            jsonrpc: '2.0'
-          }
-        });
-      }
-    });
-
-    if (!txHash) {
-      throw new Error('Transaction hash not received');
-    }
-
-    return txHash;
+    // For smart wallets, we'll use ethers to send the transaction
+    const wallet = new ethers.Wallet(await SecureStore.getItemAsync('smartWalletKey') || '', provider);
+    const tx = await wallet.sendTransaction(txData);
+    return tx.hash;
   } catch (error) {
     console.error('Smart wallet transfer error:', error);
     throw new Error('Failed to transfer NFT using smart wallet');
   }
 };
 
+// NFT-specific functions using Alchemy API
+export const getNFTMetadata = async (contractAddress: string, tokenId: string): Promise<any> => {
+  try {
+    const alchemy = getAlchemyInstance();
+    const response = await alchemy.nft.getNftMetadata(contractAddress, tokenId);
+    return response;
+  } catch (error) {
+    console.error('Error fetching NFT metadata:', error);
+    throw new Error('Failed to fetch NFT metadata');
+  }
+};
+
+export const getOwnedNFTs = async (ownerAddress: string): Promise<any> => {
+  try {
+    const alchemy = getAlchemyInstance();
+    const nfts = await alchemy.nft.getNftsForOwner(ownerAddress);
+    return nfts;
+  } catch (error) {
+    console.error('Error fetching owned NFTs:', error);
+    throw new Error('Failed to fetch owned NFTs');
+  }
+};
+
+export const verifyNFTOwnership = async (contractAddress: string, tokenId: string, ownerAddress: string): Promise<boolean> => {
+  try {
+    const alchemy = getAlchemyInstance();
+    // Get all NFTs for the owner and check if they own this specific one
+    const nfts = await alchemy.nft.getNftsForOwner(ownerAddress, {
+      contractAddresses: [contractAddress]
+    });
+    return nfts.ownedNfts.some(nft => 
+      nft.tokenId === tokenId && 
+      nft.contract.address.toLowerCase() === contractAddress.toLowerCase()
+    );
+  } catch (error) {
+    console.error('Error verifying NFT ownership:', error);
+    throw new Error('Failed to verify NFT ownership');
+  }
+};
+
+export const getNFTTransferHistory = async (contractAddress: string, tokenId: string, ownerAddress: string): Promise<any> => {
+  try {
+    const alchemy = getAlchemyInstance();
+    const transfers = await alchemy.core.getAssetTransfers({
+      fromBlock: "0x0",
+      toBlock: "latest",
+      fromAddress: ownerAddress,
+      contractAddresses: [contractAddress],
+      category: ["erc721"],
+      withMetadata: true,
+      excludeZeroValue: true,
+      maxCount: 1000 // Get up to 1000 transfers
+    });
+    
+    // Filter for specific token ID if provided
+    return tokenId ? 
+      transfers.transfers.filter(t => t.tokenId === tokenId) : 
+      transfers.transfers;
+  } catch (error) {
+    console.error('Error fetching NFT transfer history:', error);
+    throw new Error('Failed to fetch NFT transfer history');
+  }
+};
+
+// Enhance the existing transfer function with ownership verification
 export const transferNFT = async (params: NFTTransferParams): Promise<string> => {
   try {
+    // Verify ownership before transfer
+    const isOwner = await verifyNFTOwnership(
+      params.contractAddress,
+      params.tokenId,
+      params.fromAddress
+    );
+
+    if (!isOwner) {
+      throw new Error('Sender does not own this NFT');
+    }
+
     if (params.walletType === 'classic') {
       return await transferNFTClassic(params);
     } else {
@@ -256,6 +246,53 @@ export const transferNFT = async (params: NFTTransferParams): Promise<string> =>
     }
   } catch (error) {
     console.error('Error transferring NFT:', error);
-    throw new Error('Failed to transfer NFT');
+    throw error;
+  }
+};
+
+export const generateERC721TransferTransaction = async (
+  from: string,
+  to: string,
+  tokenId: string,
+  contractAddress: string,
+  chainId: number
+): Promise<any> => {
+  try {
+    if (!from || !to) {
+      throw new Error('From and To addresses are required');
+    }
+
+    const formattedFrom = from.startsWith('0x') ? from.slice(2) : from;
+    const formattedTo = to.startsWith('0x') ? to.slice(2) : to;
+
+    const txData = {
+      from: `0x${formattedFrom}`,
+      to: contractAddress,
+      data: generateERC721TransferData(tokenId, contractAddress),
+      chainId
+    };
+
+    const provider = getProvider();
+    const gasEstimate = await provider.estimateGas(txData);
+
+    return {
+      ...txData,
+      gas: gasEstimate.toString()
+    };
+  } catch (error) {
+    console.error('Error generating ERC721 transfer data:', error);
+    throw error;
+  }
+};
+
+export const sendTransaction = async (txData: any): Promise<string> => {
+  try {
+    const provider = getProvider();
+    const wallet = new ethers.Wallet(await SecureStore.getItemAsync('privateKey') || '', provider);
+    const tx = await wallet.sendTransaction(txData);
+    return tx.hash;
+  } catch (error) {
+    console.error('Error sending transaction:', error);
+    throw error;
   }
 }; 

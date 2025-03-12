@@ -19,9 +19,17 @@ export const logActivity = async (
 
     // Get existing logs
     const existingLogsStr = await SecureStore.getItemAsync('activityLogs');
-    const existingLogs: ActivityLog[] = existingLogsStr 
-      ? JSON.parse(existingLogsStr)
-      : [];
+    let existingLogs: ActivityLog[] = [];
+    
+    try {
+      if (existingLogsStr) {
+        const parsed = JSON.parse(existingLogsStr);
+        existingLogs = Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (parseError) {
+      console.error('Failed to parse activity logs:', parseError);
+      // Continue with empty array if parsing fails
+    }
 
     // Add new log and keep only last 100 entries
     const updatedLogs = [log, ...existingLogs].slice(0, 100);
@@ -53,9 +61,45 @@ export const clearActivityLogs = async (): Promise<void> => {
 
 export const updateLastActive = async (): Promise<void> => {
   try {
-    await SecureStore.setItemAsync('lastActiveTime', Date.now().toString());
+    const timestamp = Date.now().toString();
+    
+    // First, ensure we can access SecureStore
+    try {
+      await SecureStore.getItemAsync('test_key');
+    } catch (e) {
+      console.warn('SecureStore not ready yet');
+      return;
+    }
+
+    // Then try to update the last active time
+    await SecureStore.setItemAsync('lastActiveTime', timestamp);
+    
+    // Also update activity logs
+    const log: ActivityLog = {
+      type: 'login',
+      timestamp: parseInt(timestamp),
+      details: { action: 'update_last_active' }
+    };
+
+    // Get existing logs with proper error handling
+    let existingLogs: ActivityLog[] = [];
+    try {
+      const existingLogsStr = await SecureStore.getItemAsync('activityLogs');
+      if (existingLogsStr) {
+        const parsed = JSON.parse(existingLogsStr);
+        existingLogs = Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (parseError) {
+      console.warn('Failed to parse activity logs:', parseError);
+      // Continue with empty array
+    }
+
+    // Safely create updated logs
+    const updatedLogs = [log, ...existingLogs].slice(0, 100);
+    await SecureStore.setItemAsync('activityLogs', JSON.stringify(updatedLogs));
   } catch (error) {
-    console.error('Failed to update last active time:', error);
+    console.warn('Failed to update last active time:', error);
+    // Don't throw the error, just log it
   }
 };
 
