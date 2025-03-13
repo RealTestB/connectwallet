@@ -25,7 +25,18 @@ export default function WelcomeScreen(): JSX.Element {
     Vibration.vibrate(50);
     setLoading(true);
     try {
-      const { address } = await createSmartWallet();
+      console.log('[Welcome] Starting smart wallet creation...');
+      const { address, type, chainId } = await createSmartWallet();
+      
+      console.log('[Welcome] Smart wallet created successfully:', {
+        address,
+        type,
+        chainId
+      });
+
+      // Small delay to ensure all state is properly saved
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       router.replace({
         pathname: "/portfolio",
         params: { 
@@ -34,10 +45,21 @@ export default function WelcomeScreen(): JSX.Element {
         }
       });
     } catch (error) {
-      console.error("Smart wallet creation failed:", error);
-      Alert.alert("Error", "Failed to create smart wallet. Please try again.");
+      console.error("[Welcome] Smart wallet creation failed:", {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
+      Alert.alert(
+        "Wallet Creation Failed",
+        error instanceof Error 
+          ? error.message
+          : "Failed to create smart wallet. Please check your internet connection and try again.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleCreateTraditional = (): void => {

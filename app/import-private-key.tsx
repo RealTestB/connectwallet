@@ -38,24 +38,65 @@ export default function ImportPrivateKeyScreen(): JSX.Element {
   };
 
   const handlePrivateKeyChange = (value: string): void => {
-    let cleanValue = value.replace(/\s+/g, "");
-    if (cleanValue.toLowerCase().startsWith("0x")) {
-      cleanValue = cleanValue.slice(2);
-    }
+    console.log('[ImportPrivateKey] Handling private key change, input length:', value.length);
+    
+    try {
+      let cleanValue = value.trim().replace(/\s+/g, "");
+      console.log('[ImportPrivateKey] Cleaned value length:', cleanValue.length);
+      
+      if (cleanValue && cleanValue.toLowerCase().startsWith("0x")) {
+        console.log('[ImportPrivateKey] Found 0x prefix, removing...');
+        cleanValue = cleanValue.slice(2);
+        console.log('[ImportPrivateKey] Value after prefix removal length:', cleanValue.length);
+      }
 
-    if (/^[0-9a-fA-F]*$/.test(cleanValue)) {
-      setPrivateKey(cleanValue.length ? "0x" + cleanValue : "");
-      setError(null);
+      if (!cleanValue) {
+        console.log('[ImportPrivateKey] Empty value after cleaning');
+        setPrivateKey("");
+        setError(null);
+        return;
+      }
+
+      if (/^[0-9a-fA-F]*$/.test(cleanValue)) {
+        const finalValue = "0x" + cleanValue;
+        console.log('[ImportPrivateKey] Valid hex format, final length:', finalValue.length);
+        setPrivateKey(finalValue);
+        setError(null);
+      } else {
+        console.log('[ImportPrivateKey] Invalid hex format detected');
+        setError("Invalid private key format - must be hexadecimal");
+      }
+    } catch (error) {
+      console.error('[ImportPrivateKey] Error in handlePrivateKeyChange:', error);
+      if (error instanceof Error) {
+        console.error('[ImportPrivateKey] Error details:', error.message);
+        console.error('[ImportPrivateKey] Error stack:', error.stack);
+      }
+      setError("Invalid private key format");
     }
   };
 
   const handlePaste = async (): Promise<void> => {
-    const pastedText = await Clipboard.getStringAsync();
-    handlePrivateKeyChange(pastedText);
+    try {
+      console.log('[ImportPrivateKey] Attempting to paste from clipboard');
+      const pastedText = await Clipboard.getStringAsync();
+      console.log('[ImportPrivateKey] Pasted text length:', pastedText.length);
+      handlePrivateKeyChange(pastedText);
+    } catch (error) {
+      console.error('[ImportPrivateKey] Error in handlePaste:', error);
+      if (error instanceof Error) {
+        console.error('[ImportPrivateKey] Error details:', error.message);
+        console.error('[ImportPrivateKey] Error stack:', error.stack);
+      }
+      setError("Failed to paste from clipboard");
+    }
   };
 
   const handleImport = async (): Promise<void> => {
+    console.log('[ImportPrivateKey] Starting import process');
+    
     if (!privateKey || privateKey.length !== 66) {
+      console.log('[ImportPrivateKey] Invalid private key length:', privateKey?.length);
       setError("Please enter a valid private key.");
       return;
     }
@@ -64,20 +105,28 @@ export default function ImportPrivateKeyScreen(): JSX.Element {
     setError(null);
 
     try {
-      // Encrypt the private key before storing
+      console.log('[ImportPrivateKey] Encrypting private key');
       const encryptedKeyData = await encryptPrivateKey(privateKey, password);
+      console.log('[ImportPrivateKey] Successfully encrypted private key');
+
+      console.log('[ImportPrivateKey] Storing encrypted data');
       await storeEncryptedData("walletPrivateKey", encryptedKeyData);
+      console.log('[ImportPrivateKey] Successfully stored encrypted data');
 
-      // Import wallet with the private key
+      console.log('[ImportPrivateKey] Importing classic wallet');
       const { address } = await importClassicWalletFromPrivateKey(privateKey);
+      console.log('[ImportPrivateKey] Successfully imported wallet with address:', address);
 
-      // Navigate to success screen with correct parameters
       navigation.replace("import-success", {
         walletAddress: address,
         walletType: 'classic'
       });
     } catch (err) {
-      console.error("Import failed:", err);
+      console.error('[ImportPrivateKey] Import failed:', err);
+      if (err instanceof Error) {
+        console.error('[ImportPrivateKey] Error details:', err.message);
+        console.error('[ImportPrivateKey] Error stack:', err.stack);
+      }
       setError("Failed to import wallet. Please check your private key.");
     } finally {
       setIsProcessing(false);

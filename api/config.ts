@@ -54,6 +54,7 @@ export interface WalletConfig {
       icons: string[];
       redirect: {
         native: string;
+        universal: string;
       };
     };
   };
@@ -108,7 +109,8 @@ export const WALLET_CONFIG: WalletConfig = {
       url: 'https://newwallet.app',
       icons: ['https://newwallet.app/icon.png'],
       redirect: {
-        native: 'com.concordianova.connectwallet://'
+        native: 'com.concordianova.connectwallet://',
+        universal: 'https://newwallet.app'
       }
     }
   }
@@ -185,14 +187,40 @@ const validateConfig = (): void => {
 
   if (missingKeys.length > 0) {
     const error = `Missing required configuration keys: ${missingKeys.join(', ')}`;
-    console.error(error);
+    console.error('[Config] Validation Error:', error);
+    console.error('[Config] Current configuration:', {
+      alchemyKeys: {
+        mainnet: config.alchemy.mainnetKey ? 'Set' : 'Missing',
+        accountKit: config.alchemy.accountKitKey ? 'Set' : 'Missing'
+      },
+      supabase: {
+        url: config.supabase.url ? 'Set' : 'Missing',
+        anonKey: config.supabase.anonKey ? 'Set' : 'Missing'
+      },
+      projectIds: {
+        reown: config.projectIds.reown ? 'Set' : 'Missing',
+        walletConnect: config.projectIds.walletConnect ? 'Set' : 'Missing'
+      }
+    });
     throw new Error(error);
+  }
+
+  // Validate Reown configuration specifically
+  if (!config.wallet.smart.metadata.redirect.native) {
+    console.error('[Config] Invalid Reown configuration: Missing redirect URL');
+    throw new Error('Invalid Reown configuration: Missing redirect URL');
+  }
+
+  // Validate URL format
+  try {
+    new URL(config.wallet.smart.metadata.url);
+  } catch {
+    console.error('[Config] Invalid Reown configuration: Invalid URL format');
+    throw new Error('Invalid Reown configuration: Invalid URL format');
   }
 };
 
-// Run validation in development
-if (__DEV__) {
-  validateConfig();
-}
+// Run validation in both development and production
+validateConfig();
 
 export default config; 

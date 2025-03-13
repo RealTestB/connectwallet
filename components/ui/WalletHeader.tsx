@@ -32,31 +32,65 @@ export default function WalletHeader({ pageName, onAccountChange }: WalletHeader
 
   const loadAccounts = async (): Promise<void> => {
     try {
-      // Get the encrypted accounts data from secure storage
+      console.log('[WalletHeader] Loading accounts...');
       const accountsJson = await SecureStore.getItemAsync("walletAccounts");
+      console.log('[WalletHeader] Accounts data from storage:', accountsJson ? 'Found' : 'Not found');
+      
       if (accountsJson) {
         const loadedAccounts = JSON.parse(accountsJson) as Account[];
+        console.log('[WalletHeader] Parsed accounts count:', loadedAccounts.length);
         setAccounts(loadedAccounts);
-        // Select first account by default if none selected
+        
         if (!selectedAccount && loadedAccounts.length > 0) {
+          console.log('[WalletHeader] Setting default account:', loadedAccounts[0].address);
           handleAccountSelection(loadedAccounts[0]);
         }
       }
     } catch (error) {
-      console.error("Failed to load accounts:", error);
+      console.error("[WalletHeader] Failed to load accounts:", error);
+      if (error instanceof Error) {
+        console.error("[WalletHeader] Error details:", error.message);
+        console.error("[WalletHeader] Error stack:", error.stack);
+      }
     }
   };
 
   const formatAddress = (address: string | undefined): string => {
-    if (!address) return "No Account";
-    if (address.length < 10) return address; // Return full address if too short
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    console.log('[WalletHeader] Formatting address:', typeof address, address ? `${address.substring(0, 6)}...` : 'undefined');
+    
+    if (!address) {
+      console.log('[WalletHeader] Address is undefined or null');
+      return "No Account";
+    }
+    
+    if (typeof address !== 'string') {
+      console.log('[WalletHeader] Address is not a string type:', typeof address);
+      return "No Account";
+    }
+    
+    if (address.length < 10) {
+      console.log('[WalletHeader] Address too short:', address.length);
+      return address;
+    }
+    
+    try {
+      const formatted = `${address.slice(0, 6)}...${address.slice(-4)}`;
+      console.log('[WalletHeader] Successfully formatted address:', formatted);
+      return formatted;
+    } catch (error) {
+      console.error('[WalletHeader] Error formatting address:', error);
+      if (error instanceof Error) {
+        console.error('[WalletHeader] Error details:', error.message);
+        console.error('[WalletHeader] Error stack:', error.stack);
+      }
+      return address;
+    }
   };
 
   const handleAccountSelection = (account: Account): void => {
+    console.log('[WalletHeader] Selecting account:', account.address);
     setSelectedAccount(account);
     setIsDropdownOpen(false);
-    // Notify parent component of account change
     onAccountChange(account);
   };
 

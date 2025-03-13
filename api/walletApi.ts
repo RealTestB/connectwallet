@@ -8,7 +8,7 @@ const CHAINS = {
   mainnet: {
     chainId: 1,
     name: 'Ethereum Mainnet',
-    rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/',
+    rpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`,
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: {
       name: 'Ether',
@@ -23,19 +23,34 @@ let walletKitInstance: WalletKit | null = null;
 
 const getWalletKit = async (): Promise<WalletKit> => {
   if (!walletKitInstance) {
-    walletKitInstance = await WalletKit.init({
-      projectId: config.projectIds.reown,
-      metadata: {
-        name: config.wallet.smart.metadata.name,
-        description: config.wallet.smart.metadata.description,
-        url: config.wallet.smart.metadata.url,
-        icons: config.wallet.smart.metadata.icons,
-        redirect: {
-          native: config.wallet.smart.metadata.redirect.native,
-          universal: config.wallet.smart.metadata.url
+    try {
+      console.log('[WalletKit] Initializing with config:', {
+        projectId: config.projectIds.reown,
+        metadata: config.wallet.smart.metadata
+      });
+      
+      walletKitInstance = await WalletKit.init({
+        projectId: config.projectIds.reown,
+        metadata: {
+          name: config.wallet.smart.metadata.name,
+          description: config.wallet.smart.metadata.description,
+          url: config.wallet.smart.metadata.url,
+          icons: config.wallet.smart.metadata.icons,
+          redirect: {
+            native: config.wallet.smart.metadata.redirect.native,
+            universal: config.wallet.smart.metadata.url
+          }
         }
-      }
-    });
+      });
+      
+      console.log('[WalletKit] Successfully initialized');
+    } catch (error) {
+      console.error('[WalletKit] Initialization failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      throw new Error('Failed to initialize WalletKit');
+    }
   }
   return walletKitInstance;
 };
@@ -109,10 +124,50 @@ export const getStoredPrivateKey = async (password: string): Promise<string> => 
  */
 export const createSmartWallet = async (): Promise<WalletData> => {
   try {
-    console.log('Initializing WalletKit...');
+    console.log('[SmartWallet] Starting wallet creation process...');
+    
+    // Validate required configuration
+    if (!config.projectIds.reown) {
+      console.error('[SmartWallet] Missing Reown project ID');
+      throw new Error('Missing Reown project ID');
+    }
+
+    if (!config.wallet.smart.metadata.redirect.native || !config.wallet.smart.metadata.redirect.universal) {
+      console.error('[SmartWallet] Missing redirect URLs');
+      throw new Error('Missing redirect URLs');
+    }
+
+    if (!config.alchemy.mainnetKey) {
+      console.error('[SmartWallet] Missing Alchemy API key');
+      throw new Error('Missing Alchemy API key');
+    }
+    
+    // Check if we already have a wallet address stored
+    const existingAddress = await SecureStore.getItemAsync('walletAddress');
+    const existingType = await SecureStore.getItemAsync('walletType');
+    
+    if (existingAddress && existingType === 'smart') {
+      console.log('[SmartWallet] Found existing smart wallet:', existingAddress);
+      return {
+        address: existingAddress,
+        type: 'smart',
+        chainId: CHAINS.mainnet.chainId,
+        features: {
+          verify: true,
+          notifications: true,
+          oneClickAuth: true
+        }
+      };
+    }
+
+    console.log('[SmartWallet] Initializing WalletKit with config:', {
+      projectId: config.projectIds.reown,
+      metadata: config.wallet.smart.metadata
+    });
+    
     const walletKit = await getWalletKit();
     
-    console.log('Creating smart account...');
+    console.log('[SmartWallet] Creating smart account with chain config:', CHAINS.mainnet);
     const account = await walletKit.createAccount({
       config: {
         chainConfig: {
@@ -122,7 +177,10 @@ export const createSmartWallet = async (): Promise<WalletData> => {
       }
     });
 
-    console.log('Smart account created:', account);
+    console.log('[SmartWallet] Account created successfully:', {
+      address: account.address,
+      chainId: CHAINS.mainnet.chainId
+    });
 
     // Store the account information securely
     await SecureStore.setItemAsync('walletAddress', account.address);
@@ -136,14 +194,20 @@ export const createSmartWallet = async (): Promise<WalletData> => {
       oneClickAuth: true
     };
 
-    return {
+    const walletData = {
       address: account.address,
-      type: 'smart',
+      type: 'smart' as const,
       chainId: CHAINS.mainnet.chainId,
       features
     };
+
+    console.log('[SmartWallet] Wallet creation completed:', walletData);
+    return walletData;
   } catch (error) {
-    console.error('Failed to create smart wallet:', error);
-    throw new Error('Failed to create smart wallet. Please try again.');
+    console.error('[SmartWallet] Creation failed:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to create smart wallet: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }; 

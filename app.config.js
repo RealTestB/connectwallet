@@ -77,7 +77,7 @@ module.exports = {
         "expo-build-properties",
         {
           android: {
-            newArchEnabled: false,
+            newArchEnabled: true,
             compileSdkVersion: 35,
             targetSdkVersion: 35,
             minSdkVersion: 24,
@@ -130,7 +130,7 @@ module.exports = {
       SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
       CMC_API_KEY: process.env.CMC_API_KEY,
       LIFI_API_KEY: process.env.LIFI_API_KEY,
-      REOWN_PROJECT_ID: process.env.REOWN_PROJECT_ID,
+      REOWN_PROJECT_ID: process.env.REOWN_PROJECT_ID || '',
       WALLETCONNECT_PROJECT_ID: process.env.WALLETCONNECT_PROJECT_ID
     },
     experiments: {
