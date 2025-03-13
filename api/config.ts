@@ -109,7 +109,7 @@ export const WALLET_CONFIG: WalletConfig = {
       url: 'https://newwallet.app',
       icons: ['https://newwallet.app/icon.png'],
       redirect: {
-        native: 'com.concordianova.connectwallet://',
+        native: 'com.concordianova.connectwallet',
         universal: 'https://newwallet.app'
       }
     }

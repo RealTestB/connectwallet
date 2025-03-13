@@ -2300,7 +2300,7 @@
     "@react-navigation/elements" "^2.2.6"
     color "^4.2.3"
 
-"@reown/walletkit@^1.2.1":
+"@reown/walletkit@^1.2.2":
   version "1.2.2"
   resolved "https://registry.yarnpkg.com/@reown/walletkit/-/walletkit-1.2.2.tgz#eddbce3ade797a8368a8bb284065975dd7e59dea"
   integrity sha512-wEncKeW1ybw8vnKg7232XDtlAncK4SGXPt8Ax9J8U6++7iY4kVnngmT+FBEbo+fMRgjHKr9o6i2cLUnhBuqT1w==
@@ -6466,6 +6466,11 @@ logkitty@^0.7.1:
     ansi-fragments "^0.2.1"
     dayjs "^1.8.15"
     yargs "^15.1.0"
+
+lokijs@^1.5.12:
+  version "1.5.12"
+  resolved "https://registry.yarnpkg.com/lokijs/-/lokijs-1.5.12.tgz#cb55b37009bdf09ee7952a6adddd555b893653a0"
+  integrity sha512-Q5ALD6JiS6xAUWCwX3taQmgwxyveCtIIuL08+ml0nHwT3k0S/GIFJN+Hd38b1qYIMaE5X++iqsqWVksz7SYW+Q==
 
 loose-envify@^1.0.0, loose-envify@^1.1.0, loose-envify@^1.4.0:
   version "1.4.0"

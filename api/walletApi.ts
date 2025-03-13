@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import config from "./config";
 import { WalletKit } from "@reown/walletkit";
+import { Platform } from "react-native";
 
 // Define supported chains based on the Reown SDK documentation
 const CHAINS = {
@@ -24,12 +25,39 @@ let walletKitInstance: WalletKit | null = null;
 const getWalletKit = async (): Promise<WalletKit> => {
   if (!walletKitInstance) {
     try {
-      console.log('[WalletKit] Initializing with config:', {
+      // Log all configuration values
+      console.log('[WalletKit] Configuration check:', {
         projectId: config.projectIds.reown,
-        metadata: config.wallet.smart.metadata
+        metadata: config.wallet.smart.metadata,
+        redirectNative: config.wallet.smart.metadata.redirect.native,
+        redirectUniversal: config.wallet.smart.metadata.redirect.universal,
+        url: config.wallet.smart.metadata.url
       });
-      
-      walletKitInstance = await WalletKit.init({
+
+      // Validate configuration
+      if (!config.projectIds.reown) {
+        throw new Error('Missing Reown project ID');
+      }
+
+      if (!config.wallet.smart.metadata.redirect.native || !config.wallet.smart.metadata.redirect.universal) {
+        throw new Error('Missing redirect URLs');
+      }
+
+      if (!config.wallet.smart.metadata.url) {
+        throw new Error('Missing metadata URL');
+      }
+
+      // Initialize WalletKit
+      console.debug('[WalletKit] Starting initialization...');
+
+      // Get platform-specific scheme
+      const scheme = Platform.select({
+        ios: 'com.concordianova.connectwallet',
+        android: 'com.concordianova.connectwallet',
+        default: 'com.concordianova.connectwallet'
+      });
+
+      const walletKitConfig = {
         projectId: config.projectIds.reown,
         metadata: {
           name: config.wallet.smart.metadata.name,
@@ -37,21 +65,37 @@ const getWalletKit = async (): Promise<WalletKit> => {
           url: config.wallet.smart.metadata.url,
           icons: config.wallet.smart.metadata.icons,
           redirect: {
-            native: config.wallet.smart.metadata.redirect.native,
+            native: `${scheme}://`,
             universal: config.wallet.smart.metadata.url
           }
         }
-      });
+      };
+      
+      console.debug('[WalletKit] Initializing with config:', walletKitConfig);
+      const instance = await WalletKit.init(walletKitConfig);
+
+      walletKitInstance = instance;
       
       console.log('[WalletKit] Successfully initialized');
     } catch (error) {
       console.error('[WalletKit] Initialization failed:', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
+        config: {
+          projectId: config.projectIds.reown ? 'Set' : 'Missing',
+          metadata: config.wallet.smart.metadata ? 'Set' : 'Missing',
+          redirectNative: config.wallet.smart.metadata.redirect.native ? 'Set' : 'Missing',
+          redirectUniversal: config.wallet.smart.metadata.redirect.universal ? 'Set' : 'Missing'
+        }
       });
-      throw new Error('Failed to initialize WalletKit');
+      throw new Error('Failed to initialize WalletKit: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   }
+
+  if (!walletKitInstance) {
+    throw new Error('WalletKit initialization failed');
+  }
+
   return walletKitInstance;
 };
 

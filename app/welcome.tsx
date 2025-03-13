@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
 import { createSmartWallet } from "../api/walletApi";
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -14,6 +14,7 @@ import {
 } from "react-native";
 
 export default function WelcomeScreen(): JSX.Element {
+  const router = useRouter();
   const [loading, setLoading] = useState<boolean>(false);
 
   const handleExistingUser = (): void => {
@@ -26,7 +27,13 @@ export default function WelcomeScreen(): JSX.Element {
     setLoading(true);
     try {
       console.log('[Welcome] Starting smart wallet creation...');
-      const { address, type, chainId } = await createSmartWallet();
+      const result = await createSmartWallet();
+      
+      if (!result || !result.address) {
+        throw new Error("Smart wallet creation failed: No address returned");
+      }
+
+      const { address, type, chainId } = result;
       
       console.log('[Welcome] Smart wallet created successfully:', {
         address,
@@ -37,13 +44,7 @@ export default function WelcomeScreen(): JSX.Element {
       // Small delay to ensure all state is properly saved
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      router.replace({
-        pathname: "/portfolio",
-        params: { 
-          walletAddress: address,
-          walletType: 'smart'
-        }
-      });
+      router.replace(`/portfolio?walletAddress=${address}&walletType=smart`);
     } catch (error) {
       console.error("[Welcome] Smart wallet creation failed:", {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -64,10 +65,7 @@ export default function WelcomeScreen(): JSX.Element {
 
   const handleCreateTraditional = (): void => {
     Vibration.vibrate(50);
-    router.push({
-      pathname: "/create-password",
-      params: { mode: 'create' }
-    });
+    router.push('/create-password?mode=create');
   };
 
   const handleImportWallet = (): void => {

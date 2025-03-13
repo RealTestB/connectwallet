@@ -13,23 +13,22 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [navigationReady, setNavigationReady] = useState(false);
-  const [showBottomNav, setShowBottomNav] = useState(false); // Start with false by default
+  const [showBottomNav, setShowBottomNav] = useState(false);
   const [appIsReady, setAppIsReady] = useState(false);
   const router = useRouter();
+  const pathname = usePathname(); // Move this outside of useEffect()
 
   // Handle initial app setup
   useEffect(() => {
     async function prepare() {
       try {
-        // Pre-load fonts, make any API calls you need to do here
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate loading
+        await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (e) {
         console.warn('[Layout] Preparation error:', e);
       } finally {
         setAppIsReady(true);
       }
     }
-
     prepare();
   }, []);
 
@@ -48,12 +47,10 @@ export default function RootLayout() {
 
     const initializeNavigation = async () => {
       try {
-        const pathname = usePathname();
         console.log('[Layout] Initializing navigation with pathname:', pathname);
-        console.log('[Layout] Router state:', router);
 
-        if (!pathname || !router) {
-          console.log('[Layout] Navigation not ready yet');
+        if (!pathname) {
+          console.log('[Layout] Pathname not available yet');
           return;
         }
 
@@ -72,7 +69,8 @@ export default function RootLayout() {
           "welcome"
         ];
 
-        const routeName = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+        // Ensure pathname is properly formatted
+        const routeName = pathname.replace(/^\//, '');
         
         if (mounted) {
           setShowBottomNav(!excludedScreens.includes(routeName));
@@ -83,7 +81,7 @@ export default function RootLayout() {
         console.error('[Layout] Error processing navigation:', error);
         if (mounted) {
           setShowBottomNav(false);
-          setNavigationReady(true); // Still set navigation as ready to not block rendering
+          setNavigationReady(true);
         }
       }
     };
@@ -93,9 +91,8 @@ export default function RootLayout() {
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [pathname]); // Add pathname to dependencies
 
-  // Don't render anything until both app and navigation are ready
   if (!appIsReady || !navigationReady) {
     console.log('[Layout] Waiting for initialization...', { appIsReady, navigationReady });
     return null;
