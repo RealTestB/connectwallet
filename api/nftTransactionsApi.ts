@@ -5,6 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import { WalletKit } from '@reown/walletkit';
 import config from './config';
 import { REOWN_PROJECT_ID } from '@env';
+import { getWalletKit } from './walletApi';
 
 export interface NFTTransferParams {
   contractAddress: string;
@@ -186,7 +187,7 @@ const transferNFTClassic = async (params: NFTTransferParams): Promise<string> =>
 const transferNFTSmart = async (params: NFTTransferParams): Promise<string> => {
   console.log('[NFTTransactions] Starting smart NFT transfer:', params);
   try {
-    const walletKit = await getWalletKitInstance();
+    const walletKit = await getWalletKit();
     const provider = getProvider();
     console.log('[NFTTransactions] Got wallet instances');
     

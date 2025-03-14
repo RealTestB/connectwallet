@@ -7,6 +7,8 @@ import BottomNav from "../components/ui/BottomNav";
 import { usePathname, useRouter } from "expo-router";
 import { View } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
+import { AppKitProvider } from '@reown/appkit-react-native';
+import config from '../api/config';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -16,7 +18,7 @@ export default function RootLayout() {
   const [showBottomNav, setShowBottomNav] = useState(false);
   const [appIsReady, setAppIsReady] = useState(false);
   const router = useRouter();
-  const pathname = usePathname(); // Move this outside of useEffect()
+  const pathname = usePathname();
 
   // Handle initial app setup
   useEffect(() => {
@@ -91,7 +93,7 @@ export default function RootLayout() {
     return () => {
       mounted = false;
     };
-  }, [pathname]); // Add pathname to dependencies
+  }, [pathname]);
 
   if (!appIsReady || !navigationReady) {
     console.log('[Layout] Waiting for initialization...', { appIsReady, navigationReady });
@@ -99,37 +101,42 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <SettingsProvider>
-        <ProtectedRoute>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen name="welcome" />
-            <Stack.Screen name="signin" />
-            <Stack.Screen name="create-password" />
-            <Stack.Screen name="seed-phrase" />
-            <Stack.Screen name="confirm-seed-phrase" />
-            <Stack.Screen name="secure-wallet" />
-            <Stack.Screen name="wallet-created" />
-            <Stack.Screen name="import-wallet" />
-            <Stack.Screen name="import-seed-phrase" />
-            <Stack.Screen name="import-private-key" />
-            <Stack.Screen name="import-success" />
-            <Stack.Screen name="import-wallet-success" />
-            <Stack.Screen name="portfolio" />
-            <Stack.Screen name="nft" />
-            <Stack.Screen name="nft-details" />
-            <Stack.Screen name="pay" />
-            <Stack.Screen name="receive" />
-            <Stack.Screen name="settings" />
-            <Stack.Screen name="swap" />
-            <Stack.Screen name="transaction-details" />
-            <Stack.Screen name="transaction-history" />
-          </Stack>
-          {showBottomNav && <BottomNav />}
-        </ProtectedRoute>
-      </SettingsProvider>
-    </AuthProvider>
+    <AppKitProvider
+      projectId={config.projectIds.reown}
+      metadata={config.wallet.smart.metadata}
+    >
+      <AuthProvider>
+        <SettingsProvider>
+          <ProtectedRoute>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="welcome" />
+              <Stack.Screen name="signin" />
+              <Stack.Screen name="create-password" />
+              <Stack.Screen name="seed-phrase" />
+              <Stack.Screen name="confirm-seed-phrase" />
+              <Stack.Screen name="secure-wallet" />
+              <Stack.Screen name="wallet-created" />
+              <Stack.Screen name="import-wallet" />
+              <Stack.Screen name="import-seed-phrase" />
+              <Stack.Screen name="import-private-key" />
+              <Stack.Screen name="import-success" />
+              <Stack.Screen name="import-wallet-success" />
+              <Stack.Screen name="portfolio" />
+              <Stack.Screen name="nft" />
+              <Stack.Screen name="nft-details" />
+              <Stack.Screen name="pay" />
+              <Stack.Screen name="receive" />
+              <Stack.Screen name="settings" />
+              <Stack.Screen name="swap" />
+              <Stack.Screen name="transaction-details" />
+              <Stack.Screen name="transaction-history" />
+            </Stack>
+            {showBottomNav && <BottomNav />}
+          </ProtectedRoute>
+        </SettingsProvider>
+      </AuthProvider>
+    </AppKitProvider>
   );
 }
 

@@ -1,4 +1,6 @@
 declare module '@reown/walletkit' {
+  import { EventEmitter } from 'events';
+
   export class Core {
     constructor(config: { projectId: string });
   }
@@ -64,8 +66,38 @@ declare module '@reown/walletkit' {
     };
   }
 
-  export class WalletKit {
+  export interface Session {
+    topic: string;
+    pairingTopic: string;
+    relay: {
+      protocol: string;
+      data?: string;
+    };
+    expiry: number;
+    acknowledged: boolean;
+    controller: string;
+    namespaces: Record<string, {
+      accounts: string[];
+      methods: string[];
+      events: string[];
+    }>;
+    requiredNamespaces: Record<string, {
+      chains: string[];
+      methods: string[];
+      events: string[];
+    }>;
+    optionalNamespaces: Record<string, {
+      chains: string[];
+      methods: string[];
+      events: string[];
+    }>;
+  }
+
+  export class WalletKit extends EventEmitter {
     static init(config: WalletKitConfig): Promise<WalletKit>;
     createAccount(config: AccountConfig): Promise<Account>;
+    getActiveSessions(): Record<string, Session>;
+    on(event: string, listener: (...args: any[]) => void): this;
+    respondSessionRequest(params: { topic: string; response: any }): Promise<void>;
   }
 } 

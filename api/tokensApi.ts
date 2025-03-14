@@ -5,6 +5,7 @@ import { Core } from '@walletconnect/core';
 import * as SecureStore from 'expo-secure-store';
 import { getAlchemyInstance, getProvider } from './alchemyApi';
 import config from './config';
+import { getWalletKit } from './walletApi';
 
 export interface Token {
   address: string;
@@ -63,28 +64,6 @@ export interface TokenTransfer {
 }
 
 let walletKitInstance: Awaited<ReturnType<typeof WalletKit.init>> | null = null;
-
-const getWalletKit = async () => {
-  if (!walletKitInstance) {
-    try {
-      const core = new Core({
-        projectId: config.projectIds.reown
-      });
-
-      walletKitInstance = await WalletKit.init({
-        core,
-        metadata: config.wallet.smart.metadata
-      });
-    } catch (error) {
-      console.error('Failed to initialize WalletKit:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      });
-      throw new Error('Failed to initialize WalletKit');
-    }
-  }
-  return walletKitInstance;
-};
 
 /**
  * Get token balances for an address

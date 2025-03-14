@@ -63,6 +63,15 @@ export interface WalletConfig {
 const getExpoConfig = (): ExpoManifest['extra'] => {
   try {
     const manifest = Constants.expoConfig || Constants.manifest as ExpoManifest;
+    console.log('[Config] Loading environment variables:', {
+      reownProjectId: manifest?.extra?.REOWN_PROJECT_ID ? 'Set' : 'Missing',
+      walletConnectProjectId: manifest?.extra?.WALLETCONNECT_PROJECT_ID ? 'Set' : 'Missing',
+      alchemyKey: manifest?.extra?.ALCHEMY_ETH_MAINNET_KEY ? 'Set' : 'Missing',
+      supabaseUrl: manifest?.extra?.SUPABASE_URL ? 'Set' : 'Missing',
+      supabaseAnonKey: manifest?.extra?.SUPABASE_ANON_KEY ? 'Set' : 'Missing',
+      cmcKey: manifest?.extra?.CMC_API_KEY ? 'Set' : 'Missing',
+      lifiKey: manifest?.extra?.LIFI_API_KEY ? 'Set' : 'Missing'
+    });
     return manifest?.extra || {};
   } catch (error) {
     console.error('Failed to load Expo config:', {
@@ -109,7 +118,7 @@ export const WALLET_CONFIG: WalletConfig = {
       url: 'https://connectwallet.app',
       icons: ['https://connectwallet.app/icon.png'],
       redirect: {
-        native: 'com.concordianova.connectwallet',
+        native: 'com.concordianova.connectwallet://',
         universal: 'https://connectwallet.app'
       }
     }

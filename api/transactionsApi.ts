@@ -5,6 +5,7 @@ import { WalletKit } from '@reown/walletkit';
 import type { SessionTypes } from '@walletconnect/types';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
+import { getWalletKit } from './walletApi';
 
 export interface Transaction {
   hash: string;
@@ -105,31 +106,9 @@ const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => 
   return alchemyInstance;
 };
 
-const getWalletKitInstance = async (): Promise<Awaited<ReturnType<typeof WalletKit.init>>> => {
-  if (!walletKitInstance) {
-    const core = new Core({
-      projectId: config.projectIds.reown
-    });
-
-    walletKitInstance = await WalletKit.init({
-      core,
-      metadata: {
-        name: 'Reown Wallet',
-        description: 'Reown Smart Wallet',
-        url: 'https://reown.com',
-        icons: ['https://your_wallet_icon.png'],
-        redirect: {
-          native: 'reownwallet://'
-        }
-      }
-    });
-  }
-  return walletKitInstance;
-};
-
 // Helper function to get active session for an address
 const getActiveSession = async (address: string): Promise<SessionTypes.Struct> => {
-  const walletKit = await getWalletKitInstance();
+  const walletKit = await getWalletKit();
   const sessions = walletKit.getActiveSessions();
   const session = Object.values(sessions).find((s: SessionTypes.Struct) => 
     s.namespaces.eip155.accounts.some((account: string) => 
@@ -292,7 +271,7 @@ const estimateClassicWalletGas = async (request: TransactionRequest): Promise<Ga
  */
 const estimateSmartWalletGas = async (request: TransactionRequest): Promise<GasEstimate> => {
   try {
-    const walletKit = await getWalletKitInstance();
+    const walletKit = await getWalletKit();
     const session = await getActiveSession(request.from || '');
 
     // Get gas estimate from WalletKit
@@ -376,7 +355,7 @@ const sendClassicWalletTransaction = async (request: TransactionRequest): Promis
  */
 const sendSmartWalletTransaction = async (request: TransactionRequest): Promise<string> => {
   try {
-    const walletKit = await getWalletKitInstance();
+    const walletKit = await getWalletKit();
     const session = await getActiveSession(request.from || '');
 
     const txHash = await new Promise<string>((resolve, reject) => {
