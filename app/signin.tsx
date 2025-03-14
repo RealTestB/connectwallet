@@ -1,100 +1,58 @@
-import { signIn, authenticateUser } from "../api/authApi";
-import { useNavigation } from "@react-navigation/native";
-import { StackNavigationProp } from "@react-navigation/stack";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
+  Alert,
 } from "react-native";
-import { RootStackParamList } from "../navigation/types";
-
-type SignInScreenNavigationProp = StackNavigationProp<RootStackParamList, 'signin'>;
+import { useAuth } from "../contexts/AuthContext";
 
 export default function SignInScreen(): JSX.Element {
-  const navigation = useNavigation<SignInScreenNavigationProp>();
-  const [email, setEmail] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
+  const [password, setPassword] = useState("");
+  const { checkAuth, updateLastActive } = useAuth();
+  const router = useRouter();
 
-  const handleSignIn = async (): Promise<void> => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password");
-      return;
-    }
-
-    setLoading(true);
+  const handleSignIn = async () => {
     try {
-      const response = await signIn({ email, password });
-      
-      if (response.error) {
-        Alert.alert("Error", response.error.message);
+      // Here you would validate the password
+      // For now, we'll just check if it's not empty
+      if (!password.trim()) {
+        Alert.alert("Error", "Please enter your password");
         return;
       }
 
-      if (response.data.user) {
-        // Get wallet information
-        const { hasSmartWallet, hasClassicWallet } = await authenticateUser();
-        
-        // Navigate to portfolio with wallet type
-        navigation.replace('portfolio', {
-          walletAddress: response.data.user.id, // Using user ID as wallet address for now
-          walletType: hasSmartWallet ? 'smart' : 'classic'
-        });
-      } else {
-        Alert.alert("Error", "Failed to sign in");
-      }
+      // Update last active timestamp and check auth status
+      await updateLastActive();
+      await checkAuth();
+      
+      // Navigate to portfolio
+      router.replace("/portfolio");
     } catch (error) {
       console.error("Sign in failed:", error);
       Alert.alert("Error", "Failed to sign in. Please try again.");
-    } finally {
-      setLoading(false);
     }
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Sign In</Text>
-      </View>
-
-      <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor="#93C5FD"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
+      <View style={styles.content}>
+        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.subtitle}>Enter your password to continue</Text>
 
         <TextInput
           style={styles.input}
           placeholder="Password"
-          placeholderTextColor="#93C5FD"
+          placeholderTextColor="#666"
+          secureTextEntry
           value={password}
           onChangeText={setPassword}
-          secureTextEntry
         />
 
-        <TouchableOpacity
-          style={[styles.button, styles.signInButton]}
-          onPress={handleSignIn}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
-          )}
+        <TouchableOpacity style={styles.button} onPress={handleSignIn}>
+          <Text style={styles.buttonText}>Sign In</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -107,43 +65,41 @@ const styles = StyleSheet.create({
     backgroundColor: "#0A1B3F",
     padding: 20,
   },
-  header: {
-    flexDirection: "row",
+  content: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: 40,
-  },
-  backButton: {
-    fontSize: 24,
-    color: "#93C5FD",
-    marginRight: 16,
   },
   title: {
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: "bold",
-    color: "#FFFFFF",
+    color: "white",
+    marginBottom: 12,
   },
-  form: {
-    gap: 16,
+  subtitle: {
+    fontSize: 16,
+    color: "#6A9EFF",
+    marginBottom: 32,
   },
   input: {
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    width: "100%",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
+    padding: 16,
+    color: "white",
     fontSize: 16,
-    color: "#FFFFFF",
+    marginBottom: 20,
   },
   button: {
+    width: "100%",
+    backgroundColor: "#3b82f6",
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
   },
-  signInButton: {
-    backgroundColor: "#2563EB",
-  },
   buttonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
+    color: "white",
+    fontSize: 18,
     fontWeight: "600",
   },
 }); 

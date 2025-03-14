@@ -22,7 +22,6 @@ interface Network {
 interface Account {
   address: string;
   name?: string;
-  type: 'classic' | 'smart';
   chainId?: number;
 }
 

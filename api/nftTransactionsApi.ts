@@ -1,30 +1,17 @@
-import '@walletconnect/react-native-compat';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
-import { WalletKit } from '@reown/walletkit';
 import config from './config';
-import { REOWN_PROJECT_ID } from '@env';
-import { getWalletKit } from './walletApi';
+import { getProvider } from './provider';
 
 export interface NFTTransferParams {
   contractAddress: string;
   tokenId: string;
   toAddress: string;
   fromAddress: string;
-  walletType: 'classic' | 'smart';
 }
 
 let alchemyInstance: Alchemy | null = null;
-let walletKitInstance: WalletKit | null = null;
-let provider: ethers.JsonRpcProvider | null = null;
-
-const getProvider = (): ethers.JsonRpcProvider => {
-  if (!provider) {
-    provider = new ethers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`);
-  }
-  return provider;
-};
 
 const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => {
   if (!alchemyInstance) {
@@ -34,25 +21,6 @@ const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => 
     });
   }
   return alchemyInstance;
-};
-
-const getWalletKitInstance = async (): Promise<WalletKit> => {
-  if (!walletKitInstance) {
-    walletKitInstance = await WalletKit.init({
-      projectId: REOWN_PROJECT_ID,
-      metadata: {
-        name: 'Wallet App',
-        description: 'Secure Wallet Application',
-        url: 'https://yourapp.com',
-        icons: ['https://yourapp.com/icon.png'],
-        redirect: {
-          native: 'walletapp://',
-          universal: 'https://yourapp.com'
-        }
-      }
-    });
-  }
-  return walletKitInstance;
 };
 
 // Helper function to generate ERC721 transfer data
@@ -75,9 +43,11 @@ const generateERC721TransferData = (tokenId: string, contractAddress: string): s
   }
 };
 
-// Classic wallet gas estimation
-const estimateClassicWalletGas = async (params: NFTTransferParams): Promise<string> => {
-  console.log('[NFTTransactions] Estimating classic wallet gas:', params);
+/**
+ * Estimate gas for NFT transfer
+ */
+export const estimateNFTTransferGas = async (params: NFTTransferParams): Promise<string> => {
+  console.log('[NFTTransactions] Estimating gas:', params);
   const provider = getProvider();
   
   try {
@@ -103,45 +73,20 @@ const estimateClassicWalletGas = async (params: NFTTransferParams): Promise<stri
     console.log('[NFTTransactions] Calculated total cost:', formattedCost);
     return formattedCost;
   } catch (error) {
-    console.error('[NFTTransactions] Classic wallet gas estimation error:', {
+    console.error('[NFTTransactions] Gas estimation error:', {
       params,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw new Error('Failed to estimate gas for classic wallet NFT transfer');
+    throw new Error('Failed to estimate gas for NFT transfer');
   }
 };
 
-// Smart wallet gas estimation using Reown
-const estimateSmartWalletGas = async (params: NFTTransferParams): Promise<string> => {
-  console.log('[NFTTransactions] Estimating smart wallet gas:', params);
-  try {
-    const provider = getProvider();
-    const txObject = {
-      to: params.contractAddress,
-      from: params.fromAddress,
-      data: generateERC721TransferData(params.tokenId, params.contractAddress),
-      value: '0x0'
-    };
-    console.log('[NFTTransactions] Created transaction object for smart wallet gas estimation:', txObject);
-
-    const gasEstimate = await provider.estimateGas(txObject);
-    const result = ethers.formatEther(gasEstimate);
-    console.log('[NFTTransactions] Smart wallet gas estimate:', result);
-    return result;
-  } catch (error) {
-    console.error('[NFTTransactions] Smart wallet gas estimation error:', {
-      params,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to estimate gas for smart wallet NFT transfer');
-  }
-};
-
-// Classic wallet transfer
-const transferNFTClassic = async (params: NFTTransferParams): Promise<string> => {
-  console.log('[NFTTransactions] Starting classic NFT transfer:', params);
+/**
+ * Transfer NFT
+ */
+export const transferNFT = async (params: NFTTransferParams): Promise<string> => {
+  console.log('[NFTTransactions] Starting NFT transfer:', params);
   const provider = getProvider();
   
   try {
@@ -159,9 +104,9 @@ const transferNFTClassic = async (params: NFTTransferParams): Promise<string> =>
       gasPrice: feeData.gasPrice,
       gasLimit: ethers.parseUnits('250000', 'wei')
     };
-    console.log('[NFTTransactions] Created classic transfer transaction:', transaction);
+    console.log('[NFTTransactions] Created transfer transaction:', transaction);
 
-    const privateKey = await SecureStore.getItemAsync('privateKey');
+    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
     if (!privateKey) {
       console.error('[NFTTransactions] Private key not found in secure storage');
       throw new Error('Private key not found');
@@ -171,57 +116,21 @@ const transferNFTClassic = async (params: NFTTransferParams): Promise<string> =>
     console.log('[NFTTransactions] Created wallet instance for address:', wallet.address);
     
     const tx = await wallet.sendTransaction(transaction);
-    console.log('[NFTTransactions] Classic transfer transaction sent:', tx.hash);
+    console.log('[NFTTransactions] Transfer transaction sent:', tx.hash);
     return tx.hash;
   } catch (error) {
-    console.error('[NFTTransactions] Classic wallet transfer error:', {
+    console.error('[NFTTransactions] Transfer error:', {
       params,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw new Error('Failed to transfer NFT using classic wallet');
+    throw new Error('Failed to transfer NFT');
   }
 };
 
-// Smart wallet transfer using Reown
-const transferNFTSmart = async (params: NFTTransferParams): Promise<string> => {
-  console.log('[NFTTransactions] Starting smart NFT transfer:', params);
-  try {
-    const walletKit = await getWalletKit();
-    const provider = getProvider();
-    console.log('[NFTTransactions] Got wallet instances');
-    
-    const txData = {
-      to: params.contractAddress,
-      from: params.fromAddress,
-      data: generateERC721TransferData(params.tokenId, params.contractAddress),
-      value: '0x0'
-    };
-    console.log('[NFTTransactions] Created smart transfer transaction data:', txData);
-
-    const smartWalletKey = await SecureStore.getItemAsync('smartWalletKey');
-    if (!smartWalletKey) {
-      console.error('[NFTTransactions] Smart wallet key not found');
-      throw new Error('Smart wallet key not found');
-    }
-
-    const wallet = new ethers.Wallet(smartWalletKey, provider);
-    console.log('[NFTTransactions] Created smart wallet instance for address:', wallet.address);
-    
-    const tx = await wallet.sendTransaction(txData);
-    console.log('[NFTTransactions] Smart transfer transaction sent:', tx.hash);
-    return tx.hash;
-  } catch (error) {
-    console.error('[NFTTransactions] Smart wallet transfer error:', {
-      params,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to transfer NFT using smart wallet');
-  }
-};
-
-// NFT-specific functions using Alchemy API
+/**
+ * Get NFT metadata
+ */
 export const getNFTMetadata = async (contractAddress: string, tokenId: string): Promise<any> => {
   console.log('[NFTTransactions] Fetching NFT metadata:', { contractAddress, tokenId });
   try {
@@ -240,6 +149,9 @@ export const getNFTMetadata = async (contractAddress: string, tokenId: string): 
   }
 };
 
+/**
+ * Get owned NFTs
+ */
 export const getOwnedNFTs = async (ownerAddress: string): Promise<any> => {
   console.log('[NFTTransactions] Fetching owned NFTs for address:', ownerAddress);
   try {
@@ -257,6 +169,9 @@ export const getOwnedNFTs = async (ownerAddress: string): Promise<any> => {
   }
 };
 
+/**
+ * Verify NFT ownership
+ */
 export const verifyNFTOwnership = async (contractAddress: string, tokenId: string, ownerAddress: string): Promise<boolean> => {
   console.log('[NFTTransactions] Verifying NFT ownership:', { contractAddress, tokenId, ownerAddress });
   try {
@@ -316,44 +231,6 @@ export const getNFTTransferHistory = async (contractAddress: string, tokenId: st
       stack: error instanceof Error ? error.stack : undefined
     });
     throw new Error('Failed to fetch NFT transfer history');
-  }
-};
-
-// Enhance the existing transfer function with ownership verification
-export const transferNFT = async (params: NFTTransferParams): Promise<string> => {
-  console.log('[NFTTransactions] Starting NFT transfer process:', params);
-  try {
-    console.log('[NFTTransactions] Verifying ownership before transfer');
-    const isOwner = await verifyNFTOwnership(
-      params.contractAddress,
-      params.tokenId,
-      params.fromAddress
-    );
-
-    if (!isOwner) {
-      console.error('[NFTTransactions] Ownership verification failed');
-      throw new Error('Sender does not own this NFT');
-    }
-    console.log('[NFTTransactions] Ownership verified successfully');
-
-    let txHash;
-    if (params.walletType === 'classic') {
-      console.log('[NFTTransactions] Using classic wallet transfer');
-      txHash = await transferNFTClassic(params);
-    } else {
-      console.log('[NFTTransactions] Using smart wallet transfer');
-      txHash = await transferNFTSmart(params);
-    }
-    
-    console.log('[NFTTransactions] Transfer completed successfully:', txHash);
-    return txHash;
-  } catch (error) {
-    console.error('[NFTTransactions] Error in NFT transfer:', {
-      params,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw error;
   }
 };
 

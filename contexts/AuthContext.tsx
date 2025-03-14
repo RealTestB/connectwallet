@@ -1,29 +1,94 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { View, ActivityIndicator, Alert } from 'react-native';
-import { authenticateUser } from '../api/authApi';
-import { updateLastActive } from '../utils/activity';
+import { View, ActivityIndicator, Alert, AppState, AppStateStatus } from 'react-native';
 import { initializeCrypto } from '../utils/crypto';
 import * as SplashScreen from 'expo-splash-screen';
+import * as SecureStore from 'expo-secure-store';
+import { getStoredWallet } from '../api/walletApi';
+import config from '../api/config';
 
 // Keep splash screen visible
 SplashScreen.preventAutoHideAsync();
 
-type AuthContextType = {
-  isLoading: boolean;
+// Constants
+const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+const LAST_ACTIVE_KEY = 'lastActiveTimestamp';
+
+interface AuthContextType {
+  isAuthenticated: boolean;
   hasWallet: boolean;
-  isRecentlyActive: boolean;
+  loading: boolean;
+  error: string | null;
   cryptoInitialized: boolean;
-  updateActivity: () => Promise<void>;
-};
+  checkAuth: () => Promise<void>;
+  signOut: () => Promise<void>;
+  updateLastActive: () => Promise<void>;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isLoading, setIsLoading] = useState(true);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+interface AuthProviderProps {
+  children: React.ReactNode;
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [hasWallet, setHasWallet] = useState(false);
-  const [isRecentlyActive, setIsRecentlyActive] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [cryptoInitialized, setCryptoInitialized] = useState(false);
   const [appIsReady, setAppIsReady] = useState(false);
+
+  // Check for inactivity when app state changes
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+    if (nextAppState === 'active') {
+      await checkInactivity();
+    }
+  };
+
+  const checkInactivity = async () => {
+    try {
+      const lastActiveStr = await SecureStore.getItemAsync(LAST_ACTIVE_KEY);
+      if (!lastActiveStr) {
+        await signOut();
+        return;
+      }
+
+      const lastActive = parseInt(lastActiveStr, 10);
+      const now = Date.now();
+      const timeDiff = now - lastActive;
+
+      if (timeDiff > INACTIVITY_TIMEOUT) {
+        console.log('[AuthProvider] Session expired due to inactivity');
+        await signOut();
+      }
+    } catch (error) {
+      console.error('[AuthProvider] Error checking inactivity:', error);
+      await signOut();
+    }
+  };
+
+  const updateLastActive = async () => {
+    try {
+      await SecureStore.setItemAsync(LAST_ACTIVE_KEY, Date.now().toString());
+    } catch (error) {
+      console.error('[AuthProvider] Failed to update last active timestamp:', error);
+    }
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -35,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const cryptoSuccess = await initializeCrypto();
         if (!cryptoSuccess) {
           console.error('[AuthProvider] Crypto initialization failed');
+          setError('Failed to initialize crypto libraries');
           Alert.alert(
             "Initialization Error",
             "Failed to initialize crypto libraries. Please restart the app."
@@ -44,37 +110,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[AuthProvider] Crypto initialized successfully');
         setCryptoInitialized(true);
 
-        // Then check wallet status
-        console.log('[AuthProvider] Checking wallet status...');
-        try {
-          const authData = await authenticateUser();
-          console.log('[AuthProvider] Auth data:', authData);
-          
-          setHasWallet(!!authData?.hasSmartWallet || !!authData?.hasClassicWallet);
-          setIsRecentlyActive(!!authData?.isRecentlyActive);
-          
-          console.log('[AuthProvider] Wallet status set:', !!authData?.hasSmartWallet || !!authData?.hasClassicWallet);
-          console.log('[AuthProvider] Recent activity status:', !!authData?.isRecentlyActive);
-
-          // Update last active time only after successful initialization
-          try {
-            await updateLastActive();
-          } catch (activityError) {
-            console.warn('[AuthProvider] Failed to update activity:', activityError);
-            // Continue even if activity update fails
-          }
-        } catch (authError) {
-          console.error('[AuthProvider] Auth check failed:', authError);
-          setHasWallet(false);
-          setIsRecentlyActive(false);
-        }
+        // Then check wallet status and inactivity
+        await Promise.all([checkAuth(), checkInactivity()]);
       } catch (error) {
         console.error('[AuthProvider] Error during initialization:', error);
         setHasWallet(false);
-        setIsRecentlyActive(false);
+        setIsAuthenticated(false);
+        setError('Initialization failed');
       } finally {
         console.log('[AuthProvider] Initialization complete');
-        setIsLoading(false);
+        setLoading(false);
         setAppIsReady(true);
       }
     };
@@ -89,16 +134,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [appIsReady]);
 
-  const updateActivity = async () => {
+  const checkAuth = async () => {
     try {
-      await updateLastActive();
-      setIsRecentlyActive(true);
-    } catch (error) {
-      console.warn('[AuthProvider] Failed to update activity:', error);
+      setLoading(true);
+      setError(null);
+
+      // Check if we have a stored wallet
+      const wallet = await getStoredWallet();
+      const hasClassicWallet = !!wallet;
+
+      setHasWallet(hasClassicWallet);
+      
+      // Only set authenticated if we have a wallet and are within activity timeout
+      if (hasClassicWallet) {
+        const lastActiveStr = await SecureStore.getItemAsync(LAST_ACTIVE_KEY);
+        const isActive = lastActiveStr ? (Date.now() - parseInt(lastActiveStr, 10)) <= INACTIVITY_TIMEOUT : false;
+        setIsAuthenticated(isActive);
+        
+        if (isActive) {
+          await updateLastActive();
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+      
+      console.log('[AuthProvider] Wallet status set:', hasClassicWallet);
+    } catch (err) {
+      console.error('[AuthProvider] Auth check failed:', err);
+      setError('Failed to check authentication status');
+      setIsAuthenticated(false);
+      setHasWallet(false);
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (isLoading || !cryptoInitialized || !appIsReady) {
+  const signOut = async () => {
+    try {
+      setLoading(true);
+      // Clear activity timestamp
+      await SecureStore.deleteItemAsync(LAST_ACTIVE_KEY);
+      
+      // Don't clear wallet data, just set authenticated to false
+      setIsAuthenticated(false);
+    } catch (err) {
+      console.error('[AuthProvider] Sign out failed:', err);
+      setError('Failed to sign out');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading || !cryptoInitialized || !appIsReady) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
         <ActivityIndicator size="large" color="#3b82f6" />
@@ -107,22 +194,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ 
-      isLoading, 
-      hasWallet, 
-      isRecentlyActive,
-      cryptoInitialized, 
-      updateActivity 
-    }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated,
+        hasWallet,
+        loading,
+        error,
+        cryptoInitialized,
+        checkAuth,
+        signOut,
+        updateLastActive
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-} 
+}; 

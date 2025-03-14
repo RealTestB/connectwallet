@@ -1,140 +1,132 @@
-import { createClient, User, AuthResponse, Provider, Session } from '@supabase/supabase-js';
+import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
-import { checkLastActive } from '../utils/activity';
 
-export interface AuthState {
-  user: User | null;
-  session: {
-    access_token: string;
-    refresh_token: string;
-    expires_at: number;
-  } | null;
+export interface AuthData {
+  isAuthenticated: boolean;
+  hasWallet: boolean;
+  walletAddress: string | null;
 }
-
-export interface SignUpData {
-  email: string;
-  password: string;
-  username?: string;
-}
-
-export interface SignInData {
-  email: string;
-  password: string;
-}
-
-export interface ResetPasswordData {
-  email: string;
-}
-
-export interface UpdatePasswordData {
-  password: string;
-}
-
-export interface OAuthProvider {
-  provider: Provider;
-  options?: {
-    redirectTo?: string;
-    scopes?: string;
-  };
-}
-
-const supabase = createClient(config.supabase.url, config.supabase.anonKey);
 
 /**
- * Initialize auth state from storage
+ * Check authentication status
  */
-export const initializeAuth = async (): Promise<AuthState> => {
+export const checkAuth = async (): Promise<AuthData> => {
+  console.log('[AuthApi] Checking authentication status');
   try {
-    const session = await SecureStore.getItemAsync('session');
-    const user = await SecureStore.getItemAsync('user');
+    const [privateKey, walletAddress] = await Promise.all([
+      SecureStore.getItemAsync('privateKey'),
+      SecureStore.getItemAsync('walletAddress')
+    ]);
+
+    const hasWallet = !!(privateKey && walletAddress);
+    const isAuthenticated = hasWallet;
+
+    console.log('[AuthApi] Auth check result:', {
+      isAuthenticated,
+      hasWallet,
+      walletAddress: walletAddress || null
+    });
 
     return {
-      session: session ? JSON.parse(session) : null,
-      user: user ? JSON.parse(user) : null
+      isAuthenticated,
+      hasWallet,
+      walletAddress: walletAddress || null
     };
   } catch (error) {
-    console.error('Error initializing auth:', error);
-    return { user: null, session: null };
+    console.error('[AuthApi] Error checking auth:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to check authentication status');
   }
 };
 
 /**
- * Sign up with email and password
+ * Create a new wallet
  */
-export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
+export const createWallet = async (password: string): Promise<string> => {
+  console.log('[AuthApi] Creating new wallet');
   try {
-    const { email, password, username } = data;
-    const response = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          username
-        }
-      }
+    const wallet = ethers.Wallet.createRandom();
+    console.log('[AuthApi] Generated new wallet address:', wallet.address);
+
+    await Promise.all([
+      SecureStore.setItemAsync('privateKey', wallet.privateKey),
+      SecureStore.setItemAsync('walletAddress', wallet.address),
+      SecureStore.setItemAsync('walletPassword', password)
+    ]);
+
+    console.log('[AuthApi] Wallet credentials stored securely');
+    return wallet.address;
+  } catch (error) {
+    console.error('[AuthApi] Error creating wallet:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
+    throw new Error('Failed to create wallet');
+  }
+};
 
-    if (response.error) throw response.error;
+/**
+ * Import an existing wallet
+ */
+export const importWallet = async (privateKey: string, password: string): Promise<string> => {
+  console.log('[AuthApi] Importing wallet');
+  try {
+    const wallet = new ethers.Wallet(privateKey);
+    console.log('[AuthApi] Imported wallet address:', wallet.address);
 
-    if (response.data.user && response.data.session) {
-      await Promise.all([
-        SecureStore.setItemAsync('user', JSON.stringify(response.data.user)),
-        SecureStore.setItemAsync('session', JSON.stringify(response.data.session))
-      ]);
+    await Promise.all([
+      SecureStore.setItemAsync('privateKey', wallet.privateKey),
+      SecureStore.setItemAsync('walletAddress', wallet.address),
+      SecureStore.setItemAsync('walletPassword', password)
+    ]);
+
+    console.log('[AuthApi] Wallet credentials stored securely');
+    return wallet.address;
+  } catch (error) {
+    console.error('[AuthApi] Error importing wallet:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to import wallet');
+  }
+};
+
+/**
+ * Sign in to an existing wallet
+ */
+export const signIn = async (password: string): Promise<AuthData> => {
+  console.log('[AuthApi] Signing in');
+  try {
+    const storedPassword = await SecureStore.getItemAsync('walletPassword');
+    if (!storedPassword || storedPassword !== password) {
+      console.error('[AuthApi] Invalid password');
+      throw new Error('Invalid password');
     }
 
-    return response;
-  } catch (error) {
-    console.error('Error signing up:', error);
-    throw error;
-  }
-};
+    const [privateKey, walletAddress] = await Promise.all([
+      SecureStore.getItemAsync('privateKey'),
+      SecureStore.getItemAsync('walletAddress')
+    ]);
 
-/**
- * Sign in with email and password
- */
-export const signIn = async (data: SignInData): Promise<AuthResponse> => {
-  try {
-    const { email, password } = data;
-    const response = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-
-    if (response.error) throw response.error;
-
-    if (response.data.user && response.data.session) {
-      await Promise.all([
-        SecureStore.setItemAsync('user', JSON.stringify(response.data.user)),
-        SecureStore.setItemAsync('session', JSON.stringify(response.data.session))
-      ]);
+    if (!privateKey || !walletAddress) {
+      console.error('[AuthApi] Wallet credentials not found');
+      throw new Error('Wallet credentials not found');
     }
 
-    return response;
+    console.log('[AuthApi] Sign in successful');
+    return {
+      isAuthenticated: true,
+      hasWallet: true,
+      walletAddress
+    };
   } catch (error) {
-    console.error('Error signing in:', error);
-    throw error;
-  }
-};
-
-/**
- * Sign in with OAuth provider
- */
-export const signInWithOAuth = async (data: OAuthProvider): Promise<{ data: { provider: Provider; url: string }; error: null } | { data: { provider: Provider; url: string }; error: Error }> => {
-  try {
-    const response = await supabase.auth.signInWithOAuth({
-      provider: data.provider,
-      options: data.options
+    console.error('[AuthApi] Error signing in:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
-
-    if (response.error) throw response.error;
-
-    // Note: OAuth sign-in is handled by the browser/native auth flow
-    // The user and session will be set after the OAuth redirect
-    return response;
-  } catch (error) {
-    console.error('Error signing in with OAuth:', error);
     throw error;
   }
 };
@@ -143,137 +135,19 @@ export const signInWithOAuth = async (data: OAuthProvider): Promise<{ data: { pr
  * Sign out
  */
 export const signOut = async (): Promise<void> => {
+  console.log('[AuthApi] Signing out');
   try {
-    const response = await supabase.auth.signOut();
-    if (response.error) throw response.error;
-
     await Promise.all([
-      SecureStore.deleteItemAsync('user'),
-      SecureStore.deleteItemAsync('session')
+      SecureStore.deleteItemAsync('privateKey'),
+      SecureStore.deleteItemAsync('walletAddress'),
+      SecureStore.deleteItemAsync('walletPassword')
     ]);
+    console.log('[AuthApi] Sign out successful');
   } catch (error) {
-    console.error('Error signing out:', error);
-    throw error;
-  }
-};
-
-/**
- * Reset password
- */
-export const resetPassword = async (data: ResetPasswordData): Promise<void> => {
-  try {
-    const response = await supabase.auth.resetPasswordForEmail(data.email, {
-      redirectTo: 'com.concordianova.connectwallet://reset-password'
+    console.error('[AuthApi] Error signing out:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
-
-    if (response.error) throw response.error;
-  } catch (error) {
-    console.error('Error resetting password:', error);
-    throw error;
-  }
-};
-
-/**
- * Update password
- */
-export const updatePassword = async (data: UpdatePasswordData): Promise<void> => {
-  try {
-    const response = await supabase.auth.updateUser({
-      password: data.password
-    });
-
-    if (response.error) throw response.error;
-  } catch (error) {
-    console.error('Error updating password:', error);
-    throw error;
-  }
-};
-
-/**
- * Get current session
- */
-export const getSession = async (): Promise<AuthState['session']> => {
-  try {
-    const session = await SecureStore.getItemAsync('session');
-    return session ? JSON.parse(session) : null;
-  } catch (error) {
-    console.error('Error getting session:', error);
-    return null;
-  }
-};
-
-/**
- * Get current user
- */
-export const getUser = async (): Promise<AuthState['user']> => {
-  try {
-    const user = await SecureStore.getItemAsync('user');
-    return user ? JSON.parse(user) : null;
-  } catch (error) {
-    console.error('Error getting user:', error);
-    return null;
-  }
-};
-
-/**
- * Refresh session
- */
-export const refreshSession = async (): Promise<AuthResponse> => {
-  try {
-    const session = await getSession();
-    if (!session?.refresh_token) {
-      throw new Error('No refresh token available');
-    }
-
-    const response = await supabase.auth.refreshSession({
-      refresh_token: session.refresh_token
-    });
-
-    if (response.error) throw response.error;
-
-    if (response.data.user && response.data.session) {
-      await Promise.all([
-        SecureStore.setItemAsync('user', JSON.stringify(response.data.user)),
-        SecureStore.setItemAsync('session', JSON.stringify(response.data.session))
-      ]);
-    }
-
-    return response;
-  } catch (error) {
-    console.error('Error refreshing session:', error);
-    throw error;
-  }
-};
-
-/**
- * Check if user has a wallet and is recently active
- */
-export const authenticateUser = async (): Promise<{ 
-  hasSmartWallet: boolean; 
-  hasClassicWallet: boolean;
-  isRecentlyActive: boolean;
-}> => {
-  try {
-    // Check for wallet address and type
-    const walletAddress = await SecureStore.getItemAsync('walletAddress');
-    const walletType = await SecureStore.getItemAsync('walletType');
-    const privateKey = await SecureStore.getItemAsync('walletPrivateKey');
-    const accountConfig = await SecureStore.getItemAsync('accountConfig');
-
-    // Check if user was active in last 30 minutes
-    const isRecentlyActive = await checkLastActive(30);
-
-    return {
-      hasSmartWallet: !!(walletAddress && walletType === 'smart' && accountConfig),
-      hasClassicWallet: !!(walletAddress && (walletType === 'classic' || privateKey)),
-      isRecentlyActive
-    };
-  } catch (error) {
-    console.error('Error checking wallet status:', error);
-    return { 
-      hasSmartWallet: false, 
-      hasClassicWallet: false,
-      isRecentlyActive: false
-    };
+    throw new Error('Failed to sign out');
   }
 }; 

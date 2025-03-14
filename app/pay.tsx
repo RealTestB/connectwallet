@@ -23,7 +23,6 @@ import { RootStackParamList } from "../navigation/types";
 interface Account {
   address: string;
   name?: string;
-  type: 'classic' | 'smart';
   chainId?: number;
 }
 
@@ -40,7 +39,6 @@ interface TransactionParams {
   amount: string;
   token: string;
   networkId: number;
-  walletType: 'classic' | 'smart';
 }
 
 export interface ExtendedTransactionRequest extends TransactionRequest {
@@ -60,7 +58,6 @@ export default function Pay(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [networkId, setNetworkId] = useState<Network>(Network.ETH_MAINNET);
-  const [walletType, setWalletType] = useState<'classic' | 'smart' | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [alchemy, setAlchemy] = useState<Alchemy | null>(null);
 
@@ -85,7 +82,6 @@ export default function Pay(): JSX.Element {
     try {
       const storedWallet = await SecureStore.getItemAsync("walletAddress");
       const storedNetwork = await SecureStore.getItemAsync("networkId");
-      const storedWalletType = await SecureStore.getItemAsync("walletType") as 'classic' | 'smart' | null;
 
       if (storedWallet) setWalletAddress(storedWallet);
       if (storedNetwork) {
@@ -98,9 +94,8 @@ export default function Pay(): JSX.Element {
         };
         setNetworkId(networkMap[storedNetwork] || Network.ETH_MAINNET);
       }
-      if (storedWalletType) setWalletType(storedWalletType);
 
-      if (storedWallet && storedWalletType) {
+      if (storedWallet) {
         const balances = await getTokenBalances(storedWallet);
         if (!balances || 'error' in balances) {
           throw new Error(balances?.error?.toString() || "Failed to fetch token balances");
@@ -135,11 +130,6 @@ export default function Pay(): JSX.Element {
       return;
     }
 
-    if (!walletType) {
-      setError("Wallet type not found.");
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
     
@@ -168,8 +158,7 @@ export default function Pay(): JSX.Element {
         to: validationResult.address || recipient,
         value: amount, // Amount in ETH
         chainId: networkId as unknown as number,
-        from: walletAddress,
-        walletType
+        from: walletAddress
       };
 
       // Get gas estimate

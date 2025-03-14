@@ -1,153 +1,184 @@
 import { Alchemy, Network } from 'alchemy-sdk';
-import type { NftMetadataResponse } from 'alchemy-sdk';
 import { ethers } from 'ethers';
-import { WalletKit } from '@reown/walletkit';
-import { Core } from '@walletconnect/core';
 import * as SecureStore from 'expo-secure-store';
-import { getAlchemyInstance, getProvider } from './alchemyApi';
 import config from './config';
-import { getWalletKit } from './walletApi';
+import { getProvider } from './provider';
 
-export interface NFTMetadata {
-  name: string;
-  description: string;
-  image: string;
-  attributes?: Array<{
-    trait_type: string;
-    value: string | number;
-  }>;
-  external_url?: string;
-  animation_url?: string;
+export interface NFTAttribute {
+  trait_type: string;
+  value: string | number;
 }
 
 export interface NFT {
-  id: string;
-  contract: {
-    address: string;
-    name?: string;
-    symbol?: string;
-  };
+  contractAddress: string;
   tokenId: string;
-  title: string;
+  name: string;
   description: string;
-  metadata: NFTMetadata;
-  media: Array<{
+  image: string;
+  attributes: NFTAttribute[];
+  contract?: {
+    address: string;
+  };
+  title?: string;
+  metadata?: {
+    name: string;
+    description: string;
+    image: string;
+    attributes: NFTAttribute[];
+    external_url?: string;
+    animation_url?: string;
+  };
+  media?: Array<{
     gateway: string;
-    raw: string;
   }>;
 }
 
-export interface NFTsResponse {
-  ownedNfts: NFT[];
-  totalCount: number;
-  pageKey?: string;
-}
+let alchemyInstance: Alchemy | null = null;
 
-let walletKitInstance: Awaited<ReturnType<typeof WalletKit.init>> | null = null;
+const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => {
+  if (!alchemyInstance) {
+    alchemyInstance = new Alchemy({
+      apiKey: config.alchemy.mainnetKey,
+      network
+    });
+  }
+  return alchemyInstance;
+};
 
 /**
- * Fetch NFTs owned by an address
+ * Get NFTs owned by an address
  */
-export const getNFTs = async (
-  address: string,
-  pageKey?: string,
-  pageSize: number = 100
-): Promise<NFTsResponse> => {
+export const getOwnedNFTs = async (ownerAddress: string): Promise<NFT[]> => {
+  console.log('[NFTsApi] Getting owned NFTs for address:', ownerAddress);
   try {
     const alchemy = getAlchemyInstance();
-    const response = await alchemy.nft.getNftsForOwner(address, {
-      pageKey,
-      pageSize,
-      omitMetadata: false
-    });
+    const nfts = await alchemy.nft.getNftsForOwner(ownerAddress);
+    
+    const formattedNFTs = nfts.ownedNfts.map(nft => ({
+      contractAddress: nft.contract.address,
+      tokenId: nft.tokenId,
+      name: nft.title || 'Untitled NFT',
+      description: nft.description || '',
+      image: nft.media[0]?.gateway || '',
+      attributes: nft.rawMetadata?.attributes || [],
+      contract: nft.contract,
+      title: nft.title,
+      metadata: {
+        name: nft.rawMetadata?.name || nft.title || 'Untitled NFT',
+        description: nft.rawMetadata?.description || nft.description || '',
+        image: nft.rawMetadata?.image || nft.media[0]?.gateway || '',
+        attributes: nft.rawMetadata?.attributes || [],
+        external_url: nft.rawMetadata?.external_url,
+        animation_url: nft.rawMetadata?.animation_url
+      },
+      media: nft.media
+    }));
 
-    return {
-      ownedNfts: response.ownedNfts.map(nft => ({
-        ...nft,
-        id: `${nft.contract.address}-${nft.tokenId}`,
-        metadata: {
-          name: nft.rawMetadata?.name || nft.title,
-          description: nft.rawMetadata?.description || nft.description,
-          image: nft.rawMetadata?.image || nft.media[0]?.gateway || '',
-          attributes: nft.rawMetadata?.attributes,
-          external_url: nft.rawMetadata?.external_url,
-          animation_url: nft.rawMetadata?.animation_url
-        }
-      })),
-      totalCount: response.totalCount,
-      pageKey: response.pageKey
-    };
+    console.log('[NFTsApi] Found NFTs:', formattedNFTs.length);
+    return formattedNFTs;
   } catch (error) {
-    console.error('Failed to fetch NFTs:', {
-      address,
-      pageKey,
-      pageSize,
+    console.error('[NFTsApi] Error getting owned NFTs:', {
+      ownerAddress,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw error;
+    throw new Error('Failed to get owned NFTs');
   }
 };
 
 /**
  * Get NFT metadata
  */
-export const getNFTMetadata = async (
-  contractAddress: string,
-  tokenId: string
-): Promise<NFT> => {
+export const getNFTMetadata = async (contractAddress: string, tokenId: string): Promise<NFT> => {
+  console.log('[NFTsApi] Getting NFT metadata:', { contractAddress, tokenId });
   try {
     const alchemy = getAlchemyInstance();
     const nft = await alchemy.nft.getNftMetadata(contractAddress, tokenId);
-
-    return {
-      ...nft,
-      id: `${contractAddress}-${tokenId}`,
+    
+    const formattedNFT: NFT = {
+      contractAddress: nft.contract.address,
+      tokenId: nft.tokenId,
+      name: nft.title || 'Untitled NFT',
+      description: nft.description || '',
+      image: nft.media[0]?.gateway || '',
+      attributes: nft.rawMetadata?.attributes || [],
+      contract: nft.contract,
+      title: nft.title,
       metadata: {
-        name: nft.rawMetadata?.name || nft.title,
-        description: nft.rawMetadata?.description || nft.description,
+        name: nft.rawMetadata?.name || nft.title || 'Untitled NFT',
+        description: nft.rawMetadata?.description || nft.description || '',
         image: nft.rawMetadata?.image || nft.media[0]?.gateway || '',
-        attributes: nft.rawMetadata?.attributes,
+        attributes: nft.rawMetadata?.attributes || [],
         external_url: nft.rawMetadata?.external_url,
         animation_url: nft.rawMetadata?.animation_url
-      }
+      },
+      media: nft.media
     };
+
+    console.log('[NFTsApi] Found NFT metadata');
+    return formattedNFT;
   } catch (error) {
-    console.error('Failed to fetch NFT metadata:', {
+    console.error('[NFTsApi] Error getting NFT metadata:', {
       contractAddress,
       tokenId,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw error;
+    throw new Error('Failed to get NFT metadata');
   }
 };
 
 /**
  * Get NFT transfer history
  */
-export const getNFTTransfers = async (
-  address: string,
-  contractAddress?: string
-) => {
+export const getNFTTransferHistory = async (ownerAddress: string): Promise<any[]> => {
+  console.log('[NFTsApi] Getting NFT transfer history for address:', ownerAddress);
   try {
     const alchemy = getAlchemyInstance();
-    const response = await alchemy.core.getAssetTransfers({
-      fromAddress: address,
-      category: ['erc721', 'erc1155'],
-      withMetadata: true,
-      contractAddresses: contractAddress ? [contractAddress] : undefined
+    const transfers = await alchemy.core.getAssetTransfers({
+      fromAddress: ownerAddress,
+      category: ['ERC721', 'ERC1155']
     });
-
-    return response.transfers;
+    
+    console.log('[NFTsApi] Found transfers:', transfers.transfers.length);
+    return transfers.transfers;
   } catch (error) {
-    console.error('Failed to fetch NFT transfers:', {
-      address,
-      contractAddress,
+    console.error('[NFTsApi] Error getting NFT transfer history:', {
+      ownerAddress,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw error;
+    throw new Error('Failed to get NFT transfer history');
+  }
+};
+
+/**
+ * Verify NFT ownership
+ */
+export const verifyNFTOwnership = async (contractAddress: string, tokenId: string, ownerAddress: string): Promise<boolean> => {
+  console.log('[NFTsApi] Verifying NFT ownership:', { contractAddress, tokenId, ownerAddress });
+  try {
+    const alchemy = getAlchemyInstance();
+    const nfts = await alchemy.nft.getNftsForOwner(ownerAddress, {
+      contractAddresses: [contractAddress]
+    });
+    
+    const isOwner = nfts.ownedNfts.some(nft => 
+      nft.tokenId === tokenId && 
+      nft.contract.address.toLowerCase() === contractAddress.toLowerCase()
+    );
+    
+    console.log('[NFTsApi] Ownership verification result:', { isOwner });
+    return isOwner;
+  } catch (error) {
+    console.error('[NFTsApi] Error verifying NFT ownership:', {
+      contractAddress,
+      tokenId,
+      ownerAddress,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to verify NFT ownership');
   }
 };
 
@@ -176,37 +207,29 @@ export const estimateNFTTransferGas = async (
   contractAddress: string,
   tokenId: string,
   fromAddress: string,
-  toAddress: string,
-  walletType: 'classic' | 'smart'
+  toAddress: string
 ) => {
   try {
-    if (walletType === 'smart') {
-      const walletKit = await getWalletKit();
-      // Smart wallet gas estimation logic here
-      throw new Error('Smart wallet gas estimation not implemented yet');
-    } else {
-      const provider = getProvider();
-      const nftContract = new ethers.Contract(
-        contractAddress,
-        ['function transferFrom(address from, address to, uint256 tokenId)'],
-        provider
-      );
+    const provider = getProvider();
+    const nftContract = new ethers.Contract(
+      contractAddress,
+      ['function transferFrom(address from, address to, uint256 tokenId)'],
+      provider
+    );
 
-      const gasEstimate = await nftContract.transferFrom.estimateGas(
-        fromAddress,
-        toAddress,
-        tokenId
-      );
+    const gasEstimate = await nftContract.transferFrom.estimateGas(
+      fromAddress,
+      toAddress,
+      tokenId
+    );
 
-      return gasEstimate;
-    }
+    return gasEstimate;
   } catch (error) {
     console.error('Failed to estimate NFT transfer gas:', {
       contractAddress,
       tokenId,
       fromAddress,
       toAddress,
-      walletType,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });

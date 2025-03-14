@@ -15,35 +15,43 @@ import { RootStackParamList } from '../navigation/types';
 import { isAddress } from 'ethers';
 import { estimateNFTTransferGas, transferNFT } from '../api/nftTransactionsApi';
 import * as SecureStore from 'expo-secure-store';
+import config from '../api/config';
+import { useLocalSearchParams } from 'expo-router';
 
 type SendNFTScreenRouteProp = RouteProp<RootStackParamList, 'send-nft'>;
+
+const truncateAddress = (address: string): string => {
+  if (!address) return '';
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+};
 
 export default function SendNFTScreen(): JSX.Element {
   const navigation = useNavigation();
   const route = useRoute<SendNFTScreenRouteProp>();
   const { nft } = route.params;
+  const { contractAddress, tokenId } = useLocalSearchParams<{ contractAddress: string; tokenId: string }>();
 
   const [recipientAddress, setRecipientAddress] = useState('');
+  const [fromAddress, setFromAddress] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [gasEstimate, setGasEstimate] = useState<string | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [walletType, setWalletType] = useState<'classic' | 'smart'>('classic');
 
   useEffect(() => {
-    // Load wallet type from secure storage
-    const loadWalletType = async () => {
+    // Load wallet address
+    const loadWalletAddress = async () => {
       try {
-        const type = await SecureStore.getItemAsync('walletType');
-        if (type === 'classic' || type === 'smart') {
-          setWalletType(type);
+        const address = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses);
+        if (address) {
+          setFromAddress(address);
         }
       } catch (err) {
-        console.error('Error loading wallet type:', err);
+        console.error('Error loading wallet address:', err);
       }
     };
 
-    loadWalletType();
+    loadWalletAddress();
   }, []);
 
   const validateAddress = (address: string): boolean => {
@@ -54,17 +62,11 @@ export default function SendNFTScreen(): JSX.Element {
     try {
       if (!validateAddress(toAddress)) return;
 
-      const walletAddress = await SecureStore.getItemAsync('walletAddress');
-      if (!walletAddress) {
-        throw new Error('Wallet address not found');
-      }
-
       const estimate = await estimateNFTTransferGas({
-        contractAddress: nft.contractAddress,
-        tokenId: nft.tokenId,
+        contractAddress,
+        tokenId,
         toAddress,
-        fromAddress: walletAddress,
-        walletType,
+        fromAddress,
       });
 
       setGasEstimate(estimate);
@@ -87,17 +89,11 @@ export default function SendNFTScreen(): JSX.Element {
     setError(null);
 
     try {
-      const walletAddress = await SecureStore.getItemAsync('walletAddress');
-      if (!walletAddress) {
-        throw new Error('Wallet address not found');
-      }
-
       const txHash = await transferNFT({
-        contractAddress: nft.contractAddress,
-        tokenId: nft.tokenId,
+        contractAddress,
+        tokenId,
         toAddress: recipientAddress,
-        fromAddress: walletAddress,
-        walletType,
+        fromAddress,
       });
 
       setTransactionStatus('success');
@@ -136,6 +132,12 @@ export default function SendNFTScreen(): JSX.Element {
         <Text style={styles.title}>Send NFT</Text>
       </View>
 
+      <View style={styles.walletInfo}>
+        <Text style={styles.walletLabel}>From</Text>
+        <Text style={styles.walletAddress}>{truncateAddress(fromAddress)}</Text>
+        <Text style={styles.walletType}>Classic Wallet</Text>
+      </View>
+
       <View style={styles.nftInfo}>
         <Image
           source={{ uri: nft.image }}
@@ -146,9 +148,6 @@ export default function SendNFTScreen(): JSX.Element {
         {nft.collection && (
           <Text style={styles.collectionName}>{nft.collection}</Text>
         )}
-        <Text style={styles.walletType}>
-          {walletType === 'classic' ? 'Classic Wallet' : 'Smart Wallet'}
-        </Text>
       </View>
 
       <View style={styles.form}>
@@ -227,6 +226,28 @@ const styles = StyleSheet.create({
     color: 'white',
     flex: 1,
   },
+  walletInfo: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  walletLabel: {
+    fontSize: 16,
+    color: '#6A9EFF',
+    marginBottom: 8,
+  },
+  walletAddress: {
+    fontSize: 16,
+    color: 'white',
+    marginBottom: 8,
+  },
+  walletType: {
+    fontSize: 14,
+    color: '#6A9EFF',
+    backgroundColor: 'rgba(106, 158, 255, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
   nftInfo: {
     alignItems: 'center',
     padding: 20,
@@ -246,15 +267,7 @@ const styles = StyleSheet.create({
   collectionName: {
     fontSize: 16,
     color: '#6A9EFF',
-    marginBottom: 8,
-  },
-  walletType: {
-    fontSize: 14,
-    color: '#6A9EFF',
-    backgroundColor: 'rgba(106, 158, 255, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 8,
+    marginBottom: 24,
   },
   form: {
     padding: 20,
@@ -275,51 +288,45 @@ const styles = StyleSheet.create({
   gasEstimate: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
+    alignItems: 'center',
+    marginBottom: 16,
   },
   gasLabel: {
+    fontSize: 14,
     color: '#6A9EFF',
-    fontSize: 16,
   },
   gasAmount: {
+    fontSize: 14,
     color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 14,
+    marginBottom: 16,
   },
   sendButton: {
-    backgroundColor: '#2563EB',
+    backgroundColor: '#3b82f6',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
   },
   buttonDisabled: {
-    backgroundColor: '#2563EB80',
+    opacity: 0.5,
   },
   sendButtonText: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  errorText: {
-    color: '#FF4B4B',
-    marginBottom: 16,
-    fontSize: 14,
+    fontSize: 18,
+    fontWeight: '600',
   },
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 16,
-    padding: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 8,
   },
   statusText: {
     color: '#6A9EFF',
     marginLeft: 8,
-    fontSize: 14,
   },
 }); 

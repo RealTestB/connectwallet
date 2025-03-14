@@ -16,7 +16,6 @@ import { Network } from "alchemy-sdk";
 interface Account {
   address: string;
   name?: string;
-  type: 'classic' | 'smart';
   chainId?: number;
 }
 
@@ -33,7 +32,6 @@ export default function TransactionHistoryScreen(): JSX.Element {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [networkId, setNetworkId] = useState<Network>(Network.ETH_MAINNET);
-  const [walletType, setWalletType] = useState<'classic' | 'smart' | null>(null);
 
   useEffect(() => {
     loadWalletData();
@@ -51,16 +49,12 @@ export default function TransactionHistoryScreen(): JSX.Element {
       };
       setNetworkId(networkMap[account.chainId] || Network.ETH_MAINNET);
     }
-    if (account.type) {
-      setWalletType(account.type);
-    }
   };
 
   const loadWalletData = async (): Promise<void> => {
     try {
       const storedWalletAddress = await SecureStore.getItemAsync("walletAddress");
       const storedNetworkId = await SecureStore.getItemAsync("networkId");
-      const storedWalletType = await SecureStore.getItemAsync("walletType") as 'classic' | 'smart' | null;
 
       if (storedWalletAddress) setWalletAddress(storedWalletAddress);
       if (storedNetworkId) {
@@ -73,10 +67,9 @@ export default function TransactionHistoryScreen(): JSX.Element {
         };
         setNetworkId(networkMap[storedNetworkId] || Network.ETH_MAINNET);
       }
-      if (storedWalletType) setWalletType(storedWalletType);
 
       if (storedWalletAddress) {
-        await fetchTransactions(storedWalletAddress, networkId, storedWalletType);
+        await fetchTransactions(storedWalletAddress, networkId);
       }
     } catch (error) {
       console.error("Error loading wallet data:", error);
@@ -85,8 +78,7 @@ export default function TransactionHistoryScreen(): JSX.Element {
 
   const fetchTransactions = async (
     address: string,
-    network: Network,
-    type: 'classic' | 'smart' | null
+    network: Network
   ): Promise<void> => {
     try {
       setIsLoading(true);

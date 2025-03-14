@@ -1,9 +1,6 @@
-import { createSmartWallet } from "../api/walletApi";
 import { useNavigation } from "@react-navigation/native";
-import React, { useState } from "react";
+import React from "react";
 import {
-  ActivityIndicator,
-  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,25 +13,6 @@ type ImportWalletScreenNavigationProp = StackNavigationProp<RootStackParamList, 
 
 export default function ImportWalletScreen(): JSX.Element {
   const navigation = useNavigation<ImportWalletScreenNavigationProp>();
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleImportSmartWallet = async (): Promise<void> => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { address } = await createSmartWallet();
-      navigation.replace('portfolio', { 
-        walletAddress: address, 
-        walletType: 'smart' 
-      });
-    } catch (err) {
-      console.error("Smart Wallet import failed:", err);
-      setError("Failed to create Smart Wallet. Please try again.");
-      Alert.alert("Error", "Could not create a Smart Wallet.");
-    }
-    setLoading(false);
-  };
 
   const handleImportSeedPhrase = (): void => {
     navigation.navigate('create-password', {
@@ -81,22 +59,6 @@ export default function ImportWalletScreen(): JSX.Element {
       >
         <Text style={styles.importText}>🔑 Import with Private Key</Text>
       </TouchableOpacity>
-
-      {/* One-Tap Wallet Import */}
-      <TouchableOpacity
-        style={styles.importButton}
-        onPress={handleImportSmartWallet}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="white" />
-        ) : (
-          <Text style={styles.buttonText}>🚀 One-Tap Import Smart Wallet</Text>
-        )}
-      </TouchableOpacity>
-
-      {/* Error Message */}
-      {error && <Text style={styles.errorText}>{error}</Text>}
     </View>
   );
 }
@@ -149,27 +111,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 20,
   },
-  importButton: {
-    backgroundColor: "#4ADE80",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 20,
-  },
   importText: {
     fontSize: 16,
     fontWeight: "600",
     color: "white",
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "white",
-  },
-  errorText: {
-    color: "red",
-    fontSize: 14,
-    textAlign: "center",
-    marginVertical: 10,
-  },
+  }
 }); 

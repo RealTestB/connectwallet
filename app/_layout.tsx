@@ -2,13 +2,12 @@ import React, { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { AuthProvider } from "../contexts/AuthContext";
 import { SettingsProvider } from "../contexts/SettingsContext";
+import { WalletProvider } from "../contexts/WalletProvider";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import BottomNav from "../components/ui/BottomNav";
 import { usePathname, useRouter } from "expo-router";
 import { View } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
-import { AppKitProvider } from '@reown/appkit-react-native';
-import config from '../api/config';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -63,7 +62,6 @@ export default function RootLayout() {
           "confirm-seed-phrase",
           "secure-wallet",
           "wallet-created",
-          "import-wallet-success",
           "create-password",
           "seed-phrase",
           "import-success",
@@ -101,10 +99,7 @@ export default function RootLayout() {
   }
 
   return (
-    <AppKitProvider
-      projectId={config.projectIds.reown}
-      metadata={config.wallet.smart.metadata}
-    >
+    <WalletProvider>
       <AuthProvider>
         <SettingsProvider>
           <ProtectedRoute>
@@ -121,7 +116,6 @@ export default function RootLayout() {
               <Stack.Screen name="import-seed-phrase" />
               <Stack.Screen name="import-private-key" />
               <Stack.Screen name="import-success" />
-              <Stack.Screen name="import-wallet-success" />
               <Stack.Screen name="portfolio" />
               <Stack.Screen name="nft" />
               <Stack.Screen name="nft-details" />
@@ -136,7 +130,7 @@ export default function RootLayout() {
           </ProtectedRoute>
         </SettingsProvider>
       </AuthProvider>
-    </AppKitProvider>
+    </WalletProvider>
   );
 }
 

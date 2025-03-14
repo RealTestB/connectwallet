@@ -1,11 +1,8 @@
 import { Alchemy, Network, TokenBalance as AlchemyTokenBalance, TokenMetadata as AlchemyTokenMetadata } from 'alchemy-sdk';
 import { ethers } from 'ethers';
-import { WalletKit } from '@reown/walletkit';
-import { Core } from '@walletconnect/core';
 import * as SecureStore from 'expo-secure-store';
-import { getAlchemyInstance, getProvider } from './alchemyApi';
 import config from './config';
-import { getWalletKit } from './walletApi';
+import { getProvider } from './provider';
 
 export interface Token {
   address: string;
@@ -48,11 +45,9 @@ export interface TokenPrice {
 }
 
 export interface TokenTransferRequest {
-  to: string;
-  from: string;
   tokenAddress: string;
+  to: string;
   amount: string;
-  walletType: 'classic' | 'smart';
 }
 
 export interface TokenTransfer {
@@ -63,14 +58,31 @@ export interface TokenTransfer {
   timestamp: number;
 }
 
-let walletKitInstance: Awaited<ReturnType<typeof WalletKit.init>> | null = null;
+export interface TokenTransferParams {
+  contractAddress: string;
+  toAddress: string;
+  amount: string;
+  decimals: number;
+}
+
+let alchemyInstance: Alchemy | null = null;
+
+function initializeAlchemy(network: Network = Network.ETH_MAINNET): Alchemy {
+  if (!alchemyInstance) {
+    alchemyInstance = new Alchemy({
+      apiKey: config.alchemy.mainnetKey,
+      network
+    });
+  }
+  return alchemyInstance;
+}
 
 /**
  * Get token balances for an address
  */
 export const getTokenBalances = async (address: string): Promise<Token[]> => {
   try {
-    const alchemy = getAlchemyInstance();
+    const alchemy = initializeAlchemy();
     const balances = await alchemy.core.getTokenBalances(address);
     const nonZeroBalances = balances.tokenBalances.filter(
       (token: AlchemyTokenBalance) => token.tokenBalance !== '0'
@@ -126,24 +138,20 @@ export const getTokenBalances = async (address: string): Promise<Token[]> => {
 /**
  * Get token metadata
  */
-export const getTokenMetadata = async (address: string): Promise<TokenMetadata> => {
+export const getTokenMetadata = async (contractAddress: string): Promise<any> => {
+  console.log('[TokensApi] Getting token metadata:', contractAddress);
   try {
-    const alchemy = getAlchemyInstance();
-    const metadata = await alchemy.core.getTokenMetadata(address);
-    return {
-      name: metadata.name || 'Unknown Token',
-      symbol: metadata.symbol || '???',
-      decimals: metadata.decimals,
-      logo: metadata.logo,
-      isSpam: metadata.isSpam
-    };
+    const alchemy = initializeAlchemy();
+    const metadata = await alchemy.core.getTokenMetadata(contractAddress);
+    console.log('[TokensApi] Token metadata:', metadata);
+    return metadata;
   } catch (error) {
-    console.error('Failed to fetch token metadata:', {
-      address,
+    console.error('[TokensApi] Error getting token metadata:', {
+      contractAddress,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw error;
+    throw new Error('Failed to get token metadata');
   }
 };
 
@@ -195,7 +203,7 @@ export const getNativeBalance = async (
   network: Network = Network.ETH_MAINNET
 ): Promise<Token> => {
   try {
-    const alchemy = getAlchemyInstance(network);
+    const alchemy = initializeAlchemy(network);
     const balance = await alchemy.core.getBalance(address);
     const formattedBalance = ethers.formatEther(balance);
 
@@ -230,7 +238,7 @@ export const getTokenTransfers = async (
   tokenAddress?: string
 ): Promise<TokenTransfer[]> => {
   try {
-    const alchemy = getAlchemyInstance();
+    const alchemy = initializeAlchemy();
     const transfers = await alchemy.core.getAssetTransfers({
       fromAddress: address,
       category: ['erc20' as const],
@@ -263,36 +271,28 @@ export const estimateTokenTransferGas = async (
   tokenAddress: string,
   fromAddress: string,
   toAddress: string,
-  amount: string,
-  walletType: 'classic' | 'smart'
+  amount: string
 ) => {
   try {
-    if (walletType === 'smart') {
-      const walletKit = await getWalletKit();
-      // Smart wallet gas estimation logic here
-      throw new Error('Smart wallet gas estimation not implemented yet');
-    } else {
-      const provider = getProvider();
-      const tokenContract = new ethers.Contract(
-        tokenAddress,
-        ['function transfer(address to, uint256 amount)'],
-        provider
-      );
+    const provider = getProvider();
+    const tokenContract = new ethers.Contract(
+      tokenAddress,
+      ['function transfer(address to, uint256 amount)'],
+      provider
+    );
 
-      const gasEstimate = await tokenContract.transfer.estimateGas(
-        toAddress,
-        amount
-      );
+    const gasEstimate = await tokenContract.transfer.estimateGas(
+      toAddress,
+      amount
+    );
 
-      return gasEstimate;
-    }
+    return gasEstimate;
   } catch (error) {
     console.error('Failed to estimate token transfer gas:', {
       tokenAddress,
       fromAddress,
       toAddress,
       amount,
-      walletType,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
@@ -300,124 +300,73 @@ export const estimateTokenTransferGas = async (
   }
 };
 
+const ERC20_ABI = [
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function balanceOf(address owner) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)',
+  'function name() view returns (string)'
+];
+
 /**
  * Transfer tokens
  */
-export const transferToken = async (request: TokenTransferRequest): Promise<string> => {
+export const transferToken = async (params: TokenTransferParams): Promise<string> => {
+  console.log('[TokensApi] Starting token transfer:', params);
+  const provider = getProvider();
+  
   try {
-    if (request.walletType === 'classic') {
-      return await transferTokenClassicWallet(request);
-    } else {
-      return await transferTokenSmartWallet(request);
+    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+    if (!privateKey) {
+      console.error('[TokensApi] Private key not found in secure storage');
+      throw new Error('Private key not found');
     }
-  } catch (error) {
-    console.error('Failed to transfer token:', error);
-    throw error;
-  }
-};
-
-/**
- * Transfer tokens using classic wallet
- */
-const transferTokenClassicWallet = async (request: TokenTransferRequest): Promise<string> => {
-  try {
-    const provider = new ethers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`);
-    const privateKey = await SecureStore.getItemAsync('walletPrivateKey');
-    if (!privateKey) throw new Error('Private key not found');
 
     const wallet = new ethers.Wallet(privateKey, provider);
-    const tokenContract = new ethers.Contract(
-      request.tokenAddress,
-      ['function transfer(address to, uint256 amount) returns (bool)'],
-      wallet
-    );
+    console.log('[TokensApi] Created wallet instance for address:', wallet.address);
 
-    const tx = await tokenContract.transfer(request.to, request.amount);
+    const contract = new ethers.Contract(params.contractAddress, ERC20_ABI, wallet);
+    const amountInWei = ethers.parseUnits(params.amount, params.decimals);
+    
+    console.log('[TokensApi] Sending token transfer transaction');
+    const tx = await contract.transfer(params.toAddress, amountInWei);
+    console.log('[TokensApi] Transfer transaction sent:', tx.hash);
+    
     return tx.hash;
   } catch (error) {
-    console.error('Failed to transfer token with classic wallet:', error);
-    throw error;
+    console.error('[TokensApi] Transfer error:', {
+      params,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to transfer tokens');
   }
 };
 
 /**
- * Transfer tokens using smart wallet
+ * Get token balance
  */
-const transferTokenSmartWallet = async (request: TokenTransferRequest): Promise<string> => {
+export const getTokenBalance = async (contractAddress: string, ownerAddress: string): Promise<string> => {
+  console.log('[TokensApi] Getting token balance:', { contractAddress, ownerAddress });
+  const provider = getProvider();
+  
   try {
-    const walletKit = await getWalletKit();
-    const session = await getActiveSession(request.from);
-    const provider = new ethers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`);
-
-    // Create token transfer data
-    const tokenContract = new ethers.Contract(
-      request.tokenAddress,
-      ['function transfer(address to, uint256 amount) returns (bool)'],
-      provider
-    );
-    const data = tokenContract.interface.encodeFunctionData('transfer', [
-      request.to,
-      request.amount
+    const contract = new ethers.Contract(contractAddress, ERC20_ABI, provider);
+    const [balance, decimals] = await Promise.all([
+      contract.balanceOf(ownerAddress),
+      contract.decimals()
     ]);
-
-    const txHash = await new Promise<string>((resolve, reject) => {
-      walletKit.on('session_request', async (event) => {
-        const { topic, params, id } = event;
-        const { request: req } = params;
-
-        if (req.method === 'eth_sendTransaction') {
-          try {
-            const hash = await req.params[0];
-            await walletKit.respondSessionRequest({
-              topic,
-              response: {
-                id,
-                result: hash,
-                jsonrpc: '2.0'
-              }
-            });
-            resolve(hash);
-          } catch (error) {
-            reject(error);
-          }
-        }
-      });
-
-      // Send transaction through WalletKit
-      walletKit.respondSessionRequest({
-        topic: session.topic,
-        response: {
-          id: Date.now(),
-          result: {
-            to: request.tokenAddress,
-            data,
-            from: request.from
-          },
-          jsonrpc: '2.0'
-        }
-      });
-    });
-
-    return txHash;
+    
+    const formattedBalance = ethers.formatUnits(balance, decimals);
+    console.log('[TokensApi] Token balance:', formattedBalance);
+    return formattedBalance;
   } catch (error) {
-    console.error('Failed to transfer token with smart wallet:', error);
-    throw error;
+    console.error('[TokensApi] Error getting token balance:', {
+      contractAddress,
+      ownerAddress,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to get token balance');
   }
-};
-
-// Helper function to get active session for an address
-const getActiveSession = async (address: string) => {
-  const walletKit = await getWalletKit();
-  const sessions = walletKit.getActiveSessions();
-  const session = Object.values(sessions).find((s) => 
-    s.namespaces.eip155.accounts.some((account: string) => 
-      account.toLowerCase().includes(address.toLowerCase())
-    )
-  );
-  
-  if (!session) {
-    throw new Error('No active session found for address');
-  }
-  
-  return session;
 }; 

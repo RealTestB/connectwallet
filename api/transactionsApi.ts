@@ -1,11 +1,8 @@
 import { Alchemy, Network } from 'alchemy-sdk';
 import { ethers } from 'ethers';
-import { Core } from '@walletconnect/core';
-import { WalletKit } from '@reown/walletkit';
-import type { SessionTypes } from '@walletconnect/types';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
-import { getWalletKit } from './walletApi';
+import { getProvider } from './provider';
 
 export interface Transaction {
   hash: string;
@@ -68,33 +65,17 @@ export interface TransactionRequest {
   to: string;
   value: string;
   data?: string;
-  nonce?: number;
-  gasLimit?: string;
-  gasPrice?: string;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  chainId?: number;
-  from?: string;
-  walletType: 'classic' | 'smart';
 }
 
 export interface GasEstimate {
-  maxFeePerGas: string;
-  maxPriorityFeePerGas: string;
-  gasLimit: string;
-  estimatedCost: string;
+  gasLimit: bigint;
+  gasPrice: bigint;
+  maxFeePerGas?: bigint;
+  maxPriorityFeePerGas?: bigint;
 }
 
 let alchemyInstance: Alchemy | null = null;
-let walletKitInstance: Awaited<ReturnType<typeof WalletKit.init>> | null = null;
 let provider: ethers.JsonRpcProvider | null = null;
-
-const getProvider = (): ethers.JsonRpcProvider => {
-  if (!provider) {
-    provider = new ethers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`);
-  }
-  return provider;
-};
 
 const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => {
   if (!alchemyInstance) {
@@ -106,82 +87,35 @@ const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => 
   return alchemyInstance;
 };
 
-// Helper function to get active session for an address
-const getActiveSession = async (address: string): Promise<SessionTypes.Struct> => {
-  const walletKit = await getWalletKit();
-  const sessions = walletKit.getActiveSessions();
-  const session = Object.values(sessions).find((s: SessionTypes.Struct) => 
-    s.namespaces.eip155.accounts.some((account: string) => 
-      account.toLowerCase().includes(address.toLowerCase())
-    )
-  );
-  
-  if (!session) {
-    throw new Error('No active session found for address');
-  }
-  
-  return session;
-};
-
 /**
- * Get transaction history for an address
+ * Get transaction history
  */
-export const getTransactionHistory = async (
-  address: string,
-  network: Network = Network.ETH_MAINNET
-): Promise<Transaction[]> => {
+export const getTransactionHistory = async (address: string): Promise<ethers.TransactionResponse[]> => {
+  console.log('[TransactionsApi] Getting transaction history for address:', address);
   try {
-    const alchemy = getAlchemyInstance(network);
-    const response = await alchemy.core.getAssetTransfers({
-      fromAddress: address,
-      category: ['external', 'internal', 'erc20', 'erc721', 'erc1155'],
-      withMetadata: true
-    });
-
-    const transactions = await Promise.all(
-      response.transfers.map(async transfer => {
-        const tx = await alchemy.core.getTransactionReceipt(transfer.hash);
-        if (!tx) return null;
-
-        const transaction: Transaction = {
-          hash: transfer.hash,
-          from: transfer.from,
-          to: transfer.to,
-          value: transfer.value?.toString() || '0',
-          asset: transfer.asset,
-          category: transfer.category,
-          timestamp: 0, // Will be updated below
-          blockNum: parseInt(transfer.blockNum),
-          blockHash: tx.blockHash,
-          gasPrice: tx.effectiveGasPrice.toString(),
-          gasUsed: tx.gasUsed.toString(),
-          gasLimit: '0', // Will be updated below
-          nonce: 0, // Will be updated below
-          status: tx.status || 0,
-          input: '', // Will be updated below
-          contractAddress: tx.contractAddress || undefined
-        };
-
-        // Get full transaction details
-        const fullTx = await alchemy.core.getTransaction(transfer.hash);
-        if (fullTx) {
-          const block = await alchemy.core.getBlock(fullTx.blockNumber || 0);
-          transaction.timestamp = block.timestamp;
-          transaction.gasLimit = fullTx.gasLimit.toString();
-          transaction.maxFeePerGas = fullTx.maxFeePerGas?.toString();
-          transaction.maxPriorityFeePerGas = fullTx.maxPriorityFeePerGas?.toString();
-          transaction.nonce = fullTx.nonce;
-          transaction.input = fullTx.data;
-        }
-
-        return transaction;
-      })
+    const provider = getProvider();
+    const blockNumber = await provider.getBlockNumber();
+    const history = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => 
+        provider.getBlock(blockNumber - i, true)
+      )
     );
-
-    return transactions.filter((tx): tx is Transaction => tx !== null);
+    
+    const transactions = history
+      .filter((block): block is ethers.Block => block !== null)
+      .flatMap(block => block.prefetchedTransactions)
+      .filter(tx => tx.from.toLowerCase() === address.toLowerCase() || 
+                    (tx.to && tx.to.toLowerCase() === address.toLowerCase()));
+    
+    console.log('[TransactionsApi] Found transactions:', transactions.length);
+    return transactions;
   } catch (error) {
-    console.error('Failed to fetch transaction history:', error);
-    throw error;
+    console.error('[TransactionsApi] Error getting transaction history:', {
+      address,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to get transaction history');
   }
 };
 
@@ -228,163 +162,96 @@ export const getTransaction = async (
 };
 
 /**
- * Estimate gas for transaction
+ * Estimate gas for a transaction
  */
 export const estimateGas = async (request: TransactionRequest): Promise<GasEstimate> => {
+  console.log('[TransactionsApi] Estimating gas:', request);
+  const provider = getProvider();
+  
   try {
-    if (request.walletType === 'classic') {
-      return await estimateClassicWalletGas(request);
-    } else {
-      return await estimateSmartWalletGas(request);
+    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+    if (!privateKey) {
+      console.error('[TransactionsApi] Private key not found in secure storage');
+      throw new Error('Private key not found');
     }
-  } catch (error) {
-    console.error('Failed to estimate gas:', error);
-    throw error;
-  }
-};
-
-/**
- * Estimate gas for classic wallet transaction
- */
-const estimateClassicWalletGas = async (request: TransactionRequest): Promise<GasEstimate> => {
-  try {
-    const provider = getProvider();
-    const [gasEstimate, feeData] = await Promise.all([
-      provider.estimateGas(request),
-      provider.getFeeData()
-    ]);
-
-    return {
-      maxFeePerGas: feeData.maxFeePerGas?.toString() || '0',
-      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString() || '0',
-      gasLimit: gasEstimate.toString(),
-      estimatedCost: ethers.formatEther(gasEstimate * (feeData.maxFeePerGas || BigInt(0)))
-    };
-  } catch (error) {
-    console.error('Failed to estimate gas for classic wallet:', error);
-    throw error;
-  }
-};
-
-/**
- * Estimate gas for smart wallet transaction
- */
-const estimateSmartWalletGas = async (request: TransactionRequest): Promise<GasEstimate> => {
-  try {
-    const walletKit = await getWalletKit();
-    const session = await getActiveSession(request.from || '');
-
-    // Get gas estimate from WalletKit
-    const gasEstimate = await new Promise<GasEstimate>((resolve, reject) => {
-      walletKit.on('session_request', async (event) => {
-        const { topic, params, id } = event;
-        const { request: req } = params;
-
-        if (req.method === 'eth_estimateGas') {
-          try {
-            const estimate = await req.params[0];
-            const feeData = await getProvider().getFeeData();
-
-            const result: GasEstimate = {
-              maxFeePerGas: feeData.maxFeePerGas?.toString() || '0',
-              maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString() || '0',
-              gasLimit: estimate,
-              estimatedCost: ethers.formatEther(BigInt(estimate) * (feeData.maxFeePerGas || BigInt(0)))
-            };
-
-            await walletKit.respondSessionRequest({
-              topic,
-              response: {
-                id,
-                result: estimate,
-                jsonrpc: '2.0'
-              }
-            });
-
-            resolve(result);
-          } catch (error) {
-            reject(error);
-          }
-        }
-      });
-    });
-
-    return gasEstimate;
-  } catch (error) {
-    console.error('Failed to estimate gas for smart wallet:', error);
-    throw error;
-  }
-};
-
-/**
- * Send transaction
- */
-export const sendTransaction = async (request: TransactionRequest): Promise<string> => {
-  try {
-    if (request.walletType === 'classic') {
-      return await sendClassicWalletTransaction(request);
-    } else {
-      return await sendSmartWalletTransaction(request);
-    }
-  } catch (error) {
-    console.error('Failed to send transaction:', error);
-    throw error;
-  }
-};
-
-/**
- * Send transaction using classic wallet
- */
-const sendClassicWalletTransaction = async (request: TransactionRequest): Promise<string> => {
-  try {
-    const provider = getProvider();
-    const privateKey = await SecureStore.getItemAsync('walletPrivateKey');
-    if (!privateKey) throw new Error('Private key not found');
 
     const wallet = new ethers.Wallet(privateKey, provider);
-    const tx = await wallet.sendTransaction(request);
-    return tx.hash;
+    console.log('[TransactionsApi] Created wallet instance for address:', wallet.address);
+
+    const txObject = {
+      to: request.to,
+      value: ethers.parseEther(request.value),
+      data: request.data || '0x'
+    };
+    console.log('[TransactionsApi] Created transaction object for gas estimation:', txObject);
+
+    const [gasEstimate, feeData] = await Promise.all([
+      provider.estimateGas(txObject),
+      provider.getFeeData()
+    ]);
+    console.log('[TransactionsApi] Gas estimation results:', {
+      gasEstimate: gasEstimate.toString(),
+      gasPrice: feeData.gasPrice?.toString()
+    });
+
+    return {
+      gasLimit: gasEstimate,
+      gasPrice: feeData.gasPrice ?? BigInt(0),
+      maxFeePerGas: feeData.maxFeePerGas ?? undefined,
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? undefined
+    };
   } catch (error) {
-    console.error('Failed to send classic wallet transaction:', error);
-    throw error;
+    console.error('[TransactionsApi] Gas estimation error:', {
+      request,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to estimate gas');
   }
 };
 
 /**
- * Send transaction using smart wallet
+ * Send a transaction
  */
-const sendSmartWalletTransaction = async (request: TransactionRequest): Promise<string> => {
+export const sendTransaction = async (request: TransactionRequest): Promise<string> => {
+  console.log('[TransactionsApi] Starting transaction:', request);
+  const provider = getProvider();
+  
   try {
-    const walletKit = await getWalletKit();
-    const session = await getActiveSession(request.from || '');
+    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+    if (!privateKey) {
+      console.error('[TransactionsApi] Private key not found in secure storage');
+      throw new Error('Private key not found');
+    }
 
-    const txHash = await new Promise<string>((resolve, reject) => {
-      walletKit.on('session_request', async (event) => {
-        const { topic, params, id } = event;
-        const { request: req } = params;
+    const wallet = new ethers.Wallet(privateKey, provider);
+    console.log('[TransactionsApi] Created wallet instance for address:', wallet.address);
 
-        if (req.method === 'eth_sendTransaction') {
-          try {
-            const hash = await req.params[0];
-            await walletKit.respondSessionRequest({
-              topic,
-              response: {
-                id,
-                result: hash,
-                jsonrpc: '2.0'
-              }
-            });
-            resolve(hash);
-          } catch (error) {
-            reject(error);
-          }
-        }
-      });
-    });
+    const [nonce, feeData] = await Promise.all([
+      provider.getTransactionCount(wallet.address),
+      provider.getFeeData()
+    ]);
+    console.log('[TransactionsApi] Got transaction details:', { nonce, gasPrice: feeData.gasPrice?.toString() });
 
-    return txHash;
+    const transaction = {
+      to: request.to,
+      value: ethers.parseEther(request.value),
+      data: request.data || '0x',
+      nonce,
+      gasPrice: feeData.gasPrice,
+      gasLimit: ethers.parseUnits('250000', 'wei')
+    };
+    console.log('[TransactionsApi] Created transaction:', transaction);
+
+    const tx = await wallet.sendTransaction(transaction);
+    console.log('[TransactionsApi] Transaction sent:', tx.hash);
+    return tx.hash;
   } catch (error) {
-    console.error('Failed to send smart wallet transaction:', error);
-    throw error;
+    console.error('[TransactionsApi] Transaction error:', {
+      request,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error('Failed to send transaction');
   }
 }; 

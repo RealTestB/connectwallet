@@ -14,7 +14,6 @@ export interface EncryptedPrivateKey extends EncryptedData {
 
 export interface WalletData {
   address: string;
-  type: 'classic' | 'smart';
   chainId?: number;
   features?: string[];
 }

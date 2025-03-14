@@ -20,7 +20,6 @@ export default function WalletCreatedScreen(): JSX.Element {
       routes: [{ 
         name: 'portfolio',
         params: { 
-          walletType: 'smart',
           walletAddress: ''
         }
       }],

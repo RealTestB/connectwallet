@@ -32,7 +32,6 @@ interface Token {
 interface Account {
   address: string;
   name?: string;
-  type: 'classic' | 'smart';
   chainId?: number;
 }
 
@@ -47,29 +46,26 @@ export default function Portfolio(): JSX.Element {
   const [totalValue, setTotalValue] = useState<string>("0");
   const [networkId, setNetworkId] = useState<string>("1"); // Default to Ethereum mainnet
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [walletType, setWalletType] = useState<'classic' | 'smart' | null>(null);
 
   useEffect(() => {
     loadWalletData();
   }, []);
 
   useEffect(() => {
-    if (walletAddress && walletType) {
+    if (walletAddress) {
       fetchPortfolioData();
     }
-  }, [walletAddress, walletType]);
+  }, [walletAddress]);
 
   const loadWalletData = async (): Promise<void> => {
     try {
       const storedWalletAddress = await SecureStore.getItemAsync("walletAddress");
-      const storedWalletType = await SecureStore.getItemAsync("walletType") as 'classic' | 'smart' | null;
 
-      if (!storedWalletAddress || !storedWalletType) {
+      if (!storedWalletAddress) {
         throw new Error("Wallet data not found");
       }
 
       setWalletAddress(storedWalletAddress);
-      setWalletType(storedWalletType);
     } catch (error) {
       console.error("Error loading wallet data:", error);
       setError("Failed to load wallet data. Please try again.");
@@ -81,7 +77,7 @@ export default function Portfolio(): JSX.Element {
       setIsLoading(true);
       setError(null);
 
-      if (!walletAddress || !walletType) {
+      if (!walletAddress) {
         throw new Error("Wallet data not available");
       }
 
@@ -138,7 +134,6 @@ export default function Portfolio(): JSX.Element {
 
   const handleAccountChange = (account: Account): void => {
     setWalletAddress(account.address);
-    setWalletType(account.type);
     if (account.chainId) {
       setNetworkId(account.chainId.toString());
     }

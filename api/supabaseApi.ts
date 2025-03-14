@@ -25,7 +25,6 @@ export interface WalletData {
   id: string;
   user_id: string;
   address: string;
-  type: 'classic' | 'smart';
   chain_id: number;
   created_at: string;
   updated_at: string;

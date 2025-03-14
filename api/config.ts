@@ -15,8 +15,6 @@ interface ExpoManifest {
     SUPABASE_ANON_KEY?: string;
     CMC_API_KEY?: string;
     LIFI_API_KEY?: string;
-    REOWN_PROJECT_ID?: string;
-    WALLETCONNECT_PROJECT_ID?: string;
   };
   hostUri?: string;
 }
@@ -42,30 +40,12 @@ export interface WalletConfig {
     };
     derivationPath: string;
   };
-  smart: {
-    storageKeys: {
-      sessions: string;
-      accounts: string;
-    };
-    metadata: {
-      name: string;
-      description: string;
-      url: string;
-      icons: string[];
-      redirect: {
-        native: string;
-        universal: string;
-      };
-    };
-  };
 }
 
 const getExpoConfig = (): ExpoManifest['extra'] => {
   try {
     const manifest = Constants.expoConfig || Constants.manifest as ExpoManifest;
     console.log('[Config] Loading environment variables:', {
-      reownProjectId: manifest?.extra?.REOWN_PROJECT_ID ? 'Set' : 'Missing',
-      walletConnectProjectId: manifest?.extra?.WALLETCONNECT_PROJECT_ID ? 'Set' : 'Missing',
       alchemyKey: manifest?.extra?.ALCHEMY_ETH_MAINNET_KEY ? 'Set' : 'Missing',
       supabaseUrl: manifest?.extra?.SUPABASE_URL ? 'Set' : 'Missing',
       supabaseAnonKey: manifest?.extra?.SUPABASE_ANON_KEY ? 'Set' : 'Missing',
@@ -106,37 +86,6 @@ export const WALLET_CONFIG: WalletConfig = {
       addresses: 'walletAddresses'
     },
     derivationPath: "m/44'/60'/0'/0"
-  },
-  smart: {
-    storageKeys: {
-      sessions: 'smartWalletSessions',
-      accounts: 'smartWalletAccounts'
-    },
-    metadata: {
-      name: 'ConnectWallet',
-      description: 'Your secure gateway to the world of digital assets',
-      url: 'https://connectwallet.app',
-      icons: ['https://connectwallet.app/icon.png'],
-      redirect: {
-        native: 'com.concordianova.connectwallet://',
-        universal: 'https://connectwallet.app'
-      }
-    }
-  }
-};
-
-// Supported chains configuration
-export const SUPPORTED_CHAINS = {
-  mainnet: {
-    chainId: 1,
-    name: 'Ethereum Mainnet',
-    rpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${extra?.ALCHEMY_ETH_MAINNET_KEY || ''}`,
-    blockExplorerUrl: 'https://etherscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    }
   }
 };
 
@@ -167,12 +116,6 @@ const config = {
     lifiKey: extra?.LIFI_API_KEY || ''
   },
 
-  // Project IDs
-  projectIds: {
-    reown: extra?.REOWN_PROJECT_ID || '',
-    walletConnect: extra?.WALLETCONNECT_PROJECT_ID || ''
-  },
-
   // Chain configuration
   chain: CHAIN_CONFIG,
 
@@ -185,9 +128,7 @@ const validateConfig = (): void => {
   const requiredKeys: [string, string][] = [
     ['alchemy.mainnetKey', config.alchemy.mainnetKey],
     ['supabase.url', config.supabase.url],
-    ['supabase.anonKey', config.supabase.anonKey],
-    ['projectIds.reown', config.projectIds.reown],
-    ['projectIds.walletConnect', config.projectIds.walletConnect]
+    ['supabase.anonKey', config.supabase.anonKey]
   ];
 
   const missingKeys = requiredKeys
@@ -205,27 +146,9 @@ const validateConfig = (): void => {
       supabase: {
         url: config.supabase.url ? 'Set' : 'Missing',
         anonKey: config.supabase.anonKey ? 'Set' : 'Missing'
-      },
-      projectIds: {
-        reown: config.projectIds.reown ? 'Set' : 'Missing',
-        walletConnect: config.projectIds.walletConnect ? 'Set' : 'Missing'
       }
     });
     throw new Error(error);
-  }
-
-  // Validate Reown configuration specifically
-  if (!config.wallet.smart.metadata.redirect.native) {
-    console.error('[Config] Invalid Reown configuration: Missing redirect URL');
-    throw new Error('Invalid Reown configuration: Missing redirect URL');
-  }
-
-  // Validate URL format
-  try {
-    new URL(config.wallet.smart.metadata.url);
-  } catch {
-    console.error('[Config] Invalid Reown configuration: Invalid URL format');
-    throw new Error('Invalid Reown configuration: Invalid URL format');
   }
 };
 

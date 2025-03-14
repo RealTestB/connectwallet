@@ -1,10 +1,7 @@
 import 'react-native-gesture-handler';
-import { createSmartWallet } from "../api/walletApi";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React from "react";
 import {
-  ActivityIndicator,
-  Alert,
   Image,
   StyleSheet,
   Text,
@@ -15,55 +12,13 @@ import {
 
 export default function WelcomeScreen(): JSX.Element {
   const router = useRouter();
-  const [loading, setLoading] = useState<boolean>(false);
 
   const handleExistingUser = (): void => {
     Vibration.vibrate(50);
     router.push("/signin");
   };
 
-  const handleCreateSmartWallet = async (): Promise<void> => {
-    Vibration.vibrate(50);
-    setLoading(true);
-    try {
-      console.log('[Welcome] Starting smart wallet creation...');
-      const result = await createSmartWallet();
-      
-      if (!result || !result.address) {
-        throw new Error("Smart wallet creation failed: No address returned");
-      }
-
-      const { address, type, chainId } = result;
-      
-      console.log('[Welcome] Smart wallet created successfully:', {
-        address,
-        type,
-        chainId
-      });
-
-      // Small delay to ensure all state is properly saved
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      router.replace(`/portfolio?walletAddress=${address}&walletType=smart`);
-    } catch (error) {
-      console.error("[Welcome] Smart wallet creation failed:", {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      });
-      
-      Alert.alert(
-        "Wallet Creation Failed",
-        error instanceof Error 
-          ? error.message
-          : "Failed to create smart wallet. Please check your internet connection and try again.",
-        [{ text: "OK" }]
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateTraditional = (): void => {
+  const handleCreateWallet = (): void => {
     Vibration.vibrate(50);
     router.push('/create-password?mode=create');
   };
@@ -94,22 +49,10 @@ export default function WelcomeScreen(): JSX.Element {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, styles.smartButton]}
-          onPress={handleCreateSmartWallet}
-          disabled={loading}
+          style={[styles.button, styles.createButton]}
+          onPress={handleCreateWallet}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Create Smart Wallet</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, styles.traditionalButton]}
-          onPress={handleCreateTraditional}
-        >
-          <Text style={styles.buttonText}>Create Traditional Wallet</Text>
+          <Text style={styles.buttonText}>Create New Wallet</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -171,11 +114,8 @@ const styles = StyleSheet.create({
   signInButton: {
     backgroundColor: "#3b82f6",
   },
-  smartButton: {
+  createButton: {
     backgroundColor: "#10b981",
-  },
-  traditionalButton: {
-    backgroundColor: "#6366f1",
   },
   importButton: {
     backgroundColor: "#8b5cf6",

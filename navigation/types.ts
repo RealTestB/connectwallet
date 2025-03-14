@@ -37,7 +37,6 @@ export type RootStackParamList = {
   };
   'wallet-created': {
     walletAddress: string;
-    walletType: 'smart' | 'classic';
   };
   
   // Import Flow
@@ -50,14 +49,12 @@ export type RootStackParamList = {
   };
   'import-success': {
     walletAddress: string;
-    walletType: 'smart' | 'classic';
   };
   
   // Main App Screens
   home: undefined;
   portfolio: {
     walletAddress: string;
-    walletType: 'smart' | 'classic';
   };
   swap: undefined;
   nft: undefined;

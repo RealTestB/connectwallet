@@ -12,7 +12,6 @@ import * as SecureStore from "expo-secure-store";
 interface Account {
   address: string;
   name?: string;
-  type: 'classic' | 'smart';
   chainId?: number;
 }
 

@@ -53,7 +53,6 @@ interface NFT {
 interface Account {
   address: string;
   name?: string;
-  type: 'classic' | 'smart';
   chainId?: number;
 }
 
