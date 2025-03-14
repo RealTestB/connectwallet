@@ -1,3 +1,6 @@
+// Import console polyfill first
+import './console-polyfill';
+
 // Apply only with Expo SDK 48
 import { getRandomValues } from 'expo-crypto';
 import '@ethersproject/shims';

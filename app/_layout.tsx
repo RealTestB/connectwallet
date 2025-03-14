@@ -1,3 +1,4 @@
+import '../src/crypto-polyfill';
 import React, { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { AuthProvider } from "../contexts/AuthContext";
@@ -6,16 +7,22 @@ import { WalletProvider } from "../contexts/WalletProvider";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import BottomNav from "../components/ui/BottomNav";
 import { usePathname, useRouter } from "expo-router";
-import { View } from "react-native";
+import { View, ActivityIndicator } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
+
+export const unstable_settings = {
+  initialRouteName: 'index',
+};
 
 export default function RootLayout() {
   const [navigationReady, setNavigationReady] = useState(false);
   const [showBottomNav, setShowBottomNav] = useState(false);
   const [appIsReady, setAppIsReady] = useState(false);
+  const [initialRoute, setInitialRoute] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -23,7 +30,10 @@ export default function RootLayout() {
   useEffect(() => {
     async function prepare() {
       try {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Keep splash screen visible while we check initial route
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const route = pathname?.replace(/^\//, '') || 'index';
+        setInitialRoute(route);
       } catch (e) {
         console.warn('[Layout] Preparation error:', e);
       } finally {
@@ -33,28 +43,12 @@ export default function RootLayout() {
     prepare();
   }, []);
 
-  // Handle splash screen
-  useEffect(() => {
-    if (appIsReady) {
-      SplashScreen.hideAsync().catch(e => {
-        console.warn('[Layout] Error hiding splash screen:', e);
-      });
-    }
-  }, [appIsReady]);
-
   // Handle navigation state
   useEffect(() => {
-    let mounted = true;
+    if (!appIsReady || !initialRoute) return;
 
     const initializeNavigation = async () => {
       try {
-        console.log('[Layout] Initializing navigation with pathname:', pathname);
-
-        if (!pathname) {
-          console.log('[Layout] Pathname not available yet');
-          return;
-        }
-
         const excludedScreens = [
           "import-wallet",
           "import-private-key",
@@ -66,71 +60,192 @@ export default function RootLayout() {
           "seed-phrase",
           "import-success",
           "signin",
-          "welcome"
+          "welcome",
+          "index"
         ];
 
-        // Ensure pathname is properly formatted
-        const routeName = pathname.replace(/^\//, '');
+        const routeName = pathname?.replace(/^\//, '') || '';
+        const shouldShowNav = !excludedScreens.includes(routeName);
         
-        if (mounted) {
-          setShowBottomNav(!excludedScreens.includes(routeName));
-          setNavigationReady(true);
-          console.log('[Layout] Navigation ready, bottom nav:', !excludedScreens.includes(routeName));
+        // Only show bottom nav after navigation is ready and if we're on an allowed screen
+        setShowBottomNav(navigationReady && shouldShowNav);
+        
+        // Hide splash screen only after everything is ready
+        if (navigationReady && initialRoute) {
+          await SplashScreen.hideAsync();
         }
       } catch (error) {
-        console.error('[Layout] Error processing navigation:', error);
-        if (mounted) {
-          setShowBottomNav(false);
-          setNavigationReady(true);
-        }
+        console.error('[Layout] Error initializing navigation:', error);
+      } finally {
+        setNavigationReady(true);
       }
     };
 
     initializeNavigation();
+  }, [appIsReady, pathname, navigationReady, initialRoute]);
 
-    return () => {
-      mounted = false;
-    };
-  }, [pathname]);
-
-  if (!appIsReady || !navigationReady) {
-    console.log('[Layout] Waiting for initialization...', { appIsReady, navigationReady });
-    return null;
+  if (!appIsReady || !navigationReady || !initialRoute) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1A2F6C' }}>
+        <ActivityIndicator size="large" color="#3b82f6" />
+      </View>
+    );
   }
 
   return (
-    <WalletProvider>
-      <AuthProvider>
-        <SettingsProvider>
-          <ProtectedRoute>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="index" />
-              <Stack.Screen name="welcome" />
-              <Stack.Screen name="signin" />
-              <Stack.Screen name="create-password" />
-              <Stack.Screen name="seed-phrase" />
-              <Stack.Screen name="confirm-seed-phrase" />
-              <Stack.Screen name="secure-wallet" />
-              <Stack.Screen name="wallet-created" />
-              <Stack.Screen name="import-wallet" />
-              <Stack.Screen name="import-seed-phrase" />
-              <Stack.Screen name="import-private-key" />
-              <Stack.Screen name="import-success" />
-              <Stack.Screen name="portfolio" />
-              <Stack.Screen name="nft" />
-              <Stack.Screen name="nft-details" />
-              <Stack.Screen name="pay" />
-              <Stack.Screen name="receive" />
-              <Stack.Screen name="settings" />
-              <Stack.Screen name="swap" />
-              <Stack.Screen name="transaction-details" />
-              <Stack.Screen name="transaction-history" />
-            </Stack>
-            {showBottomNav && <BottomNav />}
-          </ProtectedRoute>
-        </SettingsProvider>
-      </AuthProvider>
-    </WalletProvider>
+    <SafeAreaProvider>
+      <WalletProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <ProtectedRoute>
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  animation: 'fade',
+                  animationDuration: 200,
+                }}
+              >
+                <Stack.Screen 
+                  name="index"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                
+                {/* Auth Group */}
+                <Stack.Screen 
+                  name="welcome"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="signin"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="create-password"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+
+                {/* Wallet Setup Group */}
+                <Stack.Screen 
+                  name="seed-phrase"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="confirm-seed-phrase"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="secure-wallet"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="wallet-created"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+
+                {/* Import Group */}
+                <Stack.Screen 
+                  name="import-wallet"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="import-seed-phrase"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="import-private-key"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="import-success"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+
+                {/* Main App Group */}
+                <Stack.Screen 
+                  name="portfolio"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="nft"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="nft-details"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="pay"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="receive"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="settings"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="swap"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="transaction-details"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen 
+                  name="transaction-history"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+              </Stack>
+              {showBottomNav && navigationReady && <BottomNav />}
+            </ProtectedRoute>
+          </SettingsProvider>
+        </AuthProvider>
+      </WalletProvider>
+    </SafeAreaProvider>
   );
 }
 

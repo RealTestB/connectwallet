@@ -16,7 +16,7 @@ interface Account {
   chainId?: number;
 }
 
-export default function ImportPrivateKeyScreen() {
+export default function Page() {
   const router = useRouter();
   const params = useLocalSearchParams<Record<string, string | string[]>>();
   const [privateKey, setPrivateKey] = useState("");
@@ -33,13 +33,21 @@ export default function ImportPrivateKeyScreen() {
   };
 
   const handlePrivateKeyChange = (value: string): void => {
-    console.log('[ImportPrivateKey] Handling private key change, input length:', value.length);
+    console.log('[ImportPrivateKey] Handling private key change, input length:', value?.length);
     
     try {
+      // Ensure value is a string and not null/undefined
+      if (!value || typeof value !== 'string') {
+        setPrivateKey("");
+        setError(null);
+        return;
+      }
+
       let cleanValue = value.trim().replace(/\s+/g, "");
       console.log('[ImportPrivateKey] Cleaned value length:', cleanValue.length);
       
-      if (cleanValue && cleanValue.toLowerCase().startsWith("0x")) {
+      // Check if cleanValue is a valid string and starts with 0x
+      if (cleanValue && typeof cleanValue === 'string' && cleanValue.toLowerCase().startsWith("0x")) {
         console.log('[ImportPrivateKey] Found 0x prefix, removing...');
         cleanValue = cleanValue.slice(2);
         console.log('[ImportPrivateKey] Value after prefix removal length:', cleanValue.length);

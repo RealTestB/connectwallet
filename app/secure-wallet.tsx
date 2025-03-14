@@ -1,12 +1,5 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Pressable,
-} from "react-native";
+import {View, Text, StyleSheet, TouchableOpacity, ScrollView, Pressable} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Checkbox from 'expo-checkbox';
 
 interface SecurityTip {
-  icon: string;
+  icon: keyof typeof Ionicons.glyphMap;
   title: string;
   description: string;
 }
@@ -26,25 +19,25 @@ export default function SecureWalletScreen() {
 
   const securityTips: SecurityTip[] = [
     {
-      icon: "shield",
+      icon: "shield-outline",
       title: "Never Share Your Secret Recovery Phrase",
       description:
         "Your recovery phrase is the key to your wallet. Never share it with anyone or store it digitally.",
     },
     {
-      icon: "lock-closed",
+      icon: "lock-closed-outline",
       title: "Keep Your Password Strong",
       description:
         "Use a unique password with mixed characters. Never reuse passwords from other accounts.",
     },
     {
-      icon: "person-circle",
+      icon: "person-circle-outline",
       title: "Be Careful of Scams",
       description:
         "Never give out your wallet credentials. Legitimate services will never ask for your private keys.",
     },
     {
-      icon: "document-text",
+      icon: "document-text-outline",
       title: "Verify All Transactions",
       description:
         "Always double-check transaction details before confirming. Make sure the amount and address are correct.",

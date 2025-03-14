@@ -1,55 +1,91 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'expo-router';
-import { useAuth } from '../contexts/AuthContext';
+import * as SecureStore from 'expo-secure-store';
+
+const SETUP_STEPS = {
+  PASSWORD_CREATED: 'password_created',
+  SEED_PHRASE_GENERATED: 'seed_phrase_generated',
+  SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
+  SETUP_COMPLETED: 'setup_completed'
+};
+
+const PUBLIC_PATHS = ['welcome', 'signin', ''];
+const SETUP_PATHS = ['create-password', 'seed-phrase', 'confirm-seed-phrase'];
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isLoading, hasWallet, isRecentlyActive } = useAuth();
-  const pathname = usePathname();
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
+  const currentPath = pathname?.replace(/^\//, '') || '';
 
   useEffect(() => {
-    if (isLoading) return;
+    let mounted = true;
 
-    const publicScreens = [
-      'welcome',
-      'signin',
-      'create-password',
-      'import-wallet',
-      'import-seed-phrase',
-      'import-private-key',
-      'import-success',
-      'import-wallet-success'
-    ];
-    const isPublicScreen = publicScreens.includes(pathname.replace('/', ''));
+    const initAuth = async () => {
+      try {
+        // Add a small delay to ensure root layout is ready
+        await new Promise(resolve => setTimeout(resolve, 100));
 
-    // If the user has no wallet, they can only access public screens
-    if (!hasWallet && !isPublicScreen) {
-      router.replace('/welcome');
-      return;
-    }
+        if (!mounted) return;
 
-    // If user has a wallet but hasn't been active recently, redirect to SignIn
-    // unless they're already on SignIn or trying to import/create a new wallet
-    if (hasWallet && !isRecentlyActive && pathname !== '/signin' && !isPublicScreen) {
-      router.replace('/signin');
-      return;
-    }
+        const setupState = await SecureStore.getItemAsync('walletSetupState');
+        const hasPassword = await SecureStore.getItemAsync('passwordHash');
+        
+        // Always allow public paths
+        if (PUBLIC_PATHS.includes(currentPath)) {
+          setIsLoading(false);
+          return;
+        }
 
-    // If user has a wallet and is recently active but tries to access public screens
-    if (hasWallet && isRecentlyActive && isPublicScreen) {
-      router.replace('/portfolio');
-      return;
-    }
+        // If we're on a setup path, allow it
+        if (SETUP_PATHS.includes(currentPath)) {
+          setIsLoading(false);
+          return;
+        }
 
-    // If user has a wallet and is on the root path
-    if (hasWallet && pathname === '/') {
-      if (isRecentlyActive) {
-        router.replace('/portfolio');
-      } else {
-        router.replace('/signin');
+        // If we're on a non-public path and have no password
+        if (!hasPassword && !PUBLIC_PATHS.includes(currentPath)) {
+          if (currentPath !== 'welcome') {
+            await router.replace('/welcome');
+          }
+          return;
+        }
+
+        // Handle incomplete setup
+        if (setupState !== SETUP_STEPS.SETUP_COMPLETED) {
+          // Navigate to appropriate setup step only if we're not already there
+          let targetPath = '/create-password';
+          if (setupState === SETUP_STEPS.PASSWORD_CREATED) {
+            targetPath = '/seed-phrase';
+          } else if (setupState === SETUP_STEPS.SEED_PHRASE_GENERATED) {
+            targetPath = '/confirm-seed-phrase';
+          }
+
+          if (currentPath !== targetPath.replace('/', '')) {
+            await router.replace(targetPath);
+          }
+          return;
+        }
+
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        if (currentPath !== 'welcome') {
+          await router.replace('/welcome');
+        }
       }
-    }
-  }, [isLoading, hasWallet, isRecentlyActive, pathname]);
+    };
+
+    initAuth();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pathname]);
+
+  if (isLoading) {
+    return null;
+  }
 
   return <>{children}</>;
 } 

@@ -1,18 +1,9 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-  ActivityIndicator,
-} from "react-native";
+import {View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,} from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
-import WalletHeader from "../components/ui/WalletHeader";
 
 interface Account {
   address: string;
@@ -71,7 +62,6 @@ export default function ImportSeedPhraseScreen() {
       colors={["#1A2F6C", "#0A1B3F"]}
       style={styles.container}
     >
-      <WalletHeader pageName="Import Seed Phrase" onAccountChange={() => {}} />
       <ScrollView style={styles.scrollView}>
         <View style={styles.stepsContainer}>
           <View style={styles.steps}>

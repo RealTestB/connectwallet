@@ -1,18 +1,18 @@
+import React, { useState } from 'react';
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
 import { StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, ActivityIndicator } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 
-export default function SignInScreen(): JSX.Element {
+export default function Page() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { checkAuth, updateLastActive } = useAuth();
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
 
   const handleSignIn = async () => {
     if (!password.trim()) {

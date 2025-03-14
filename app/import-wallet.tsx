@@ -1,17 +1,9 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Linking,
-} from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
-import WalletHeader from "../components/ui/WalletHeader";
 
 interface Account {
   address: string;
@@ -32,7 +24,6 @@ export default function ImportWalletScreen() {
       colors={["#1A2F6C", "#0A1B3F"]}
       style={styles.container}
     >
-      <WalletHeader pageName="Import Wallet" onAccountChange={handleAccountChange} />
       <ScrollView style={styles.scrollView}>
         <View style={styles.warningBox}>
           <Ionicons name="warning" size={20} color="#f87171" />
@@ -44,7 +35,7 @@ export default function ImportWalletScreen() {
         <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => router.push("/import-seed-phrase")}
+            onPress={() => router.push("/create-password?mode=new&type=import-seed")}
           >
             <View style={styles.buttonContent}>
               <Ionicons name="leaf" size={20} color="white" />

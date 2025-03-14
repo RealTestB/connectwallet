@@ -152,7 +152,7 @@ const validateConfig = (): void => {
   }
 };
 
-// Run validation in both development and production
+// Validate configuration immediately
 validateConfig();
 
 export default config; 

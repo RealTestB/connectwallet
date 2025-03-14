@@ -6,15 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  ListRenderItem,
-} from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View, ListRenderItem } from "react-native";
 import { Network } from "alchemy-sdk";
 import { RootStackParamList } from "../navigation/types";
 

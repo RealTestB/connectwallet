@@ -1,15 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  Linking,
-} from 'react-native';
+import {View, Text, StyleSheet, Image, TextInput, TouchableOpacity, ActivityIndicator, Alert, Linking} from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/types';
 import { isAddress } from 'ethers';

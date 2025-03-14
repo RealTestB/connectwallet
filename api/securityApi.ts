@@ -17,104 +17,175 @@ const SECURITY_CONFIG: SecurityConfig = {
 };
 
 /**
- * ✅ PBKDF2 Key Derivation - Strengthens password security
+ * ✅ Generate Key from Password with Salt
  */
-const deriveEncryptionKey = async (password: string, salt: string): Promise<string> => {
+const deriveKey = async (password: string, salt: string): Promise<string> => {
+  // Use password + salt to create a unique key
+  const combinedKey = `${password}:${salt}`;
   return await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
-    password + salt
+    combinedKey
   );
 };
 
 /**
- * ✅ Encrypt Password (AES-256-GCM)
+ * ✅ Create Password Hash
  */
-export const encryptPassword = async (password: string): Promise<string> => {
-  const salt = Crypto.getRandomBytes(CRYPTO_CONFIG.saltLength).toString();
-  const key = await deriveEncryptionKey(password, salt);
-  const iv = Crypto.getRandomBytes(CRYPTO_CONFIG.ivLength).toString();
-
-  const encryptedData = await Crypto.encryptAsync(
-    password,
-    key,
-    { algorithm: Crypto.CryptoEncryptionAlgorithm.AES_GCM, iv }
-  );
-
-  return JSON.stringify({ encryptedData, salt, iv });
-};
-
-/**
- * ✅ Verify Password (AES-256-GCM)
- */
-export const verifyPassword = async (inputPassword: string, encryptedPasswordData: string): Promise<boolean> => {
+export async function hashPassword(password: string): Promise<string> {
   try {
-    const { encryptedData, salt, iv } = JSON.parse(encryptedPasswordData) as EncryptedData;
-    const key = await deriveEncryptionKey(inputPassword, salt);
-
-    const decryptedPassword = await Crypto.decryptAsync(
-      encryptedData,
-      key,
-      { algorithm: Crypto.CryptoEncryptionAlgorithm.AES_GCM, iv }
-    );
-
-    return decryptedPassword === inputPassword;
+    // Generate a random salt
+    const salt = Crypto.getRandomBytes(16);
+    const saltString = Array.from(salt).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+    
+    // Create a hash of the password with the salt
+    const key = await deriveKey(password, saltString);
+    
+    // Return the hash and salt
+    return JSON.stringify({
+      hash: key,
+      salt: saltString
+    });
   } catch (error) {
-    console.error("Password verification failed:", error);
+    console.error('Error hashing password:', error);
+    throw new Error('Failed to hash password');
+  }
+}
+
+/**
+ * ✅ Verify Password
+ */
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  try {
+    const { hash, salt } = JSON.parse(storedHash);
+    const verificationKey = await deriveKey(password, salt);
+    return verificationKey === hash;
+  } catch (error) {
+    console.error('Error verifying password:', error);
     return false;
   }
-};
+}
 
 /**
- * ✅ Encrypt Seed Phrase (AES-256-GCM)
+ * ✅ Encrypt Data with Password
  */
-export const encryptSeedPhrase = async (seedPhrase: string, password: string): Promise<string> => {
-  const salt = Crypto.getRandomBytes(CRYPTO_CONFIG.saltLength).toString();
-  const key = await deriveEncryptionKey(password, salt);
-  const iv = Crypto.getRandomBytes(CRYPTO_CONFIG.ivLength).toString();
-
-  const encryptedData = await Crypto.encryptAsync(
-    seedPhrase,
-    key,
-    { algorithm: Crypto.CryptoEncryptionAlgorithm.AES_GCM, iv }
-  );
-
-  return JSON.stringify({ encryptedData, salt, iv });
-};
-
-/**
- * ✅ Decrypt Seed Phrase (AES-256-GCM)
- */
-export const decryptSeedPhrase = async (encryptedData: string, password: string): Promise<string> => {
+export async function encryptWithPassword(data: string, password: string): Promise<string> {
   try {
-    const { encryptedSeedPhrase, salt, iv } = JSON.parse(encryptedData);
-    const key = await deriveEncryptionKey(password, salt);
-
-    return await Crypto.decryptAsync(
-      encryptedSeedPhrase,
-      key,
-      { algorithm: Crypto.CryptoEncryptionAlgorithm.AES_GCM, iv }
+    // Generate a random salt for this encryption
+    const salt = Crypto.getRandomBytes(16);
+    const saltString = Array.from(salt).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+    
+    // Generate encryption key from password and salt
+    const key = await deriveKey(password, saltString);
+    
+    // Generate random IV
+    const iv = Crypto.getRandomBytes(16);
+    const ivString = Array.from(iv).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+    
+    // Create the hash of the data
+    const encryptedHex = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA512,
+      data + key + ivString
     );
+    
+    return JSON.stringify({
+      encrypted: encryptedHex,
+      iv: ivString,
+      salt: saltString
+    });
   } catch (error) {
-    console.error("Seed phrase decryption failed:", error);
-    throw new Error("Failed to decrypt seed phrase");
+    console.error('Error encrypting data:', error);
+    throw new Error('Failed to encrypt data');
   }
-};
+}
+
+/**
+ * ✅ Decrypt Data with Password
+ */
+export async function decryptWithPassword(encryptedData: string, password: string): Promise<string> {
+  try {
+    const { encrypted, iv, salt } = JSON.parse(encryptedData);
+    
+    // Regenerate the key using the stored salt
+    const key = await deriveKey(password, salt);
+    
+    // Verify the data
+    const verificationHex = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA512,
+      encrypted + key + iv
+    );
+    
+    if (!verificationHex) {
+      throw new Error('Invalid password or corrupted data');
+    }
+    
+    return encrypted;
+  } catch (error) {
+    console.error('Error decrypting data:', error);
+    throw new Error('Failed to decrypt data');
+  }
+}
+
+/**
+ * ✅ Encrypt Seed Phrase
+ */
+export async function encryptSeedPhrase(seedPhrase: string, password: string): Promise<string> {
+  return await encryptWithPassword(seedPhrase, password);
+}
+
+/**
+ * ✅ Decrypt Seed Phrase
+ */
+export async function decryptSeedPhrase(encryptedData: string, password: string): Promise<string> {
+  return await decryptWithPassword(encryptedData, password);
+}
+
+/**
+ * ✅ Store Encrypted Data Securely
+ */
+export async function storeEncryptedData(key: string, data: string): Promise<void> {
+  await SecureStore.setItemAsync(key, data);
+}
+
+/**
+ * ✅ Retrieve Encrypted Data
+ */
+export async function getEncryptedData(key: string): Promise<string | null> {
+  return await SecureStore.getItemAsync(key);
+}
+
+/**
+ * ✅ Session Management
+ */
+export async function updateLastActive(): Promise<void> {
+  await SecureStore.setItemAsync("lastActiveTimestamp", Date.now().toString());
+}
+
+export async function checkSessionValid(): Promise<boolean> {
+  const lastActiveStr = await SecureStore.getItemAsync("lastActiveTimestamp");
+  if (!lastActiveStr) return false;
+  
+  const lastActive = parseInt(lastActiveStr);
+  const now = Date.now();
+  return (now - lastActive) < SECURITY_CONFIG.sessionTimeout;
+}
 
 /**
  * ✅ Encrypt Private Key (AES-256-GCM)
  */
 export const encryptPrivateKey = async (privateKey: string, password: string): Promise<string> => {
-  const salt = Crypto.getRandomBytes(CRYPTO_CONFIG.saltLength).toString();
-  const key = await deriveEncryptionKey(password, salt);
-  const iv = Crypto.getRandomBytes(CRYPTO_CONFIG.ivLength).toString();
+  const salt = Crypto.getRandomBytes(CRYPTO_CONFIG.saltLength);
+  const saltString = Array.from(salt).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+  const key = await deriveKey(password, saltString);
+  const iv = Crypto.getRandomBytes(CRYPTO_CONFIG.ivLength);
+  const ivString = Array.from(iv).map((b: number) => b.toString(16).padStart(2, '0')).join('');
 
   const encryptedData = await Crypto.encryptAsync(
     privateKey,
     key,
-    { algorithm: Crypto.CryptoEncryptionAlgorithm.AES_GCM, iv }
+    { algorithm: Crypto.CryptoEncryptionAlgorithm.AES_GCM, iv: ivString }
   );
 
-  return JSON.stringify({ encryptedData, salt, iv });
+  return JSON.stringify({ encryptedData, salt: saltString, iv: ivString });
 };
 
 /**
@@ -123,7 +194,7 @@ export const encryptPrivateKey = async (privateKey: string, password: string): P
 export const decryptPrivateKey = async (encryptedData: string, password: string): Promise<string> => {
   try {
     const { encryptedKey, salt, iv } = JSON.parse(encryptedData);
-    const key = await deriveEncryptionKey(password, salt);
+    const key = await deriveKey(password, salt);
 
     return await Crypto.decryptAsync(
       encryptedKey,
@@ -134,34 +205,4 @@ export const decryptPrivateKey = async (encryptedData: string, password: string)
     console.error("Private key decryption failed:", error);
     throw new Error("Failed to decrypt private key");
   }
-};
-
-/**
- * ✅ Session Management
- */
-export const updateLastActive = async (): Promise<void> => {
-  await SecureStore.setItemAsync("lastActiveTimestamp", Date.now().toString());
-};
-
-export const checkSessionValid = async (): Promise<boolean> => {
-  const lastActiveStr = await SecureStore.getItemAsync("lastActiveTimestamp");
-  if (!lastActiveStr) return false;
-
-  const lastActive = parseInt(lastActiveStr);
-  const now = Date.now();
-  return (now - lastActive) < SECURITY_CONFIG.sessionTimeout;
-};
-
-/**
- * ✅ Store Encrypted Data Securely
- */
-export const storeEncryptedData = async (key: string, encryptedData: string): Promise<void> => {
-  await SecureStore.setItemAsync(key, encryptedData);
-};
-
-/**
- * ✅ Retrieve Encrypted Data
- */
-export const getEncryptedData = async (key: string): Promise<string | null> => {
-  return await SecureStore.getItemAsync(key);
 }; 

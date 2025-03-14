@@ -1,7 +1,6 @@
 import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import config from "./config";
-import '../src/crypto-polyfill';
 
 export interface WalletData {
   address: string;

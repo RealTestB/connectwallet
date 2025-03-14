@@ -3,7 +3,10 @@ import {View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Activit
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import WalletHeader from "../components/ui/WalletHeader";
+import * as SecureStore from "expo-secure-store";
+import { getRandomBytes } from 'expo-crypto';
+import { hashPassword } from "../api/securityApi";
+import * as Crypto from 'expo-crypto';
 
 interface Account {
   address: string;
@@ -11,7 +14,14 @@ interface Account {
   chainId?: number;
 }
 
-export default function CreatePasswordScreen() {
+const SETUP_STEPS = {
+  PASSWORD_CREATED: 'password_created',
+  SEED_PHRASE_GENERATED: 'seed_phrase_generated',
+  SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
+  SETUP_COMPLETED: 'setup_completed'
+};
+
+export default function Page() {
   const router = useRouter();
   const { mode } = useLocalSearchParams();
   const [password, setPassword] = useState("");
@@ -59,36 +69,58 @@ export default function CreatePasswordScreen() {
 
   const handleContinue = async () => {
     setError("");
-
-    const passwordError = validatePassword(password);
-    if (passwordError) {
-      setError(passwordError);
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
-
     setIsCreating(true);
+
     try {
-      // Here you would typically make your API call
-      // For now, we'll just navigate to the next screen
-      router.push({
-        pathname: "/confirm-seed-phrase",
-        params: { password: encodeURIComponent(password) },
-      });
+      // Validate password first
+      const passwordError = validatePassword(password);
+      if (passwordError) {
+        setError(passwordError);
+        setIsCreating(false);
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setError("Passwords do not match");
+        setIsCreating(false);
+        return;
+      }
+
+      console.log("Hashing password...");
+      const hashedPassword = await hashPassword(password);
+      if (!hashedPassword) {
+        throw new Error("Failed to hash password");
+      }
+
+      console.log("Storing hashed password...");
+      await SecureStore.setItemAsync("passwordHash", hashedPassword);
+      
+      // Store setup progress
+      await SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.PASSWORD_CREATED);
+
+      // Double check everything was stored
+      const storedHash = await SecureStore.getItemAsync("passwordHash");
+      const setupState = await SecureStore.getItemAsync("walletSetupState");
+      if (!storedHash || !setupState) {
+        throw new Error("Failed to store password or setup state");
+      }
+
+      console.log("Password stored successfully, navigating...");
+      
+      // Add a small delay before navigation to ensure state is saved
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Use push instead of replace to prevent flashing
+      router.push("/seed-phrase");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    } finally {
+      console.error("Password creation error:", err);
+      setError(err instanceof Error ? err.message : "Failed to create password. Please try again.");
       setIsCreating(false);
     }
   };
 
   return (
     <View style={styles.container}>
-      <WalletHeader pageName="Create Password" onAccountChange={() => {}} />
       <ScrollView style={styles.scrollView}>
         <View style={styles.stepsContainer}>
           <View style={styles.steps}>
@@ -254,15 +286,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#1A2F6C",
+    paddingTop: 60,
   },
   scrollView: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 20,
   },
   stepsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 32,
+    marginTop: 40,
+    marginBottom: 40,
   },
   steps: {
     flexDirection: "row",
@@ -282,20 +314,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "white",
-    textAlign: "center",
+    color: "#fff",
     marginBottom: 24,
+    textAlign: "center",
   },
   warningBox: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    backgroundColor: "#facc151a",
-    borderWidth: 1,
-    borderColor: "#facc1533",
-    borderRadius: 12,
+    backgroundColor: "#facc1510",
     padding: 16,
-    marginBottom: 24,
+    borderRadius: 12,
+    marginBottom: 32,
+    marginTop: 20,
   },
   warningText: {
     color: "#facc15",

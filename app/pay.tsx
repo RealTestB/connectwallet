@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ethers } from "ethers";
 
 interface Account {
   address: string;
@@ -40,6 +41,7 @@ interface TransactionParams {
 
 export interface ExtendedTransactionRequest extends TransactionRequest {
   from?: string;
+  chainId?: number;
 }
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'pay'>;
@@ -111,7 +113,7 @@ export default function PayScreen(): JSX.Element {
   const handleAmountChange = (value: string) => {
     setAmount(value);
     const token = tokens.find((t) => t.symbol === selectedToken);
-    if (token && !isNaN(Number(value))) {
+    if (token?.price && !isNaN(Number(value))) {
       setUsdValue((Number(value) * token.price).toFixed(2));
     } else {
       setUsdValue("0.00");
@@ -162,7 +164,8 @@ export default function PayScreen(): JSX.Element {
 
       // Get gas estimate
       const gasEstimate = await estimateGas(transactionRequest);
-      setGasEstimate(gasEstimate.estimatedCost);
+      const totalGasCost = (gasEstimate.gasLimit * gasEstimate.gasPrice);
+      setGasEstimate(ethers.formatEther(totalGasCost));
 
       // Send transaction
       const txHash = await sendTransaction(transactionRequest);

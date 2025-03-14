@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from "react-native";
 import * as SecureStore from "expo-secure-store";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 interface Account {
   address: string;
@@ -18,9 +19,13 @@ interface Account {
 interface WalletHeaderProps {
   pageName: string;
   onAccountChange: (account: Account) => void;
+  leftButton?: {
+    icon: keyof typeof Ionicons.glyphMap;
+    onPress: () => void;
+  };
 }
 
-export default function WalletHeader({ pageName, onAccountChange }: WalletHeaderProps): JSX.Element {
+export default function WalletHeader({ pageName, onAccountChange, leftButton }: WalletHeaderProps): JSX.Element {
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -97,9 +102,15 @@ export default function WalletHeader({ pageName, onAccountChange }: WalletHeader
     <View style={styles.header}>
       {/* Left Side - Page Title */}
       <View style={styles.titleContainer}>
-        <View style={styles.iconContainer}>
-          <Text style={styles.iconText}>⚡</Text>
-        </View>
+        {leftButton ? (
+          <TouchableOpacity onPress={leftButton.onPress} style={styles.iconContainer}>
+            <Ionicons name={leftButton.icon} size={20} color="white" />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.iconContainer}>
+            <Text style={styles.iconText}>⚡</Text>
+          </View>
+        )}
         <Text style={styles.pageTitle}>{pageName}</Text>
       </View>
 

@@ -184,7 +184,7 @@ export default function SettingsScreen() {
         pageName="Settings"
         onAccountChange={handleAccountChange}
         leftButton={{
-          icon: "arrow-back",
+          icon: "arrow-back-outline",
           onPress: () => router.push("/portfolio"),
         }}
       />
