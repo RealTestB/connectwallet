@@ -1,7 +1,7 @@
 module.exports = {
   expo: {
-    name: "wallet-new",
-    slug: "wallet-new",
+    name: "ConnectWallet",
+    slug: "connectwallet",
     version: "1.0.0",
     runtimeVersion: {
       policy: "sdkVersion"
@@ -27,7 +27,7 @@ module.exports = {
       supportsTablet: true,
       bundleIdentifier: "com.concordianova.connectwallet",
       associatedDomains: [
-        "applinks:newwallet.app"
+        "applinks:connectwallet.app"
       ],
       infoPlist: {
         NSCameraUsageDescription: "This app uses the camera for scanning QR codes.",
@@ -57,7 +57,7 @@ module.exports = {
             },
             {
               scheme: "https",
-              host: "newwallet.app"
+              host: "connectwallet.app"
             }
           ],
           category: [
@@ -123,7 +123,7 @@ module.exports = {
     ],
     extra: {
       eas: {
-        projectId: "b10e8035-6c51-40f7-b8db-ac04478e981e"
+        projectId: "1083be59-e11a-48f1-844c-f8bebeb2b4d0"
       },
       ALCHEMY_ETH_MAINNET_KEY: process.env.ALCHEMY_ETH_MAINNET_KEY,
       SUPABASE_URL: process.env.SUPABASE_URL,

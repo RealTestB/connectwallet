@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import config from "./config";
-import { WalletKit } from "@reown/walletkit";
+import { WalletKit, Core } from "@reown/walletkit";
 import { Platform } from "react-native";
 
 // Define supported chains based on the Reown SDK documentation
@@ -57,8 +57,14 @@ const getWalletKit = async (): Promise<WalletKit> => {
         default: 'com.concordianova.connectwallet'
       });
 
-      const walletKitConfig = {
-        projectId: config.projectIds.reown,
+      // Initialize Core first
+      const core = new Core({
+        projectId: config.projectIds.reown
+      });
+
+      // Initialize WalletKit with Core
+      const instance = await WalletKit.init({
+        core,
         metadata: {
           name: config.wallet.smart.metadata.name,
           description: config.wallet.smart.metadata.description,
@@ -69,10 +75,7 @@ const getWalletKit = async (): Promise<WalletKit> => {
             universal: config.wallet.smart.metadata.url
           }
         }
-      };
-      
-      console.debug('[WalletKit] Initializing with config:', walletKitConfig);
-      const instance = await WalletKit.init(walletKitConfig);
+      });
 
       walletKitInstance = instance;
       
@@ -211,13 +214,19 @@ export const createSmartWallet = async (): Promise<WalletData> => {
     
     const walletKit = await getWalletKit();
     
-    console.log('[SmartWallet] Creating smart account with chain config:', CHAINS.mainnet);
+    // Create chain configuration
+    const chainConfig = {
+      defaultChain: CHAINS.mainnet,
+      supportedChains: [CHAINS.mainnet]
+    };
+
+    console.log('[SmartWallet] Creating smart account with chain config:', chainConfig);
     const account = await walletKit.createAccount({
       config: {
-        chainConfig: {
-          defaultChain: CHAINS.mainnet,
-          supportedChains: [CHAINS.mainnet]
-        }
+        chainConfig,
+        enableBatchTransactions: true,
+        enablePaymaster: true,
+        recoveryMethods: ['email', 'phone']
       }
     });
 

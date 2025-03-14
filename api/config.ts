@@ -104,13 +104,13 @@ export const WALLET_CONFIG: WalletConfig = {
       accounts: 'smartWalletAccounts'
     },
     metadata: {
-      name: 'NewWallet',
+      name: 'ConnectWallet',
       description: 'Your secure gateway to the world of digital assets',
-      url: 'https://newwallet.app',
-      icons: ['https://newwallet.app/icon.png'],
+      url: 'https://connectwallet.app',
+      icons: ['https://connectwallet.app/icon.png'],
       redirect: {
         native: 'com.concordianova.connectwallet',
-        universal: 'https://newwallet.app'
+        universal: 'https://connectwallet.app'
       }
     }
   }

@@ -1,6 +1,10 @@
 declare module '@reown/walletkit' {
+  export class Core {
+    constructor(config: { projectId: string });
+  }
+
   export interface WalletKitConfig {
-    projectId: string;
+    core: Core;
     metadata: {
       name: string;
       description: string;
