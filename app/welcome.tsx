@@ -1,21 +1,22 @@
 import 'react-native-gesture-handler';
 import { useRouter } from "expo-router";
 import React from "react";
-import {
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  Vibration,
-  View,
-} from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Vibration } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import BottomNav from "../components/ui/BottomNav";
+import WalletHeader from "../components/ui/WalletHeader";
 
-export default function WelcomeScreen(): JSX.Element {
+interface Account {
+  address: string;
+  name?: string;
+  chainId?: number;
+}
+
+export default function WelcomeScreen() {
   const router = useRouter();
 
-  const handleExistingUser = (): void => {
-    Vibration.vibrate(50);
-    router.push("/signin");
+  const handleAccountChange = (account: Account) => {
+    // Handle account change if needed
   };
 
   const handleCreateWallet = (): void => {
@@ -30,38 +31,38 @@ export default function WelcomeScreen(): JSX.Element {
 
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.logoContainer}>
-          <Text style={styles.logo}>⚡</Text>
+      <WalletHeader pageName="Welcome" onAccountChange={handleAccountChange} />
+      <ScrollView style={styles.scrollView}>
+        <Text style={styles.title}>Welcome to ConnectWallet</Text>
+        <Text style={styles.subtitle}>Your Gateway to Web3</Text>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Create New Wallet</Text>
+          <Text style={styles.cardDescription}>
+            Start fresh with a new wallet. You'll get a seed phrase to keep safe.
+          </Text>
+          <TouchableOpacity
+            style={styles.button}
+            onPress={handleCreateWallet}
+          >
+            <Text style={styles.buttonText}>Create Wallet</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.title}>Welcome to NewWallet</Text>
-        <Text style={styles.subtitle}>
-          Your secure gateway to the world of digital assets
-        </Text>
-      </View>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.signInButton]}
-          onPress={handleExistingUser}
-        >
-          <Text style={styles.buttonText}>Sign In</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, styles.createButton]}
-          onPress={handleCreateWallet}
-        >
-          <Text style={styles.buttonText}>Create New Wallet</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, styles.importButton]}
-          onPress={handleImportWallet}
-        >
-          <Text style={styles.buttonText}>Import Existing Wallet</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Import Existing Wallet</Text>
+          <Text style={styles.cardDescription}>
+            Already have a wallet? Import it using your seed phrase.
+          </Text>
+          <TouchableOpacity
+            style={styles.button}
+            onPress={handleImportWallet}
+          >
+            <Text style={styles.buttonText}>Import Wallet</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+      <BottomNav />
     </View>
   );
 }
@@ -69,60 +70,51 @@ export default function WelcomeScreen(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
-    padding: 20,
-    justifyContent: "space-between",
+    backgroundColor: "#1A2F6C",
+    padding: 16,
   },
-  content: {
+  scrollView: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  logoContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "#f0f9ff",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  logo: {
-    fontSize: 48,
   },
   title: {
-    fontSize: 32,
+    color: "white",
+    fontSize: 28,
     fontWeight: "bold",
-    color: "#1a1a1a",
-    marginBottom: 12,
     textAlign: "center",
+    marginBottom: 10,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#666",
+    color: "#8A9CCF",
+    fontSize: 18,
     textAlign: "center",
-    marginBottom: 32,
+    marginBottom: 30,
   },
-  buttonContainer: {
-    gap: 12,
+  card: {
+    backgroundColor: "#111",
+    padding: 20,
+    borderRadius: 10,
+    marginVertical: 10,
+  },
+  cardTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  cardDescription: {
+    color: "#8A9CCF",
+    fontSize: 16,
+    marginBottom: 20,
   },
   button: {
-    paddingVertical: 16,
-    borderRadius: 12,
+    backgroundColor: "#007bff",
+    padding: 15,
+    borderRadius: 5,
     alignItems: "center",
   },
-  signInButton: {
-    backgroundColor: "#3b82f6",
-  },
-  createButton: {
-    backgroundColor: "#10b981",
-  },
-  importButton: {
-    backgroundColor: "#8b5cf6",
-  },
   buttonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 }); 

@@ -1,43 +1,36 @@
-import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
-import { StackNavigationProp } from "@react-navigation/stack";
-import { encryptPassword, storeEncryptedData } from "../api/securityApi";
 import React, { useState } from "react";
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { RootStackParamList } from "../navigation/types";
+import {View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator,} from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import WalletHeader from "../components/ui/WalletHeader";
 
-type CreatePasswordScreenNavigationProp = StackNavigationProp<RootStackParamList, 'create-password'>;
-type CreatePasswordScreenRouteProp = RouteProp<RootStackParamList, 'create-password'>;
+interface Account {
+  address: string;
+  name?: string;
+  chainId?: number;
+}
 
-type PasswordStrength = '' | 'Weak' | 'Medium' | 'Strong' | 'Very Strong';
+export default function CreatePasswordScreen() {
+  const router = useRouter();
+  const { mode } = useLocalSearchParams();
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isSecure, setIsSecure] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
 
-export default function CreatePasswordScreen(): JSX.Element {
-  const navigation = useNavigation<CreatePasswordScreenNavigationProp>();
-  const route = useRoute<CreatePasswordScreenRouteProp>();
-  const { mode, type } = route.params;
-
-  const [password, setPassword] = useState<string>("");
-  const [confirmPassword, setConfirmPassword] = useState<string>("");
-  const [error, setError] = useState<string>("");
-  const [isSecure, setIsSecure] = useState<boolean>(true);
-  const [isCreating, setIsCreating] = useState<boolean>(false);
-
-  const validatePassword = (pass: string): string | null => {
+  const validatePassword = (pass: string) => {
     if (!pass) return "Password is required";
     if (pass.length < 8) return "Password must be at least 8 characters";
     if (!/[A-Z]/.test(pass)) return "Password must include an uppercase letter";
     if (!/[0-9]/.test(pass)) return "Password must include a number";
-    if (!/[^A-Za-z0-9]/.test(pass)) return "Password must include a special character";
+    if (!/[^A-Za-z0-9]/.test(pass))
+      return "Password must include a special character";
     return null;
   };
 
-  const calculateStrength = (pass: string): number => {
+  const calculateStrength = (pass: string) => {
     let strength = 0;
     if (pass.length >= 8) strength++;
     if (/[A-Z]/.test(pass)) strength++;
@@ -48,7 +41,7 @@ export default function CreatePasswordScreen(): JSX.Element {
 
   const passwordStrength = calculateStrength(password);
 
-  const getStrengthText = (): PasswordStrength => {
+  const getStrengthText = () => {
     if (password.length === 0) return "";
     if (passwordStrength <= 1) return "Weak";
     if (passwordStrength === 2) return "Medium";
@@ -56,20 +49,15 @@ export default function CreatePasswordScreen(): JSX.Element {
     return "Very Strong";
   };
 
-  const storePasswordSecurely = async (pass: string): Promise<void> => {
-    try {
-      // Encrypt the password using our security service
-      const encryptedPasswordData = await encryptPassword(pass);
-      
-      // Store the encrypted password data
-      await storeEncryptedData("encryptedPassword", encryptedPasswordData);
-    } catch (error) {
-      console.error("Error encrypting password:", error);
-      throw error;
-    }
+  const getStrengthColor = () => {
+    if (password.length === 0) return "#ffffff1a";
+    if (passwordStrength <= 1) return "#ef4444";
+    if (passwordStrength === 2) return "#eab308";
+    if (passwordStrength === 3) return "#22c55e";
+    return "#4ade80";
   };
 
-  const handleContinue = async (): Promise<void> => {
+  const handleContinue = async () => {
     setError("");
 
     const passwordError = validatePassword(password);
@@ -85,23 +73,14 @@ export default function CreatePasswordScreen(): JSX.Element {
 
     setIsCreating(true);
     try {
-      await storePasswordSecurely(password);
-
-      // Navigate based on mode and type
-      if (mode === 'create') {
-        // New wallet creation flow
-        navigation.navigate('seed-phrase', { password });
-      } else if (mode === 'import') {
-        // Import flow
-        if (type === 'seed-phrase') {
-          navigation.navigate('import-seed-phrase', { password });
-        } else if (type === 'private-key') {
-          navigation.navigate('import-private-key', { password });
-        }
-      }
+      // Here you would typically make your API call
+      // For now, we'll just navigate to the next screen
+      router.push({
+        pathname: "/confirm-seed-phrase",
+        params: { password: encodeURIComponent(password) },
+      });
     } catch (err) {
-      console.error("Password creation failed:", err);
-      setError("Something went wrong. Please try again.");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setIsCreating(false);
     }
@@ -109,74 +88,164 @@ export default function CreatePasswordScreen(): JSX.Element {
 
   return (
     <View style={styles.container}>
-      {/* Header with Back Button */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Create Password</Text>
-      </View>
+      <WalletHeader pageName="Create Password" onAccountChange={() => {}} />
+      <ScrollView style={styles.scrollView}>
+        <View style={styles.stepsContainer}>
+          <View style={styles.steps}>
+            {[1, 2, 3, 4].map((step) => (
+              <View
+                key={step}
+                style={[
+                  styles.stepDot,
+                  step === 1 ? styles.activeStep : styles.inactiveStep,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
 
-      <View style={styles.content}>
-        <Text style={styles.subtitle}>
-          {mode === 'create' 
-            ? "This password will unlock your wallet only on this device"
-            : "Set a password to protect your imported wallet"}
-        </Text>
+        <Text style={styles.title}>Create Password</Text>
+
+        <View style={styles.warningBox}>
+          <Ionicons name="shield-checkmark" size={20} color="#facc15" />
+          <Text style={styles.warningText}>
+            Use a strong password that you don't use anywhere else
+          </Text>
+        </View>
 
         <View style={styles.inputContainer}>
+          <View style={styles.passwordInputContainer}>
+            <TextInput
+              style={styles.input}
+              secureTextEntry={isSecure}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter password"
+              placeholderTextColor="#93c5fd"
+            />
+            <TouchableOpacity
+              onPress={() => setIsSecure(!isSecure)}
+              style={styles.eyeIcon}
+            >
+              <Ionicons
+                name={isSecure ? "eye-off" : "eye"}
+                size={20}
+                color="#93c5fd"
+              />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.strengthContainer}>
+            <View style={styles.strengthBars}>
+              {[...Array(4)].map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.strengthBar,
+                    {
+                      backgroundColor: i < passwordStrength ? getStrengthColor() : "#ffffff1a",
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+            <Text style={styles.strengthText}>{getStrengthText()}</Text>
+          </View>
+
           <TextInput
-            secureTextEntry={isSecure}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Enter password"
-            placeholderTextColor="#6A9EFF"
             style={styles.input}
+            secureTextEntry={isSecure}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Confirm password"
+            placeholderTextColor="#93c5fd"
           />
-          <TouchableOpacity onPress={() => setIsSecure(!isSecure)} style={styles.toggleButton}>
-            <Text style={styles.toggleText}>{isSecure ? "👁️" : "🙈"}</Text>
+
+          <View style={styles.requirementsContainer}>
+            <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+            <View style={styles.requirementsList}>
+              <View style={styles.requirementItem}>
+                <Ionicons
+                  name={password.length >= 8 ? "checkmark-circle" : "ellipse"}
+                  size={12}
+                  color={password.length >= 8 ? "#4ade80" : "#93c5fd"}
+                />
+                <Text
+                  style={[
+                    styles.requirementText,
+                    password.length >= 8 && styles.requirementMet,
+                  ]}
+                >
+                  At least 8 characters
+                </Text>
+              </View>
+              <View style={styles.requirementItem}>
+                <Ionicons
+                  name={/[A-Z]/.test(password) ? "checkmark-circle" : "ellipse"}
+                  size={12}
+                  color={/[A-Z]/.test(password) ? "#4ade80" : "#93c5fd"}
+                />
+                <Text
+                  style={[
+                    styles.requirementText,
+                    /[A-Z]/.test(password) && styles.requirementMet,
+                  ]}
+                >
+                  One uppercase letter
+                </Text>
+              </View>
+              <View style={styles.requirementItem}>
+                <Ionicons
+                  name={/[0-9]/.test(password) ? "checkmark-circle" : "ellipse"}
+                  size={12}
+                  color={/[0-9]/.test(password) ? "#4ade80" : "#93c5fd"}
+                />
+                <Text
+                  style={[
+                    styles.requirementText,
+                    /[0-9]/.test(password) && styles.requirementMet,
+                  ]}
+                >
+                  One number
+                </Text>
+              </View>
+              <View style={styles.requirementItem}>
+                <Ionicons
+                  name={/[^A-Za-z0-9]/.test(password) ? "checkmark-circle" : "ellipse"}
+                  size={12}
+                  color={/[^A-Za-z0-9]/.test(password) ? "#4ade80" : "#93c5fd"}
+                />
+                <Text
+                  style={[
+                    styles.requirementText,
+                    /[^A-Za-z0-9]/.test(password) && styles.requirementMet,
+                  ]}
+                >
+                  One special character
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.button, isCreating && styles.buttonDisabled]}
+            onPress={handleContinue}
+            disabled={isCreating}
+          >
+            {isCreating ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.buttonText}>Continue</Text>
+            )}
           </TouchableOpacity>
         </View>
-
-        <View style={styles.strengthBar}>
-          {[...Array(4)].map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.strengthSegment,
-                i < passwordStrength && styles.strengthActive,
-              ]}
-            />
-          ))}
-        </View>
-        <Text style={styles.strengthText}>{getStrengthText()}</Text>
-
-        <TextInput
-          secureTextEntry={isSecure}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="Confirm password"
-          placeholderTextColor="#6A9EFF"
-          style={styles.input}
-        />
-
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        <TouchableOpacity 
-          onPress={handleContinue} 
-          style={[
-            styles.button,
-            isCreating && styles.buttonDisabled
-          ]} 
-          disabled={isCreating}
-        >
-          {isCreating ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text style={styles.buttonText}>Continue</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -184,99 +253,138 @@ export default function CreatePasswordScreen(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A1B3F",
+    backgroundColor: "#1A2F6C",
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 20,
-    paddingTop: 40,
-  },
-  backButton: {
-    fontSize: 24,
-    color: "#6A9EFF",
-    marginRight: 16,
-  },
-  content: {
+  scrollView: {
     flex: 1,
-    padding: 20,
+    padding: 16,
+  },
+  stepsContainer: {
+    flexDirection: "row",
     justifyContent: "center",
+    marginBottom: 32,
+  },
+  steps: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  activeStep: {
+    backgroundColor: "#3b82f6",
+  },
+  inactiveStep: {
+    backgroundColor: "#3b82f680",
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "bold",
     color: "white",
-    flex: 1,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#6A9EFF",
     textAlign: "center",
     marginBottom: 24,
   },
-  inputContainer: {
+  warningBox: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    gap: 8,
+    backgroundColor: "#facc151a",
+    borderWidth: 1,
+    borderColor: "#facc1533",
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 24,
+  },
+  warningText: {
+    color: "#facc15",
+    fontSize: 14,
+  },
+  inputContainer: {
+    gap: 16,
+  },
+  passwordInputContainer: {
+    position: "relative",
   },
   input: {
-    flex: 1,
-    color: "white",
-    fontSize: 16,
-  },
-  toggleButton: {
-    padding: 10,
-  },
-  toggleText: {
-    fontSize: 18,
-    color: "#6A9EFF",
-  },
-  errorText: {
-    color: "#FF4D4D",
-    fontSize: 14,
-    marginBottom: 10,
-    textAlign: "center",
-    backgroundColor: "rgba(255, 77, 77, 0.1)",
-    padding: 10,
-    borderRadius: 8,
-  },
-  button: {
-    backgroundColor: "#2563EB",
-    paddingVertical: 14,
+    backgroundColor: "#ffffff1a",
+    borderWidth: 1,
+    borderColor: "#ffffff1a",
     borderRadius: 12,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  buttonDisabled: {
-    backgroundColor: "#2563EB80",
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: "600",
+    padding: 12,
     color: "white",
+    fontSize: 16,
   },
-  strengthBar: {
+  eyeIcon: {
+    position: "absolute",
+    right: 12,
+    top: "50%",
+    transform: [{ translateY: -10 }],
+  },
+  strengthContainer: {
+    gap: 8,
+  },
+  strengthBars: {
     flexDirection: "row",
     gap: 4,
-    marginBottom: 10,
   },
-  strengthSegment: {
+  strengthBar: {
     flex: 1,
-    height: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 3,
-  },
-  strengthActive: {
-    backgroundColor: "#4CAF50",
+    height: 4,
+    borderRadius: 2,
   },
   strengthText: {
-    color: "#6A9EFF",
+    color: "#93c5fd",
     fontSize: 14,
-    textAlign: "center",
-    marginBottom: 16,
+  },
+  requirementsContainer: {
+    backgroundColor: "#ffffff1a",
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+  },
+  requirementsTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  requirementsList: {
+    gap: 8,
+  },
+  requirementItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  requirementText: {
+    color: "#93c5fd",
+    fontSize: 14,
+  },
+  requirementMet: {
+    color: "#4ade80",
+  },
+  errorContainer: {
+    backgroundColor: "#ef44441a",
+    padding: 16,
+    borderRadius: 12,
+  },
+  errorText: {
+    color: "#f87171",
+    fontSize: 14,
+  },
+  button: {
+    backgroundColor: "#2563eb",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  buttonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
   },
 }); 

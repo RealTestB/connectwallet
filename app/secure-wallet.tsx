@@ -1,17 +1,17 @@
-import { useNavigation } from "@react-navigation/native";
 import React, { useState } from "react";
 import {
-  FlatList,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
   View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Pressable,
 } from "react-native";
-import type { StackNavigationProp } from "@react-navigation/stack";
-import { RootStackParamList } from "../navigation/types";
-
-type SecureWalletScreenNavigationProp = StackNavigationProp<RootStackParamList, 'secure-wallet'>;
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Checkbox from 'expo-checkbox';
 
 interface SecurityTip {
   icon: string;
@@ -19,196 +19,228 @@ interface SecurityTip {
   description: string;
 }
 
-export default function SecureWalletScreen(): JSX.Element {
-  const navigation = useNavigation<SecureWalletScreenNavigationProp>();
-  const [confirmed, setConfirmed] = useState<boolean>(false);
+export default function SecureWalletScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [isConfirmed, setIsConfirmed] = useState(false);
 
   const securityTips: SecurityTip[] = [
     {
-      icon: "🛡️",
+      icon: "shield",
       title: "Never Share Your Secret Recovery Phrase",
       description:
-        "Your recovery phrase is the only way to restore your wallet. Never share it with anyone.",
+        "Your recovery phrase is the key to your wallet. Never share it with anyone or store it digitally.",
     },
     {
-      icon: "🔒",
-      title: "Keep Your Password Safe",
+      icon: "lock-closed",
+      title: "Keep Your Password Strong",
       description:
-        "Use a strong password and store it securely. Don't reuse passwords from other accounts.",
+        "Use a unique password with mixed characters. Never reuse passwords from other accounts.",
     },
     {
-      icon: "🚫",
-      title: "Beware of Phishing",
+      icon: "person-circle",
+      title: "Be Careful of Scams",
       description:
-        "Always verify website URLs. Never click on suspicious links or connect to unknown sites.",
+        "Never give out your wallet credentials. Legitimate services will never ask for your private keys.",
     },
     {
-      icon: "📝",
-      title: "Review All Transactions",
+      icon: "document-text",
+      title: "Verify All Transactions",
       description:
-        "Always check transaction details before signing. Make sure the amount and recipient are correct.",
+        "Always double-check transaction details before confirming. Make sure the amount and address are correct.",
     },
   ];
 
-  const handleCompleteSetup = (): void => {
-    if (confirmed) {
-      navigation.replace('wallet-created', {
-        walletAddress: '', // This should be populated with the actual wallet address
-        walletType: 'classic'
-      });
-    }
-  };
-
-  const renderTip = ({ item }: { item: SecurityTip }): JSX.Element => (
-    <View style={styles.tipBox}>
-      <View style={styles.tipIcon}>
-        <Text style={styles.tipIconText}>{item.icon}</Text>
-      </View>
-      <View style={styles.tipContent}>
-        <Text style={styles.tipTitle}>{item.title}</Text>
-        <Text style={styles.tipDescription}>{item.description}</Text>
-      </View>
-    </View>
-  );
-
   return (
-    <View style={styles.container}>
-      {/* Progress Dots */}
-      <View style={styles.progressContainer}>
-        {[1, 2, 3, 4, 5].map((step) => (
-          <View key={step} style={[styles.dot, step === 4 && styles.activeDot]} />
-        ))}
-      </View>
-
-      {/* Title & Subtitle */}
-      <Text style={styles.title}>Secure Your Wallet</Text>
-      <Text style={styles.subtitle}>Follow these security tips to keep your wallet safe</Text>
-
-      {/* Security Tips List */}
-      <FlatList
-        data={securityTips}
-        keyExtractor={(item) => item.title}
-        renderItem={renderTip}
-      />
-
-      {/* Confirmation Checkbox */}
-      <View style={styles.confirmBox}>
-        <Switch
-          value={confirmed}
-          onValueChange={setConfirmed}
-          thumbColor={confirmed ? "#6A9EFF" : "#ccc"}
-        />
-        <Text style={styles.confirmText}>
-          I understand that I am responsible for keeping my wallet secure and that lost recovery phrases cannot be recovered.
-        </Text>
-      </View>
-
-      {/* Complete Setup Button */}
-      <TouchableOpacity
-        style={[styles.completeButton, !confirmed && styles.disabledButton]}
-        onPress={handleCompleteSetup}
-        disabled={!confirmed}
+    <LinearGradient
+      colors={["#1A2F6C", "#0A1B3F"]}
+      style={styles.container}
+    >
+      <ScrollView 
+        style={[
+          styles.content,
+          {
+            paddingTop: insets.top + 24,
+            paddingBottom: insets.bottom + 24,
+          }
+        ]}
+        contentContainerStyle={styles.contentContainer}
       >
-        <Text style={styles.buttonText}>Complete Setup</Text>
-      </TouchableOpacity>
-    </View>
+        {/* Progress Steps */}
+        <View style={styles.progressContainer}>
+          {[1, 2, 3, 4].map((step) => (
+            <View
+              key={step}
+              style={[
+                styles.progressStep,
+                step === 4 ? styles.progressStepActive : styles.progressStepInactive
+              ]}
+            />
+          ))}
+        </View>
+
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Secure Your Wallet</Text>
+          <Text style={styles.subtitle}>
+            Review these security tips to keep your assets safe
+          </Text>
+        </View>
+
+        {/* Security Tips */}
+        <View style={styles.tipsContainer}>
+          {securityTips.map((tip, index) => (
+            <View key={index} style={styles.tipCard}>
+              <View style={styles.tipContent}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name={tip.icon} size={20} color="#93c5fd" />
+                </View>
+                <View style={styles.tipTextContainer}>
+                  <Text style={styles.tipTitle}>{tip.title}</Text>
+                  <Text style={styles.tipDescription}>{tip.description}</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {/* Confirmation Section */}
+        <View style={styles.confirmationContainer}>
+          <Pressable 
+            style={styles.checkboxContainer}
+            onPress={() => setIsConfirmed(!isConfirmed)}
+          >
+            <Checkbox
+              value={isConfirmed}
+              onValueChange={setIsConfirmed}
+              color={isConfirmed ? '#3b82f6' : undefined}
+              style={styles.checkbox}
+            />
+            <Text style={styles.checkboxLabel}>
+              I understand that I am responsible for keeping my wallet secure
+              and that lost credentials cannot be recovered
+            </Text>
+          </Pressable>
+
+          <TouchableOpacity
+            style={[
+              styles.completeButton,
+              !isConfirmed && styles.completeButtonDisabled
+            ]}
+            onPress={() => isConfirmed && router.push("/wallet-created")}
+            disabled={!isConfirmed}
+          >
+            <Text style={styles.completeButtonText}>Complete Setup</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A1B3F",
-    padding: 20,
-    justifyContent: "center",
+  },
+  content: {
+    flex: 1,
+  },
+  contentContainer: {
+    paddingHorizontal: 24,
   },
   progressContainer: {
     flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 20,
+    gap: 8,
+    marginBottom: 32,
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "rgba(106, 158, 255, 0.3)",
-    marginHorizontal: 4,
+  progressStep: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
   },
-  activeDot: {
-    backgroundColor: "#6A9EFF",
+  progressStepActive: {
+    backgroundColor: "#3b82f6",
+  },
+  progressStepInactive: {
+    backgroundColor: "rgba(59, 130, 246, 0.3)",
+  },
+  header: {
+    alignItems: "center",
+    marginBottom: 32,
   },
   title: {
-    fontSize: 22,
-    fontWeight: "bold",
+    fontSize: 24,
+    fontWeight: "700",
     color: "white",
-    textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: "#6A9EFF",
+    color: "#93c5fd",
     textAlign: "center",
-    marginBottom: 20,
   },
-  tipBox: {
-    flexDirection: "row",
+  tipsContainer: {
+    gap: 16,
+    marginBottom: 32,
+  },
+  tipCard: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    alignItems: "center",
+    padding: 16,
   },
-  tipIcon: {
+  tipContent: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  iconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(106, 158, 255, 0.2)",
-    justifyContent: "center",
+    backgroundColor: "rgba(59, 130, 246, 0.2)",
     alignItems: "center",
-    marginRight: 12,
+    justifyContent: "center",
   },
-  tipIconText: {
-    fontSize: 20,
-    color: "#6A9EFF",
-  },
-  tipContent: {
+  tipTextContainer: {
     flex: 1,
   },
   tipTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
     color: "white",
+    fontSize: 16,
+    fontWeight: "500",
+    marginBottom: 4,
   },
   tipDescription: {
+    color: "#93c5fd",
     fontSize: 14,
-    color: "#6A9EFF",
   },
-  confirmBox: {
+  confirmationContainer: {
+    gap: 24,
+  },
+  checkboxContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 20,
+    gap: 12,
+    alignItems: "flex-start",
   },
-  confirmText: {
-    fontSize: 14,
-    color: "#6A9EFF",
+  checkbox: {
+    marginTop: 4,
+  },
+  checkboxLabel: {
     flex: 1,
-    marginLeft: 12,
+    color: "#93c5fd",
+    fontSize: 14,
   },
   completeButton: {
-    backgroundColor: "#6A9EFF",
-    paddingVertical: 14,
+    backgroundColor: "#3b82f6",
     borderRadius: 12,
+    padding: 16,
     alignItems: "center",
   },
-  disabledButton: {
-    backgroundColor: "rgba(106, 158, 255, 0.3)",
+  completeButtonDisabled: {
+    opacity: 0.5,
   },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: "600",
+  completeButtonText: {
     color: "white",
+    fontSize: 16,
+    fontWeight: "500",
   },
 }); 

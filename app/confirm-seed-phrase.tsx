@@ -1,161 +1,226 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { getSeedPhrase } from '../api/seedphraseApi';
-import type { StackNavigationProp } from '@react-navigation/stack';
-import type { RouteProp } from '@react-navigation/native';
-import { RootStackParamList } from '../navigation/types';
+import React, { useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator } from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
+import WalletHeader from "../components/ui/WalletHeader";
 
-type ConfirmSeedPhraseScreenNavigationProp = StackNavigationProp<RootStackParamList, 'confirm-seed-phrase'>;
-type ConfirmSeedPhraseScreenRouteProp = RouteProp<RootStackParamList, 'confirm-seed-phrase'>;
+interface Account {
+  address: string;
+  name?: string;
+  chainId?: number;
+}
 
-export default function ConfirmSeedPhraseScreen(): JSX.Element {
-  const navigation = useNavigation<ConfirmSeedPhraseScreenNavigationProp>();
-  const route = useRoute<ConfirmSeedPhraseScreenRouteProp>();
-  const { password } = route.params;
+export default function ConfirmSeedPhraseScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<Record<string, string | string[]>>();
+  const [selectedWords, setSelectedWords] = useState<Record<number, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
-  const [selectedWords, setSelectedWords] = useState<string[]>(['', '', '']);
-  const [error, setError] = useState<string>('');
-  const [actualSeedPhrase, setActualSeedPhrase] = useState<string>('');
-  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const requiredWordIndices = [2, 5, 8, 11];
+  const totalWords = 12;
+  const mockPhrase = [
+    "abandon",
+    "ability",
+    "able",
+    "about",
+    "above",
+    "absent",
+    "absorb",
+    "abstract",
+    "absurd",
+    "abuse",
+    "access",
+    "accident",
+  ];
 
-  useEffect(() => {
-    const fetchSeedPhrase = async (): Promise<void> => {
-      try {
-        const phrase = await getSeedPhrase(password);
-        setActualSeedPhrase(phrase);
-      } catch (error) {
-        console.error('Error fetching seed phrase:', error);
-        Alert.alert('Error', 'Failed to retrieve seed phrase');
-        navigation.goBack();
-      }
-    };
-
-    void fetchSeedPhrase();
-  }, [password, navigation]);
-
-  const handleWordInput = (index: number, word: string): void => {
-    const newWords = [...selectedWords];
-    newWords[index] = word.trim().toLowerCase();
-    setSelectedWords(newWords);
-    setError('');
+  const handleWordInput = (index: number, value: string) => {
+    setSelectedWords((prev) => ({
+      ...prev,
+      [index]: value.toLowerCase().trim(),
+    }));
+    setError(null);
   };
 
-  const handleVerify = (): void => {
+  const handleVerify = async () => {
     setIsVerifying(true);
-    setError('');
+    setError(null);
 
-    const selectedPhrase = selectedWords.join(' ');
-    const actualWords = actualSeedPhrase.split(' ');
-    const requiredIndices = [3, 6, 9]; // Verify words at positions 4, 7, and 10
-
-    const isCorrect = requiredIndices.every((index, i) => 
-      selectedWords[i].toLowerCase() === actualWords[index].toLowerCase()
-    );
-
-    if (isCorrect) {
-      navigation.navigate('secure-wallet', { password: route.params.password });
-    } else {
-      setError('Incorrect words. Please try again.');
+    try {
+      // Here you would make your API call
+      // For now, we'll just simulate success
+      router.push("/secure-wallet");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Verification failed. Please try again.");
+    } finally {
+      setIsVerifying(false);
     }
-
-    setIsVerifying(false);
   };
-
-  const isVerifyEnabled = selectedWords.every(word => word.length > 0);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Confirm Recovery Phrase</Text>
-      <Text style={styles.subtitle}>
-        Please enter words 4, 7, and 10 from your recovery phrase to verify you've saved it correctly.
-      </Text>
-
-      <View style={styles.wordsContainer}>
-        {[4, 7, 10].map((wordNumber, index) => (
-          <View key={wordNumber} style={styles.wordInputContainer}>
-            <Text style={styles.wordLabel}>{`Word #${wordNumber}`}</Text>
-            <TextInput
-              style={styles.wordInput}
-              onChangeText={(text) => handleWordInput(index, text)}
-              value={selectedWords[index]}
-              placeholder="Enter word"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+    <LinearGradient
+      colors={["#1A2F6C", "#0A1B3F"]}
+      style={styles.container}
+    >
+      <WalletHeader pageName="Verify Recovery Phrase" onAccountChange={() => {}} />
+      <ScrollView style={styles.scrollView}>
+        <View style={styles.stepsContainer}>
+          <View style={styles.steps}>
+            {[1, 2, 3, 4].map((step) => (
+              <View
+                key={step}
+                style={[
+                  styles.stepDot,
+                  step === 3 ? styles.activeStep : styles.inactiveStep,
+                ]}
+              />
+            ))}
           </View>
-        ))}
-      </View>
+        </View>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-      <TouchableOpacity
-        style={[styles.verifyButton, !isVerifyEnabled && styles.verifyButtonDisabled]}
-        onPress={handleVerify}
-        disabled={!isVerifyEnabled || isVerifying}
-      >
-        <Text style={styles.verifyButtonText}>
-          {isVerifying ? 'Verifying...' : 'Verify'}
+        <Text style={styles.title}>Verify Recovery Phrase</Text>
+        <Text style={styles.subtitle}>
+          Please enter the following words from your recovery phrase to verify you have saved it correctly
         </Text>
-      </TouchableOpacity>
-    </View>
+
+        <View style={styles.wordsGrid}>
+          {Array.from({ length: totalWords }, (_, i) => (
+            <View key={i} style={styles.wordContainer}>
+              <Text style={styles.wordNumber}>#{i + 1}</Text>
+              {requiredWordIndices.includes(i) ? (
+                <TextInput
+                  style={styles.wordInput}
+                  placeholder="Enter word"
+                  placeholderTextColor="rgba(147, 197, 253, 0.5)"
+                  value={selectedWords[i] || ""}
+                  onChangeText={(value) => handleWordInput(i, value)}
+                />
+              ) : (
+                <Text style={styles.wordText}>{mockPhrase[i]}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={[
+            styles.verifyButton,
+            (isVerifying || requiredWordIndices.some((i) => !selectedWords[i])) && styles.verifyButtonDisabled,
+          ]}
+          onPress={handleVerify}
+          disabled={isVerifying || requiredWordIndices.some((i) => !selectedWords[i])}
+        >
+          {isVerifying ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text style={styles.verifyButtonText}>Verify</Text>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#fff',
+  },
+  scrollView: {
+    flex: 1,
+    padding: 16,
+  },
+  stepsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 32,
+  },
+  steps: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  activeStep: {
+    backgroundColor: "#3b82f6",
+  },
+  inactiveStep: {
+    backgroundColor: "#3b82f680",
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
+    fontWeight: "bold",
+    color: "white",
+    textAlign: "center",
+    marginBottom: 24,
   },
   subtitle: {
+    color: "#93c5fd",
     fontSize: 16,
-    color: '#666',
-    marginBottom: 30,
-    textAlign: 'center',
-    lineHeight: 22,
+    textAlign: "center",
+    marginBottom: 32,
   },
-  wordsContainer: {
-    marginBottom: 30,
+  wordsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 32,
   },
-  wordInputContainer: {
-    marginBottom: 20,
+  wordContainer: {
+    width: "48%",
+    backgroundColor: "#ffffff1a",
+    borderRadius: 12,
+    padding: 12,
   },
-  wordLabel: {
-    fontSize: 16,
-    marginBottom: 8,
-    color: '#333',
+  wordNumber: {
+    color: "#93c5fd",
+    fontSize: 12,
+    marginBottom: 4,
   },
   wordInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
+    color: "white",
+    fontSize: 16,
+    padding: 0,
+  },
+  wordText: {
+    color: "white",
     fontSize: 16,
   },
+  errorContainer: {
+    backgroundColor: "#ef44441a",
+    borderWidth: 1,
+    borderColor: "#ef444433",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
   errorText: {
-    color: '#ff3b30',
-    marginBottom: 20,
-    textAlign: 'center',
+    color: "#f87171",
+    fontSize: 14,
   },
   verifyButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: "#2563eb",
     padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 24,
   },
   verifyButtonDisabled: {
-    backgroundColor: '#ccc',
+    opacity: 0.5,
   },
   verifyButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
   },
 }); 

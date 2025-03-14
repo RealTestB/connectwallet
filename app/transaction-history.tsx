@@ -3,15 +3,11 @@ import BottomNav from "../components/ui/BottomNav";
 import WalletHeader from "../components/ui/WalletHeader";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  StyleSheet,
-  Text,
-  View,
-  ListRenderItem,
-} from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, View, ListRenderItem } from "react-native";
 import { Network } from "alchemy-sdk";
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { TransactionResponse } from "ethers";
 
 interface Account {
   address: string;
@@ -19,15 +15,20 @@ interface Account {
   chainId?: number;
 }
 
-interface TransactionItem extends Transaction {
+interface TransactionItem {
   id: string;
+  hash: string;
   type: string;
   icon: string;
   amount?: string;
   address?: string;
+  from: string;
+  to: string;
+  value?: string;
 }
 
 export default function TransactionHistoryScreen(): JSX.Element {
+  const insets = useSafeAreaInsets();
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -83,19 +84,22 @@ export default function TransactionHistoryScreen(): JSX.Element {
     try {
       setIsLoading(true);
 
-      const txData = await getTransactionHistory(address, network);
+      const txData = await getTransactionHistory(address);
       if (!txData || 'error' in txData) {
         throw new Error('error' in txData ? txData.error?.toString() : "Failed to fetch transactions");
       }
 
-      // Transform transactions into TransactionItem format
-      const formattedTransactions: TransactionItem[] = txData.map((tx) => ({
-        ...tx,
+      // Transform TransactionResponse into TransactionItem format
+      const formattedTransactions: TransactionItem[] = txData.map((tx: TransactionResponse) => ({
         id: tx.hash,
-        type: tx.category === 'external' ? 'Transfer' : tx.category,
-        icon: tx.category === 'external' ? '↔️' : '🔄',
-        amount: tx.value ? (tx.from.toLowerCase() === address.toLowerCase() ? `-${tx.value}` : `+${tx.value}`) : undefined,
-        address: tx.from.toLowerCase() === address.toLowerCase() ? tx.to : tx.from,
+        hash: tx.hash,
+        type: 'Transfer', // Default to Transfer since TransactionResponse doesn't have category
+        icon: '↔️',
+        amount: tx.value ? (tx.from.toLowerCase() === address.toLowerCase() ? `-${tx.value.toString()}` : `+${tx.value.toString()}`) : undefined,
+        address: tx.from.toLowerCase() === address.toLowerCase() ? tx.to || '' : tx.from,
+        from: tx.from,
+        to: tx.to || '',
+        value: tx.value?.toString(),
       }));
 
       setTransactions(formattedTransactions);
@@ -126,43 +130,47 @@ export default function TransactionHistoryScreen(): JSX.Element {
   );
 
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={["#1A2F6C", "#0A1B3F"]}
+      style={styles.container}
+    >
       <WalletHeader 
         pageName="Transaction History" 
         onAccountChange={handleAccountChange}
       />
-      <Text style={styles.title}>Transaction History</Text>
 
-      {isLoading ? (
-        <ActivityIndicator size="large" color="#fff" />
-      ) : (
-        <FlatList
-          data={transactions}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTransaction}
-          contentContainerStyle={styles.listContainer}
-        />
-      )}
+      <View style={[styles.content, { paddingTop: insets.top + 80 }]}>
+        {isLoading ? (
+          <ActivityIndicator size="large" color="#fff" style={styles.loader} />
+        ) : (
+          <FlatList
+            data={transactions}
+            keyExtractor={(item) => item.id}
+            renderItem={renderTransaction}
+            contentContainerStyle={styles.listContainer}
+          />
+        )}
+      </View>
 
       <BottomNav activeTab="portfolio" />
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A1B3F",
+  },
+  content: {
+    flex: 1,
   },
   listContainer: {
     padding: 16,
   },
-  title: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginHorizontal: 16,
-    marginVertical: 10,
+  loader: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   transactionCard: {
     backgroundColor: "rgba(255, 255, 255, 0.05)",

@@ -1,119 +1,194 @@
-import { useNavigation } from "@react-navigation/native";
-import React from "react";
+import React, { useState } from "react";
 import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Linking,
 } from "react-native";
-import type { StackNavigationProp } from "@react-navigation/stack";
-import { RootStackParamList } from "../navigation/types";
+import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
+import WalletHeader from "../components/ui/WalletHeader";
 
-type ImportWalletScreenNavigationProp = StackNavigationProp<RootStackParamList, 'import-wallet'>;
+interface Account {
+  address: string;
+  name?: string;
+  chainId?: number;
+}
 
-export default function ImportWalletScreen(): JSX.Element {
-  const navigation = useNavigation<ImportWalletScreenNavigationProp>();
+export default function ImportWalletScreen() {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
 
-  const handleImportSeedPhrase = (): void => {
-    navigation.navigate('create-password', {
-      mode: 'import',
-      type: 'seed-phrase'
-    });
-  };
-
-  const handleImportPrivateKey = (): void => {
-    navigation.navigate('create-password', {
-      mode: 'import',
-      type: 'private-key'
-    });
+  const handleAccountChange = (account: Account) => {
+    // Handle account change if needed
   };
 
   return (
-    <View style={styles.container}>
-      {/* Header with Back Button */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Import Wallet</Text>
-      </View>
+    <LinearGradient
+      colors={["#1A2F6C", "#0A1B3F"]}
+      style={styles.container}
+    >
+      <WalletHeader pageName="Import Wallet" onAccountChange={handleAccountChange} />
+      <ScrollView style={styles.scrollView}>
+        <View style={styles.warningBox}>
+          <Ionicons name="warning" size={20} color="#f87171" />
+          <Text style={styles.warningText}>
+            Never share your private keys or seed phrase. Anyone with access to them can control your wallet.
+          </Text>
+        </View>
 
-      {/* Security Warning */}
-      <View style={styles.warningBox}>
-        <Text style={styles.warningText}>
-          ⚠ Never share your private keys or seed phrase. Anyone with access to them can control your wallet.
-        </Text>
-      </View>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => router.push("/import-seed-phrase")}
+          >
+            <View style={styles.buttonContent}>
+              <Ionicons name="leaf" size={20} color="white" />
+              <Text style={styles.buttonText}>Import with Seed Phrase</Text>
+            </View>
+          </TouchableOpacity>
 
-      {/* Import Options */}
-      <TouchableOpacity
-        style={styles.importOption}
-        onPress={handleImportSeedPhrase}
-      >
-        <Text style={styles.importText}>🌱 Import with Seed Phrase</Text>
-      </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => router.push("/create-password?mode=new&type=import-key")}
+          >
+            <View style={styles.buttonContent}>
+              <Ionicons name="key" size={20} color="white" />
+              <Text style={styles.buttonText}>Import with Private Key</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
 
-      <TouchableOpacity
-        style={styles.importOptionSecondary}
-        onPress={handleImportPrivateKey}
-      >
-        <Text style={styles.importText}>🔑 Import with Private Key</Text>
-      </TouchableOpacity>
-    </View>
+        <View style={styles.securityBox}>
+          <View style={styles.securityHeader}>
+            <Ionicons name="shield-checkmark" size={20} color="#facc15" />
+            <Text style={styles.securityTitle}>Important Security Tips:</Text>
+          </View>
+          <View style={styles.securityList}>
+            <View style={styles.securityItem}>
+              <Text style={styles.bulletPoint}>•</Text>
+              <Text style={styles.securityText}>Make sure no one is watching your screen</Text>
+            </View>
+            <View style={styles.securityItem}>
+              <Text style={styles.bulletPoint}>•</Text>
+              <Text style={styles.securityText}>Never enter your details on untrusted websites</Text>
+            </View>
+            <View style={styles.securityItem}>
+              <Text style={styles.bulletPoint}>•</Text>
+              <Text style={styles.securityText}>Store your backup phrase in a secure location</Text>
+            </View>
+          </View>
+        </View>
+
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A1B3F",
-    padding: 20,
-    justifyContent: "center",
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  backText: {
-    fontSize: 24,
-    color: "#6A9EFF",
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "white",
-    textAlign: "center",
+  scrollView: {
     flex: 1,
+    padding: 16,
   },
   warningBox: {
-    backgroundColor: "rgba(255, 0, 0, 0.1)",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#ef44441a",
+    borderWidth: 1,
+    borderColor: "#ef444433",
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 20,
+    padding: 16,
+    marginBottom: 24,
   },
   warningText: {
-    color: "red",
+    flex: 1,
+    color: "#f87171",
     fontSize: 14,
-    textAlign: "center",
   },
-  importOption: {
-    backgroundColor: "#1A2F6C",
-    paddingVertical: 14,
-    borderRadius: 12,
+  buttonContainer: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  buttonContent: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
+    justifyContent: "center",
+    gap: 8,
   },
-  importOptionSecondary: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    paddingVertical: 14,
+  primaryButton: {
+    backgroundColor: "#2563eb",
+    padding: 16,
     borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 20,
   },
-  importText: {
-    fontSize: 16,
-    fontWeight: "600",
+  secondaryButton: {
+    backgroundColor: "#ffffff1a",
+    padding: 16,
+    borderRadius: 12,
+  },
+  buttonText: {
     color: "white",
-  }
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  securityBox: {
+    backgroundColor: "#facc151a",
+    borderWidth: 1,
+    borderColor: "#facc1533",
+    borderRadius: 12,
+    padding: 16,
+  },
+  securityHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  securityTitle: {
+    color: "#facc15",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  securityList: {
+    gap: 4,
+  },
+  securityItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 4,
+  },
+  bulletPoint: {
+    color: "#facc15",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  securityText: {
+    flex: 1,
+    color: "#facc15",
+    fontSize: 14,
+  },
+  errorContainer: {
+    backgroundColor: "#ef44441a",
+    borderWidth: 1,
+    borderColor: "#ef444433",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 24,
+  },
+  errorText: {
+    color: "#f87171",
+    fontSize: 14,
+  },
 }); 

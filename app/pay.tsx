@@ -5,20 +5,17 @@ import WalletHeader from "../components/ui/WalletHeader";
 import { validateEthereumAddress } from "../utils/validators";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import config from "../api/config";
 import { Alchemy, Network } from "alchemy-sdk";
 import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import { RootStackParamList } from "../navigation/types";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface Account {
   address: string;
@@ -47,8 +44,10 @@ export interface ExtendedTransactionRequest extends TransactionRequest {
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'pay'>;
 
-export default function Pay(): JSX.Element {
+export default function PayScreen(): JSX.Element {
   const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [selectedToken, setSelectedToken] = useState<string>("ETH");
   const [amount, setAmount] = useState<string>("");
   const [recipient, setRecipient] = useState<string>("");
@@ -60,6 +59,7 @@ export default function Pay(): JSX.Element {
   const [networkId, setNetworkId] = useState<Network>(Network.ETH_MAINNET);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [alchemy, setAlchemy] = useState<Alchemy | null>(null);
+  const [showTokenPicker, setShowTokenPicker] = useState(false);
 
   useEffect(() => {
     loadWalletData();
@@ -111,11 +111,10 @@ export default function Pay(): JSX.Element {
   const handleAmountChange = (value: string) => {
     setAmount(value);
     const token = tokens.find((t) => t.symbol === selectedToken);
-    if (token?.price) {
-      const usdValue = parseFloat(value) * token.price;
-      setUsdValue(usdValue.toFixed(2));
+    if (token && !isNaN(Number(value))) {
+      setUsdValue((Number(value) * token.price).toFixed(2));
     } else {
-      setUsdValue('0.00');
+      setUsdValue("0.00");
     }
   };
 
@@ -191,159 +190,256 @@ export default function Pay(): JSX.Element {
     }
   };
 
+  const selectedTokenData = tokens.find(t => t.symbol === selectedToken);
+
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={["#1A2F6C", "#0A1B3F"]}
+      style={styles.container}
+    >
       <WalletHeader 
-        pageName="pay"
+        pageName="Send Token"
         onAccountChange={handleAccountChange}
       />
 
-      <View style={styles.innerContainer}>
-        {/* Token Selector */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Select Token</Text>
-          <Picker
-            selectedValue={selectedToken}
-            onValueChange={(itemValue: string) => setSelectedToken(itemValue)}
-            style={styles.picker}
-          >
-            {tokens.map((token) => (
-              <Picker.Item 
-                key={token.symbol} 
-                label={`${token.symbol} - Balance: ${token.balance}`} 
-                value={token.symbol}
-                color="#FFF"
+      <ScrollView 
+        style={[
+          styles.content,
+          {
+            paddingBottom: 64 + insets.bottom,
+          }
+        ]}
+      >
+        <View style={styles.card}>
+          {/* Token Selector */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Select Token</Text>
+            <TouchableOpacity
+              style={styles.select}
+              onPress={() => setShowTokenPicker(!showTokenPicker)}
+            >
+              <Text style={styles.selectText}>
+                {selectedToken} - Balance: {selectedTokenData?.balance}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#93c5fd" />
+            </TouchableOpacity>
+            {showTokenPicker && (
+              <View style={styles.tokenList}>
+                {tokens.map((token) => (
+                  <TouchableOpacity
+                    key={token.symbol}
+                    style={styles.tokenOption}
+                    onPress={() => {
+                      setSelectedToken(token.symbol);
+                      setShowTokenPicker(false);
+                    }}
+                  >
+                    <Text style={styles.tokenOptionText}>
+                      {token.symbol} - Balance: {token.balance}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Recipient Address */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Recipient Address</Text>
+            <TextInput
+              style={styles.input}
+              value={recipient}
+              onChangeText={setRecipient}
+              placeholder="Enter wallet address"
+              placeholderTextColor="#93c5fd"
+            />
+          </View>
+
+          {/* Amount */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Amount</Text>
+            <View style={styles.amountContainer}>
+              <TextInput
+                style={styles.input}
+                value={amount}
+                onChangeText={handleAmountChange}
+                placeholder="0.00"
+                placeholderTextColor="#93c5fd"
+                keyboardType="decimal-pad"
               />
-            ))}
-          </Picker>
+              <Text style={styles.usdValue}>≈ ${usdValue}</Text>
+            </View>
+          </View>
+
+          {/* Gas Estimate */}
+          <View style={styles.gasContainer}>
+            <Text style={styles.gasLabel}>Estimated Gas Fee</Text>
+            <View style={styles.gasValue}>
+              <Text style={styles.gasAmount}>{gasEstimate} ETH</Text>
+              <Text style={styles.gasUsd}>(≈ $15.00)</Text>
+            </View>
+          </View>
+
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
         </View>
 
-        {/* Recipient Address */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Recipient Address</Text>
-          <TextInput
-            style={styles.input}
-            value={recipient}
-            onChangeText={setRecipient}
-            placeholder="Enter wallet address"
-            placeholderTextColor="#93C5FD"
-          />
-        </View>
-
-        {/* Amount */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Amount</Text>
-          <TextInput
-            style={styles.input}
-            keyboardType="numeric"
-            value={amount}
-            onChangeText={handleAmountChange}
-            placeholder="0.00"
-            placeholderTextColor="#93C5FD"
-          />
-          <Text style={styles.usdText}>≈ ${usdValue}</Text>
-        </View>
-
-        {/* Estimated Gas Fee */}
-        <View style={styles.gasFeeContainer}>
-          <Text style={styles.gasLabel}>Estimated Gas Fee</Text>
-          <Text style={styles.gasValue}>
-            {gasEstimate} ETH <Text style={styles.gasUsd}>(≈ $15.00)</Text>
-          </Text>
-        </View>
-
-        {/* Error Message */}
-        {error && <Text style={styles.errorText}>{error}</Text>}
-
-        {/* Send Button */}
-        <TouchableOpacity 
-          onPress={handleSend} 
+        <TouchableOpacity
           style={[
             styles.sendButton,
             (!amount || !recipient || isLoading) && styles.sendButtonDisabled
-          ]} 
-          disabled={isLoading || !amount || !recipient}
+          ]}
+          onPress={handleSend}
+          disabled={!amount || !recipient || isLoading}
         >
           {isLoading ? (
-            <ActivityIndicator color="#FFF" />
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator color="white" />
+              <Text style={styles.buttonText}>Sending...</Text>
+            </View>
           ) : (
-            <Text style={styles.sendButtonText}>Send Token</Text>
+            <Text style={styles.buttonText}>Send Token</Text>
           )}
         </TouchableOpacity>
-      </View>
+      </ScrollView>
 
       <BottomNav activeTab="pay" />
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A1B3F",
   },
-  innerContainer: {
-    padding: 16,
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 100, // Adjust based on WalletHeader height
+  },
+  card: {
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: 12,
+    padding: 24,
+    gap: 24,
   },
   inputGroup: {
-    marginBottom: 20,
+    gap: 8,
   },
   label: {
-    color: "#93C5FD",
     fontSize: 14,
-    marginBottom: 6,
+    color: "#93c5fd",
+  },
+  select: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    padding: 12,
+  },
+  selectText: {
+    color: "white",
+    fontSize: 16,
+  },
+  tokenList: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(30, 58, 138, 0.95)",
+    borderRadius: 12,
+    marginTop: 4,
+    zIndex: 10,
+  },
+  tokenOption: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.1)",
+  },
+  tokenOptionText: {
+    color: "white",
+    fontSize: 16,
   },
   input: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
     padding: 12,
-    color: "#FFF",
+    color: "white",
+    fontSize: 16,
   },
-  usdText: {
-    marginTop: 5,
-    color: "#93C5FD",
-    fontSize: 12,
+  amountContainer: {
+    position: "relative",
   },
-  picker: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 10,
+  usdValue: {
+    position: "absolute",
+    right: 16,
+    top: "50%",
+    transform: [{ translateY: -10 }],
+    color: "#93c5fd",
+    fontSize: 14,
   },
-  gasFeeContainer: {
+  gasContainer: {
     backgroundColor: "rgba(255, 255, 255, 0.05)",
-    padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
+    padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
-  },
-  gasLabel: {
-    color: "#93C5FD",
-  },
-  gasValue: {
-    color: "#FFF",
-  },
-  gasUsd: {
-    color: "#93C5FD",
-    marginLeft: 8,
-  },
-  errorText: {
-    color: "#FF4D4D",
-    backgroundColor: "rgba(255, 0, 0, 0.1)",
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 20,
-  },
-  sendButton: {
-    backgroundColor: "#2563EB",
-    padding: 14,
-    borderRadius: 10,
     alignItems: "center",
   },
-  sendButtonDisabled: {
-    backgroundColor: "#2563EB80",
+  gasLabel: {
+    color: "#93c5fd",
+    fontSize: 14,
   },
-  sendButtonText: {
-    color: "#FFF",
+  gasValue: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  gasAmount: {
+    color: "white",
+    fontSize: 14,
+  },
+  gasUsd: {
+    color: "#93c5fd",
+    fontSize: 14,
+  },
+  errorContainer: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    borderRadius: 12,
+    padding: 16,
+  },
+  errorText: {
+    color: "#ef4444",
+    fontSize: 14,
+  },
+  sendButton: {
+    backgroundColor: "#3b82f6",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginTop: 24,
+  },
+  sendButtonDisabled: {
+    backgroundColor: "rgba(59, 130, 246, 0.5)",
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  buttonText: {
+    color: "white",
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: "500",
   },
 }); 

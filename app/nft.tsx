@@ -1,348 +1,238 @@
-import { getNFTs } from "../api/nftsApi";
-import BottomNav from "../components/ui/BottomNav";
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Dimensions, FlatList } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WalletHeader from "../components/ui/WalletHeader";
-import * as SecureStore from "expo-secure-store";
-import React, { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  RefreshControl,
-  ListRenderItem,
-  ImageStyle,
-} from "react-native";
-import { StackNavigationProp } from "@react-navigation/stack";
-import { useNavigation } from "@react-navigation/native";
-import { Network } from "alchemy-sdk";
+import BottomNav from "../components/ui/BottomNav";
 
 interface NFT {
-  tokenId: string;
-  name?: string;
-  collection?: string;
-  image?: string;
+  id: string;
+  token_id: string;
+  image_url: string;
+  name: string;
   description?: string;
-  attributes?: Array<{
-    trait_type: string;
-    value: string | number;
-  }>;
-  contractAddress: string;
-  owner: string;
-  chain: string;
   metadata?: {
-    name?: string;
-    image?: string;
-    description?: string;
-    attributes?: Array<{
-      trait_type: string;
-      value: string | number;
-    }>;
+    collection?: string;
   };
-  contractMetadata?: {
-    name?: string;
-  };
-  media?: Array<{
-    gateway?: string;
-  }>;
 }
 
-interface Account {
-  address: string;
-  name?: string;
-  chainId?: number;
-}
-
-type RootStackParamList = {
-  'nft-details': { nft: NFT };
-  nft: undefined;
-};
-
-type NavigationProp = StackNavigationProp<RootStackParamList, 'nft'>;
-
-const PAGE_SIZE = 20; // Number of NFTs to load per page
-
-export default function NFTScreen(): JSX.Element {
-  const navigation = useNavigation<NavigationProp>();
-
+export default function NFTScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [nfts, setNfts] = useState<NFT[]>([]);
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [networkId, setNetworkId] = useState<Network>(Network.ETH_MAINNET);
-  const [page, setPage] = useState<number>(1);
-  const [hasMore, setHasMore] = useState<boolean>(true);
-  const [imageLoadingStates, setImageLoadingStates] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    loadWalletData();
-  }, [networkId]);
-
-  const loadWalletData = async (): Promise<void> => {
-    try {
-      const storedWallet = await SecureStore.getItemAsync("walletAddress");
-      const storedNetwork = await SecureStore.getItemAsync("networkId");
-
-      if (storedWallet) setWalletAddress(storedWallet);
-      if (storedNetwork) {
-        // Convert network ID to Alchemy Network enum
-        const networkMap: { [key: string]: Network } = {
-          "1": Network.ETH_MAINNET,
-          "5": Network.ETH_GOERLI,
-          "137": Network.MATIC_MAINNET,
-          "80001": Network.MATIC_MUMBAI,
-        };
-        setNetworkId(networkMap[storedNetwork] || Network.ETH_MAINNET);
+    const fetchNFTs = async () => {
+      try {
+        // Here you would make your API call
+        // For now, we'll use mock data
+        const mockNFTs: NFT[] = [
+          {
+            id: "1",
+            token_id: "8398",
+            image_url: "https://i.seadn.io/gae/Ju9CkWtV-1Okvf45wo8UctR-M9He2PjILP0oOvxE89AyiPPGtrR3gysu1Zgy0hjd2xKIgjJJtWIc0ybj4Vd7wv8t3pxDGHoJBzDB?w=500&auto=format",
+            name: "Bored Ape #8398",
+            metadata: { collection: "Bored Ape Yacht Club" }
+          },
+          // Add more mock NFTs here
+        ];
+        setNfts(mockNFTs);
+      } catch (err) {
+        console.error(err);
+        setError("Could not load your NFTs");
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      if (storedWallet) {
-        fetchNFTs(storedWallet, networkId);
-      }
-    } catch (err) {
-      console.error("Failed to load wallet data:", err);
-      setError("Failed to load wallet data.");
-    }
-  };
-
-  const fetchNFTs = async (
-    address: string,
-    network: Network,
-    pageToLoad: number = 1,
-    isRefresh: boolean = false
-  ): Promise<void> => {
-    try {
-      if (pageToLoad === 1) {
-        setIsLoading(true);
-      }
-      
-      const pageKey = pageToLoad > 1 ? String(pageToLoad) : undefined;
-      const response = await getNFTs(address, pageKey, PAGE_SIZE);
-      
-      if (!response || !response.ownedNfts) {
-        throw new Error('Failed to fetch NFTs');
-      }
-
-      const newNFTs = response.ownedNfts.map(nft => ({
-        tokenId: nft.tokenId,
-        name: nft.title || '',
-        collection: nft.contract?.name || '',
-        image: nft.metadata?.image || '',
-        description: nft.description || '',
-        attributes: nft.metadata?.attributes || [],
-        contractAddress: nft.contract?.address || '',
-        owner: address,
-        chain: network === Network.ETH_MAINNET ? 'Ethereum' :
-              network === Network.MATIC_MAINNET ? 'Polygon' :
-              network === Network.ETH_GOERLI ? 'Goerli' :
-              network === Network.MATIC_MUMBAI ? 'Mumbai' : 'Unknown'
-      }));
-
-      setHasMore(!!response.pageKey);
-
-      if (isRefresh || pageToLoad === 1) {
-        setNfts(newNFTs);
-        setPage(1);
-      } else {
-        setNfts(prev => [...prev, ...newNFTs]);
-      }
-    } catch (err) {
-      console.error("Failed to load NFTs:", err);
-      setError("Could not load your NFTs");
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  };
-
-  const handleRefresh = async (): Promise<void> => {
-    setIsRefreshing(true);
-    if (walletAddress) {
-      await fetchNFTs(walletAddress, networkId, 1, true);
-    }
-  };
-
-  const handleLoadMore = (): void => {
-    if (!isLoading && hasMore && walletAddress) {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      fetchNFTs(walletAddress, networkId, nextPage);
-    }
-  };
-
-  const handleImageLoad = (tokenId: string): void => {
-    setImageLoadingStates(prev => ({
-      ...prev,
-      [tokenId]: false
-    }));
-  };
-
-  const handleImageLoadStart = (tokenId: string): void => {
-    setImageLoadingStates(prev => ({
-      ...prev,
-      [tokenId]: true
-    }));
-  };
-
-  const handleAccountChange = (account: Account): void => {
-    setWalletAddress(account.address);
-    if (account.chainId) {
-      // Convert chain ID to Alchemy Network enum
-      const networkMap: { [key: number]: Network } = {
-        1: Network.ETH_MAINNET,
-        5: Network.ETH_GOERLI,
-        137: Network.MATIC_MAINNET,
-        80001: Network.MATIC_MUMBAI,
-      };
-      setNetworkId(networkMap[account.chainId] || Network.ETH_MAINNET);
-    }
-  };
+    fetchNFTs();
+  }, []);
 
   const filteredNFTs = nfts.filter(
     (nft) =>
-      nft.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      nft.collection?.toLowerCase().includes(searchQuery.toLowerCase())
+      nft.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      nft.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const renderNFTItem: ListRenderItem<NFT> = ({ item }) => (
+  const renderNFTItem = ({ item }: { item: NFT }) => (
     <TouchableOpacity
-      style={styles.nftContainer}
-      onPress={() => navigation.navigate('nft-details', { nft: item })}
+      style={styles.nftCard}
+      onPress={() => router.push(`/nft-details?id=${item.id}`)}
     >
-      <View style={styles.imageContainer}>
-        <Image
-          source={{ uri: item.image || "https://via.placeholder.com/300" }}
-          style={styles.nftImage as ImageStyle}
-          onLoadStart={() => handleImageLoadStart(item.tokenId)}
-          onLoad={() => handleImageLoad(item.tokenId)}
-        />
-        {imageLoadingStates[item.tokenId] && (
-          <ActivityIndicator 
-            style={styles.imageLoader} 
-            color="#6A9EFF" 
-            size="small" 
-          />
-        )}
+      <Image
+        source={{ uri: item.image_url }}
+        style={styles.nftImage}
+      />
+      <View style={styles.nftInfo}>
+        <Text style={styles.collectionName}>
+          {item.metadata?.collection || "Collection"}
+        </Text>
+        <Text style={styles.tokenId}>#{item.token_id}</Text>
       </View>
-      <Text style={styles.nftCollection}>{item.collection || "Collection"}</Text>
-      <Text style={styles.nftToken}>#{item.tokenId}</Text>
     </TouchableOpacity>
   );
 
+  const handleAccountChange = (account: { address: string; chainId?: number }) => {
+    // Handle account change
+  };
+
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={["#1A2F6C", "#0A1B3F"]}
+      style={styles.container}
+    >
       <WalletHeader 
         pageName="NFT Gallery"
         onAccountChange={handleAccountChange}
       />
 
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search NFTs..."
-        placeholderTextColor="#6A9EFF"
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-      />
-
-      {error && <Text style={styles.errorText}>{error}</Text>}
-
-      {isLoading && page === 1 ? (
-        <ActivityIndicator size="large" color="#6A9EFF" style={styles.loader} />
-      ) : filteredNFTs.length === 0 ? (
-        <Text style={styles.emptyText}>No NFTs found</Text>
-      ) : (
-        <FlatList
-          data={filteredNFTs}
-          keyExtractor={(item) => item.tokenId.toString()}
-          numColumns={2}
-          renderItem={renderNFTItem}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={handleRefresh}
-              tintColor="#6A9EFF"
-              colors={["#6A9EFF"]}
-            />
+      {/* Main Content */}
+      <View 
+        style={[
+          styles.content,
+          {
+            paddingBottom: 64 + insets.bottom,
           }
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={() => (
-            isLoading && page > 1 ? (
-              <ActivityIndicator color="#6A9EFF" style={styles.footerLoader} />
-            ) : null
-          )}
-        />
-      )}
+        ]}
+      >
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color="rgba(255, 255, 255, 0.5)" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search NFTs..."
+            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {isLoading ? (
+          <View style={styles.nftGrid}>
+            {[1, 2, 3, 4].map((n) => (
+              <View key={n} style={styles.skeletonCard} />
+            ))}
+          </View>
+        ) : filteredNFTs.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No NFTs found</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredNFTs}
+            renderItem={renderNFTItem}
+            keyExtractor={(item) => item.id}
+            numColumns={2}
+            columnWrapperStyle={styles.nftRow}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+      </View>
 
       <BottomNav activeTab="nft" />
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1A2F6C",
-    paddingBottom: 60,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 100, // Adjust based on WalletHeader height
+  },
+  searchContainer: {
+    position: "relative",
+    marginBottom: 24,
+  },
+  searchIcon: {
+    position: "absolute",
+    left: 12,
+    top: "50%",
+    transform: [{ translateY: -10 }],
+    zIndex: 1,
   },
   searchInput: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingLeft: 40,
+    paddingRight: 16,
     color: "white",
-    padding: 10,
-    margin: 16,
-    borderRadius: 10,
+    fontSize: 16,
+  },
+  errorContainer: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
   },
   errorText: {
-    color: "#FF4B4B",
-    textAlign: "center",
-    marginTop: 10,
+    color: "#ef4444",
+    fontSize: 14,
   },
-  loader: {
-    marginTop: 20,
+  nftGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
   },
-  footerLoader: {
-    marginVertical: 16,
+  nftRow: {
+    gap: 16,
   },
-  emptyText: {
-    color: "#6A9EFF",
-    textAlign: "center",
-    marginTop: 20,
-  },
-  nftContainer: {
+  skeletonCard: {
+    width: (Dimensions.get("window").width - 48) / 2,
+    aspectRatio: 1,
     backgroundColor: "rgba(255, 255, 255, 0.1)",
-    margin: 8,
-    padding: 10,
-    borderRadius: 10,
-    alignItems: "center",
-    flex: 1,
+    borderRadius: 12,
   },
-  imageContainer: {
-    width: "100%",
-    height: 150,
-    borderRadius: 10,
-    position: "relative",
+  nftCard: {
+    width: (Dimensions.get("window").width - 48) / 2,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    padding: 16,
   },
   nftImage: {
     width: "100%",
-    height: "100%",
-    borderRadius: 10,
+    aspectRatio: 1,
+    borderRadius: 8,
+    marginBottom: 12,
   },
-  imageLoader: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: [{ translateX: -12 }, { translateY: -12 }],
+  nftInfo: {
+    gap: 4,
   },
-  nftCollection: {
-    color: "#6A9EFF",
-    marginTop: 5,
+  collectionName: {
+    color: "rgba(255, 255, 255, 0.7)",
+    fontSize: 14,
   },
-  nftToken: {
+  tokenId: {
     color: "white",
-    fontWeight: "bold",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 48,
+  },
+  emptyText: {
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 16,
   },
 }); 
