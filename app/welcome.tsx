@@ -55,6 +55,20 @@ export default function WelcomeScreen() {
             <Text style={styles.buttonText}>Import Wallet</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Test Network Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Test Network Connection</Text>
+          <Text style={styles.cardDescription}>
+            Test the Supabase network table connection.
+          </Text>
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => router.push("/test-network")}
+          >
+            <Text style={styles.buttonText}>Test Connection</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </LinearGradient>
   );

@@ -497,4 +497,22 @@ export const createAnonymousUser = async (): Promise<UserProfile | null> => {
     }
     return null;
   }
+};
+
+/**
+ * Test function to fetch network data
+ */
+export const testNetworkConnection = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('networks')
+      .select('*')
+      .limit(1);
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error testing network connection:', error);
+    return null;
+  }
 }; 
