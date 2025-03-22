@@ -5,6 +5,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Checkbox from 'expo-checkbox';
+import * as SecureStore from 'expo-secure-store';
+import { sharedStyles, COLORS, SPACING } from '../styles/shared';
+import OnboardingLayout from '../components/ui/OnboardingLayout';
 
 interface SecurityTip {
   icon: keyof typeof Ionicons.glyphMap;
@@ -12,10 +15,18 @@ interface SecurityTip {
   description: string;
 }
 
-export default function SecureWalletScreen() {
+interface SecurityOption {
+  id: string;
+  title: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}
+
+export default function SecureWallet() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
 
   const securityTips: SecurityTip[] = [
     {
@@ -44,196 +55,152 @@ export default function SecureWalletScreen() {
     },
   ];
 
+  const securityOptions: SecurityOption[] = [
+    {
+      id: 'biometric',
+      title: 'Enable Biometric',
+      description: 'Use Face ID or fingerprint to secure your wallet',
+      icon: 'finger-print',
+    },
+    {
+      id: 'backup',
+      title: 'Backup to iCloud',
+      description: 'Securely store your wallet data in iCloud',
+      icon: 'cloud-upload',
+    },
+    {
+      id: 'notifications',
+      title: 'Enable Notifications',
+      description: 'Get alerts for important wallet activities',
+      icon: 'notifications',
+    }
+  ];
+
+  const toggleOption = (id: string) => {
+    const newSelected = new Set(selectedOptions);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedOptions(newSelected);
+  };
+
+  const handleComplete = async () => {
+    try {
+      // Store selected security options
+      await SecureStore.setItemAsync('securityOptions', JSON.stringify(Array.from(selectedOptions)));
+      // Navigate to portfolio
+      router.replace('/portfolio');
+    } catch (error) {
+      console.error('Error saving security options:', error);
+    }
+  };
+
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
+    <OnboardingLayout
+      progress={1}
+      title="Secure Your Wallet"
+      subtitle="Choose additional security options to protect your wallet"
+      icon="security"
     >
-      <ScrollView 
-        style={[
-          styles.content,
-          {
-            paddingTop: insets.top + 24,
-            paddingBottom: insets.bottom + 24,
-          }
-        ]}
-        contentContainerStyle={styles.contentContainer}
-      >
-        {/* Progress Steps */}
-        <View style={styles.progressContainer}>
-          {[1, 2, 3, 4].map((step) => (
-            <View
-              key={step}
-              style={[
-                styles.progressStep,
-                step === 4 ? styles.progressStepActive : styles.progressStepInactive
-              ]}
-            />
-          ))}
-        </View>
-
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Secure Your Wallet</Text>
-          <Text style={styles.subtitle}>
-            Review these security tips to keep your assets safe
-          </Text>
-        </View>
-
-        {/* Security Tips */}
-        <View style={styles.tipsContainer}>
-          {securityTips.map((tip, index) => (
-            <View key={index} style={styles.tipCard}>
-              <View style={styles.tipContent}>
-                <View style={styles.iconContainer}>
-                  <Ionicons name={tip.icon} size={20} color="#93c5fd" />
-                </View>
-                <View style={styles.tipTextContainer}>
-                  <Text style={styles.tipTitle}>{tip.title}</Text>
-                  <Text style={styles.tipDescription}>{tip.description}</Text>
-                </View>
+      <View style={styles.optionsContainer}>
+        {securityOptions.map((option) => (
+          <TouchableOpacity
+            key={option.id}
+            style={[
+              styles.optionCard,
+              selectedOptions.has(option.id) && styles.optionCardSelected
+            ]}
+            onPress={() => toggleOption(option.id)}
+          >
+            <View style={styles.optionHeader}>
+              <Ionicons
+                name={option.icon}
+                size={24}
+                color={selectedOptions.has(option.id) ? COLORS.white : COLORS.primary}
+              />
+              <View style={styles.optionTextContainer}>
+                <Text style={[
+                  styles.optionTitle,
+                  selectedOptions.has(option.id) && styles.optionTitleSelected
+                ]}>
+                  {option.title}
+                </Text>
+                <Text style={[
+                  styles.optionDescription,
+                  selectedOptions.has(option.id) && styles.optionDescriptionSelected
+                ]}>
+                  {option.description}
+                </Text>
               </View>
             </View>
-          ))}
-        </View>
-
-        {/* Confirmation Section */}
-        <View style={styles.confirmationContainer}>
-          <Pressable 
-            style={styles.checkboxContainer}
-            onPress={() => setIsConfirmed(!isConfirmed)}
-          >
-            <Checkbox
-              value={isConfirmed}
-              onValueChange={setIsConfirmed}
-              color={isConfirmed ? '#3b82f6' : undefined}
-              style={styles.checkbox}
+            <Ionicons
+              name={selectedOptions.has(option.id) ? 'checkmark-circle' : 'ellipse-outline'}
+              size={24}
+              color={selectedOptions.has(option.id) ? COLORS.white : COLORS.primary}
             />
-            <Text style={styles.checkboxLabel}>
-              I understand that I am responsible for keeping my wallet secure
-              and that lost credentials cannot be recovered
-            </Text>
-          </Pressable>
-
-          <TouchableOpacity
-            style={[
-              styles.completeButton,
-              !isConfirmed && styles.completeButtonDisabled
-            ]}
-            onPress={() => isConfirmed && router.push("/wallet-created")}
-            disabled={!isConfirmed}
-          >
-            <Text style={styles.completeButtonText}>Complete Setup</Text>
           </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </LinearGradient>
+        ))}
+      </View>
+
+      <TouchableOpacity style={styles.button} onPress={handleComplete}>
+        <Text style={styles.buttonText}>Complete Setup</Text>
+      </TouchableOpacity>
+    </OnboardingLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  optionsContainer: {
+    gap: SPACING.md,
+    marginBottom: SPACING.xl,
   },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    paddingHorizontal: 24,
-  },
-  progressContainer: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 32,
-  },
-  progressStep: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-  },
-  progressStepActive: {
-    backgroundColor: "#3b82f6",
-  },
-  progressStepInactive: {
-    backgroundColor: "rgba(59, 130, 246, 0.3)",
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "white",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#93c5fd",
-    textAlign: "center",
-  },
-  tipsContainer: {
-    gap: 16,
-    marginBottom: 32,
-  },
-  tipCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
-    padding: 16,
+    padding: SPACING.md,
   },
-  tipContent: {
-    flexDirection: "row",
-    gap: 16,
+  optionCardSelected: {
+    backgroundColor: COLORS.primary,
   },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(59, 130, 246, 0.2)",
-    alignItems: "center",
-    justifyContent: "center",
+  optionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: SPACING.md,
   },
-  tipTextContainer: {
+  optionTextContainer: {
     flex: 1,
   },
-  tipTitle: {
-    color: "white",
+  optionTitle: {
+    color: COLORS.white,
     fontSize: 16,
-    fontWeight: "500",
+    fontWeight: '500',
     marginBottom: 4,
   },
-  tipDescription: {
-    color: "#93c5fd",
+  optionTitleSelected: {
+    color: COLORS.white,
+  },
+  optionDescription: {
+    color: COLORS.primary,
     fontSize: 14,
   },
-  confirmationContainer: {
-    gap: 24,
+  optionDescriptionSelected: {
+    color: 'rgba(255, 255, 255, 0.7)',
   },
-  checkboxContainer: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  checkbox: {
-    marginTop: 4,
-  },
-  checkboxLabel: {
-    flex: 1,
-    color: "#93c5fd",
-    fontSize: 14,
-  },
-  completeButton: {
-    backgroundColor: "#3b82f6",
+  button: {
+    backgroundColor: COLORS.primary,
+    padding: SPACING.md,
     borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
+    alignItems: 'center',
   },
-  completeButtonDisabled: {
-    opacity: 0.5,
-  },
-  completeButtonText: {
-    color: "white",
+  buttonText: {
+    color: COLORS.white,
     fontSize: 16,
-    fontWeight: "500",
+    fontWeight: '500',
   },
 }); 

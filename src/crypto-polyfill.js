@@ -7,6 +7,7 @@ import '@ethersproject/shims';
 import { Buffer } from 'buffer';
 import process from 'process';
 import '@walletconnect/react-native-compat';
+import { getRandomValues as reactNativeGetRandomValues } from 'react-native-get-random-values';
 
 // Set up crypto polyfill using expo-crypto (SDK 48+)
 if (typeof crypto === 'undefined') {
@@ -38,4 +39,15 @@ if (typeof global.atob === 'undefined') {
   global.atob = function (b64Encoded) {
     return Buffer.from(b64Encoded, 'base64').toString('binary');
   };
-} 
+}
+
+// Ensure global.crypto has getRandomValues
+if (typeof global.crypto !== 'object') {
+    global.crypto = {};
+}
+if (typeof global.crypto.getRandomValues !== 'function') {
+    global.crypto.getRandomValues = reactNativeGetRandomValues;
+}
+
+// Log successful initialization
+console.log('Crypto polyfills initialized successfully'); 

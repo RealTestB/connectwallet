@@ -126,8 +126,9 @@ module.exports = {
         projectId: "1083be59-e11a-48f1-844c-f8bebeb2b4d0"
       },
       ALCHEMY_ETH_MAINNET_KEY: process.env.ALCHEMY_ETH_MAINNET_KEY,
-      SUPABASE_URL: process.env.SUPABASE_URL,
-      SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+      EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+      EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
       CMC_API_KEY: process.env.CMC_API_KEY,
       LIFI_API_KEY: process.env.LIFI_API_KEY,
       REOWN_PROJECT_ID: process.env.REOWN_PROJECT_ID || '',

@@ -30,10 +30,12 @@ export default function RootLayout() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Keep splash screen visible while we check initial route
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Add a shorter timeout to prevent long black screen
+        await new Promise(resolve => setTimeout(resolve, 500));
         const route = pathname?.replace(/^\//, '') || 'index';
         setInitialRoute(route);
+        setNavigationReady(true); // Set navigation ready here
+        await SplashScreen.hideAsync(); // Hide splash screen immediately after setup
       } catch (e) {
         console.warn('[Layout] Preparation error:', e);
       } finally {
@@ -45,7 +47,7 @@ export default function RootLayout() {
 
   // Handle navigation state
   useEffect(() => {
-    if (!appIsReady || !initialRoute) return;
+    if (!appIsReady) return;
 
     const initializeNavigation = async () => {
       try {
@@ -66,23 +68,14 @@ export default function RootLayout() {
 
         const routeName = pathname?.replace(/^\//, '') || '';
         const shouldShowNav = !excludedScreens.includes(routeName);
-        
-        // Only show bottom nav after navigation is ready and if we're on an allowed screen
-        setShowBottomNav(navigationReady && shouldShowNav);
-        
-        // Hide splash screen only after everything is ready
-        if (navigationReady && initialRoute) {
-          await SplashScreen.hideAsync();
-        }
+        setShowBottomNav(shouldShowNav);
       } catch (error) {
         console.error('[Layout] Error initializing navigation:', error);
-      } finally {
-        setNavigationReady(true);
       }
     };
 
     initializeNavigation();
-  }, [appIsReady, pathname, navigationReady, initialRoute]);
+  }, [appIsReady, pathname]);
 
   if (!appIsReady || !navigationReady || !initialRoute) {
     return (

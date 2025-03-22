@@ -1,82 +1,97 @@
 import React from "react";
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { StackNavigationProp } from "@react-navigation/stack";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 
-type TabId = "portfolio" | "nft" | "pay" | "receive" | "settings";
-
-type RootStackParamList = {
-  Portfolio: undefined;
-  NFT: undefined;
-  Pay: undefined;
-  Receive: undefined;
-  Settings: undefined;
-};
+type TabId = "portfolio" | "nft" | "pay" | "settings";
 
 interface Tab {
   id: TabId;
   label: string;
-  icon: string;
-  route: keyof RootStackParamList;
+  icon: keyof typeof Ionicons.glyphMap;
+  route: string;
 }
 
 interface BottomNavProps {
   activeTab?: TabId;
 }
 
-type NavigationProp = StackNavigationProp<RootStackParamList>;
-
 export default function BottomNav({ activeTab = "portfolio" }: BottomNavProps): JSX.Element {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   
   const tabs: Tab[] = [
-    { id: "portfolio", label: "Portfolio", icon: "💰", route: "Portfolio" },
-    { id: "nft", label: "NFT", icon: "🖼️", route: "NFT" },
-    { id: "pay", label: "Pay", icon: "📤", route: "Pay" },
-    { id: "receive", label: "Receive", icon: "📥", route: "Receive" },
-    { id: "settings", label: "Settings", icon: "⚙️", route: "Settings" },
+    { id: "portfolio", label: "Portfolio", icon: "wallet-outline", route: "/portfolio" },
+    { id: "nft", label: "NFT", icon: "grid-outline", route: "/nft" },
+    { id: "pay", label: "Pay", icon: "swap-horizontal-outline", route: "/pay" },
+    { id: "settings", label: "Settings", icon: "settings-outline", route: "/settings" },
   ];
 
   return (
-    <View style={styles.navContainer}>
-      {tabs.map((tab) => (
-        <TouchableOpacity
-          key={tab.id}
-          onPress={() => navigation.navigate(tab.route)}
-          style={styles.tabButton}
-        >
-          <Text style={[styles.icon, activeTab === tab.id && styles.activeTab]}>{tab.icon}</Text>
-          <Text style={[styles.label, activeTab === tab.id && styles.activeTab]}>{tab.label}</Text>
-        </TouchableOpacity>
-      ))}
+    <View style={styles.container}>
+      <BlurView intensity={20} tint="dark" style={styles.blurContainer}>
+        <View style={styles.navContainer}>
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              onPress={() => router.push(tab.route)}
+              style={styles.tabButton}
+            >
+              <Ionicons
+                name={tab.icon}
+                size={24}
+                color={activeTab === tab.id ? "#FFFFFF" : "#6A9EFF"}
+                style={styles.icon}
+              />
+              <Text style={[
+                styles.label,
+                activeTab === tab.id && styles.activeLabel
+              ]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </BlurView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  navContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: "#1A2F6C",
-    paddingVertical: 12,
+  container: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 1000,
+  },
+  blurContainer: {
+    overflow: 'hidden',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  navContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    backgroundColor: "rgba(26, 47, 108, 0.95)",
+    paddingVertical: 12,
+    paddingBottom: 24,
   },
   tabButton: {
     alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
   },
   icon: {
-    fontSize: 20,
-    color: "#6A9EFF",
+    marginBottom: 4,
   },
   label: {
     fontSize: 12,
     color: "#6A9EFF",
+    marginTop: 2,
   },
-  activeTab: {
-    color: "white",
-    fontWeight: "bold",
+  activeLabel: {
+    color: "#FFFFFF",
+    fontWeight: "500",
   },
 }); 

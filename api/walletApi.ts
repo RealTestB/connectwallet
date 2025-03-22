@@ -6,6 +6,7 @@ export interface WalletData {
   address: string;
   type: "classic";
   chainId?: number;
+  hasPassword?: boolean;
 }
 
 /**
@@ -58,8 +59,9 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
 
 /**
  * ✅ Create a new Classic Wallet
+ * @param password Optional password for wallet encryption
  */
-export const createClassicWallet = async (): Promise<WalletData> => {
+export const createClassicWallet = async (password?: string): Promise<WalletData> => {
   try {
     // Generate a new random wallet
     const wallet = ethers.Wallet.createRandom();
@@ -76,10 +78,16 @@ export const createClassicWallet = async (): Promise<WalletData> => {
     await SecureStore.setItemAsync(config.wallet.classic.storageKeys.seedPhrase, seedPhrase);
     await SecureStore.setItemAsync(config.wallet.classic.storageKeys.addresses, address);
 
+    // Store password if provided
+    if (password) {
+      await SecureStore.setItemAsync('walletPassword', password);
+    }
+
     return { 
       address, 
       type: "classic",
-      chainId: config.chain.chainId
+      chainId: config.chain.chainId,
+      hasPassword: !!password
     };
   } catch (error) {
     console.error("Failed to create classic wallet:", error);

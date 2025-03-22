@@ -1,12 +1,15 @@
 import React, { useState } from "react";
-import {View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator,} from "react-native";
+import {View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Image} from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { getRandomBytes } from 'expo-crypto';
 import { hashPassword } from "../api/securityApi";
 import * as Crypto from 'expo-crypto';
+import { createAnonymousUser } from "../api/supabaseApi";
+import { sharedStyles, COLORS, SPACING } from '../styles/shared';
+import OnboardingLayout from '../components/ui/OnboardingLayout';
 
 interface Account {
   address: string;
@@ -29,6 +32,12 @@ export default function Page() {
   const [error, setError] = useState("");
   const [isSecure, setIsSecure] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [progress, setProgress] = useState(0.25); // 25% progress in onboarding
+
+  // Add debug logging for isCreating state changes
+  React.useEffect(() => {
+    console.log('isCreating state changed to:', isCreating);
+  }, [isCreating]);
 
   const validatePassword = (pass: string) => {
     if (!pass) return "Password is required";
@@ -68,292 +77,260 @@ export default function Page() {
   };
 
   const handleContinue = async () => {
+    if (isCreating) {
+        console.log("Already processing, skipping...");
+        return;
+    }
+
+    const startTime = Date.now();
+    console.log("=== 🚀 Starting password creation process ===");
     setError("");
     setIsCreating(true);
 
     try {
-      // Validate password first
-      const passwordError = validatePassword(password);
-      if (passwordError) {
-        setError(passwordError);
+        console.log("Step 1: Validating password...");
+        const passwordError = validatePassword(password);
+        if (passwordError) {
+            throw new Error(passwordError);
+        }
+
+        if (password !== confirmPassword) {
+            throw new Error("Passwords do not match");
+        }
+        console.log("✓ Password validation successful");
+
+        console.log("Step 2: Hashing password...");
+        const hashStartTime = Date.now();
+        const hashedPassword = await hashPassword(password);
+        console.log(`Password hashing took: ${Date.now() - hashStartTime}ms`);
+        
+        if (!hashedPassword) {
+            throw new Error("Failed to hash password");
+        }
+        console.log("✓ Password hashed successfully");
+
+        console.log("Step 3: Creating anonymous user...");
+        const hashData = JSON.parse(hashedPassword);
+        const tempUserId = await createAnonymousUser(hashData) as string;
+        
+        if (!tempUserId) {
+            throw new Error('Failed to create user');
+        }
+        console.log("✓ Temporary user ID created:", tempUserId);
+
+        console.log("Step 5: Storing user data...");
+        const storeStartTime = Date.now();
+        await Promise.all([
+            SecureStore.setItemAsync('tempUserId', tempUserId),
+            SecureStore.setItemAsync("passwordHash", hashedPassword),
+            SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.PASSWORD_CREATED)
+        ]);
+        console.log(`SecureStore operations took: ${Date.now() - storeStartTime}ms`);
+
         setIsCreating(false);
-        return;
-      }
+        console.log("🚀 Navigating to /seed-phrase...");
+        console.log(`Total process time: ${Date.now() - startTime}ms`);
+        router.push("/seed-phrase");
 
-      if (password !== confirmPassword) {
-        setError("Passwords do not match");
+    } catch (error) {
+        const totalTime = Date.now() - startTime;
+        console.error("=== ❌ Password creation process failed ===");
+        console.error("Error details:", error);
+        console.error(`Failed after ${totalTime}ms`);
+        setError(error instanceof Error ? error.message : 'Failed to create password. Please try again.');
         setIsCreating(false);
-        return;
-      }
-
-      console.log("Hashing password...");
-      const hashedPassword = await hashPassword(password);
-      if (!hashedPassword) {
-        throw new Error("Failed to hash password");
-      }
-
-      console.log("Storing hashed password...");
-      await SecureStore.setItemAsync("passwordHash", hashedPassword);
-      
-      // Store setup progress
-      await SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.PASSWORD_CREATED);
-
-      // Double check everything was stored
-      const storedHash = await SecureStore.getItemAsync("passwordHash");
-      const setupState = await SecureStore.getItemAsync("walletSetupState");
-      if (!storedHash || !setupState) {
-        throw new Error("Failed to store password or setup state");
-      }
-
-      console.log("Password stored successfully, navigating...");
-      
-      // Add a small delay before navigation to ensure state is saved
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Use push instead of replace to prevent flashing
-      router.push("/seed-phrase");
-    } catch (err) {
-      console.error("Password creation error:", err);
-      setError(err instanceof Error ? err.message : "Failed to create password. Please try again.");
-      setIsCreating(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.stepsContainer}>
-          <View style={styles.steps}>
-            {[1, 2, 3, 4].map((step) => (
+    <OnboardingLayout
+      progress={0.25}
+      title="Create Password"
+      subtitle="Set a strong password to secure your wallet"
+      icon="lock-outline"
+    >
+      <View style={styles.warningBox}>
+        <Ionicons name="shield-checkmark" size={20} color="#facc15" />
+        <Text style={styles.warningText}>
+          Use a strong password that you don't use anywhere else
+        </Text>
+      </View>
+
+      <View style={styles.inputContainer}>
+        <View style={styles.passwordInputContainer}>
+          <TextInput
+            style={styles.input}
+            secureTextEntry={isSecure}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Enter password"
+            placeholderTextColor="#93c5fd"
+          />
+          <TouchableOpacity
+            onPress={() => setIsSecure(!isSecure)}
+            style={styles.eyeIcon}
+          >
+            <Ionicons
+              name={isSecure ? "eye-off" : "eye"}
+              size={20}
+              color="#93c5fd"
+            />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.strengthContainer}>
+          <View style={styles.strengthBars}>
+            {[...Array(4)].map((_, i) => (
               <View
-                key={step}
+                key={i}
                 style={[
-                  styles.stepDot,
-                  step === 1 ? styles.activeStep : styles.inactiveStep,
+                  styles.strengthBar,
+                  {
+                    backgroundColor: i < passwordStrength ? getStrengthColor() : "#ffffff1a",
+                  },
                 ]}
               />
             ))}
           </View>
+          <Text style={styles.strengthText}>{getStrengthText()}</Text>
         </View>
 
-        <Text style={styles.title}>Create Password</Text>
+        <TextInput
+          style={styles.input}
+          secureTextEntry={isSecure}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          placeholder="Confirm password"
+          placeholderTextColor="#93c5fd"
+        />
 
-        <View style={styles.warningBox}>
-          <Ionicons name="shield-checkmark" size={20} color="#facc15" />
-          <Text style={styles.warningText}>
-            Use a strong password that you don't use anywhere else
-          </Text>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <View style={styles.passwordInputContainer}>
-            <TextInput
-              style={styles.input}
-              secureTextEntry={isSecure}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Enter password"
-              placeholderTextColor="#93c5fd"
-            />
-            <TouchableOpacity
-              onPress={() => setIsSecure(!isSecure)}
-              style={styles.eyeIcon}
-            >
+        <View style={styles.requirementsContainer}>
+          <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+          <View style={styles.requirementsList}>
+            <View style={styles.requirementItem}>
               <Ionicons
-                name={isSecure ? "eye-off" : "eye"}
-                size={20}
-                color="#93c5fd"
+                name={password.length >= 8 ? "checkmark-circle" : "ellipse"}
+                size={12}
+                color={password.length >= 8 ? "#4ade80" : "#93c5fd"}
               />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.strengthContainer}>
-            <View style={styles.strengthBars}>
-              {[...Array(4)].map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.strengthBar,
-                    {
-                      backgroundColor: i < passwordStrength ? getStrengthColor() : "#ffffff1a",
-                    },
-                  ]}
-                />
-              ))}
+              <Text
+                style={[
+                  styles.requirementText,
+                  password.length >= 8 && styles.requirementMet,
+                ]}
+              >
+                At least 8 characters
+              </Text>
             </View>
-            <Text style={styles.strengthText}>{getStrengthText()}</Text>
-          </View>
-
-          <TextInput
-            style={styles.input}
-            secureTextEntry={isSecure}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            placeholder="Confirm password"
-            placeholderTextColor="#93c5fd"
-          />
-
-          <View style={styles.requirementsContainer}>
-            <Text style={styles.requirementsTitle}>Password Requirements:</Text>
-            <View style={styles.requirementsList}>
-              <View style={styles.requirementItem}>
-                <Ionicons
-                  name={password.length >= 8 ? "checkmark-circle" : "ellipse"}
-                  size={12}
-                  color={password.length >= 8 ? "#4ade80" : "#93c5fd"}
-                />
-                <Text
-                  style={[
-                    styles.requirementText,
-                    password.length >= 8 && styles.requirementMet,
-                  ]}
-                >
-                  At least 8 characters
-                </Text>
-              </View>
-              <View style={styles.requirementItem}>
-                <Ionicons
-                  name={/[A-Z]/.test(password) ? "checkmark-circle" : "ellipse"}
-                  size={12}
-                  color={/[A-Z]/.test(password) ? "#4ade80" : "#93c5fd"}
-                />
-                <Text
-                  style={[
-                    styles.requirementText,
-                    /[A-Z]/.test(password) && styles.requirementMet,
-                  ]}
-                >
-                  One uppercase letter
-                </Text>
-              </View>
-              <View style={styles.requirementItem}>
-                <Ionicons
-                  name={/[0-9]/.test(password) ? "checkmark-circle" : "ellipse"}
-                  size={12}
-                  color={/[0-9]/.test(password) ? "#4ade80" : "#93c5fd"}
-                />
-                <Text
-                  style={[
-                    styles.requirementText,
-                    /[0-9]/.test(password) && styles.requirementMet,
-                  ]}
-                >
-                  One number
-                </Text>
-              </View>
-              <View style={styles.requirementItem}>
-                <Ionicons
-                  name={/[^A-Za-z0-9]/.test(password) ? "checkmark-circle" : "ellipse"}
-                  size={12}
-                  color={/[^A-Za-z0-9]/.test(password) ? "#4ade80" : "#93c5fd"}
-                />
-                <Text
-                  style={[
-                    styles.requirementText,
-                    /[^A-Za-z0-9]/.test(password) && styles.requirementMet,
-                  ]}
-                >
-                  One special character
-                </Text>
-              </View>
+            <View style={styles.requirementItem}>
+              <Ionicons
+                name={/[A-Z]/.test(password) ? "checkmark-circle" : "ellipse"}
+                size={12}
+                color={/[A-Z]/.test(password) ? "#4ade80" : "#93c5fd"}
+              />
+              <Text
+                style={[
+                  styles.requirementText,
+                  /[A-Z]/.test(password) && styles.requirementMet,
+                ]}
+              >
+                One uppercase letter
+              </Text>
+            </View>
+            <View style={styles.requirementItem}>
+              <Ionicons
+                name={/[0-9]/.test(password) ? "checkmark-circle" : "ellipse"}
+                size={12}
+                color={/[0-9]/.test(password) ? "#4ade80" : "#93c5fd"}
+              />
+              <Text
+                style={[
+                  styles.requirementText,
+                  /[0-9]/.test(password) && styles.requirementMet,
+                ]}
+              >
+                One number
+              </Text>
+            </View>
+            <View style={styles.requirementItem}>
+              <Ionicons
+                name={/[^A-Za-z0-9]/.test(password) ? "checkmark-circle" : "ellipse"}
+                size={12}
+                color={/[^A-Za-z0-9]/.test(password) ? "#4ade80" : "#93c5fd"}
+              />
+              <Text
+                style={[
+                  styles.requirementText,
+                  /[^A-Za-z0-9]/.test(password) && styles.requirementMet,
+                ]}
+              >
+                One special character
+              </Text>
             </View>
           </View>
-
-          {error ? (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
-
-          <TouchableOpacity
-            style={[styles.button, isCreating && styles.buttonDisabled]}
-            onPress={handleContinue}
-            disabled={isCreating}
-          >
-            {isCreating ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.buttonText}>Continue</Text>
-            )}
-          </TouchableOpacity>
         </View>
-      </ScrollView>
-    </View>
+
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={[styles.button, isCreating && styles.buttonDisabled]}
+          onPress={handleContinue}
+          disabled={isCreating}
+        >
+          {isCreating ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text style={styles.buttonText}>Continue</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </OnboardingLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#1A2F6C",
-    paddingTop: 60,
-  },
-  scrollView: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  stepsContainer: {
-    marginTop: 40,
-    marginBottom: 40,
-  },
-  steps: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  activeStep: {
-    backgroundColor: "#3b82f6",
-  },
-  inactiveStep: {
-    backgroundColor: "#3b82f680",
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 24,
-    textAlign: "center",
-  },
   warningBox: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#facc1510",
-    padding: 16,
+    padding: SPACING.md,
     borderRadius: 12,
-    marginBottom: 32,
-    marginTop: 20,
+    marginBottom: SPACING.xl,
+    marginTop: SPACING.lg,
+    gap: SPACING.xs,
   },
   warningText: {
     color: "#facc15",
     fontSize: 14,
+    flex: 1,
   },
   inputContainer: {
-    gap: 16,
+    gap: SPACING.md,
   },
   passwordInputContainer: {
     position: "relative",
   },
   input: {
-    backgroundColor: "#ffffff1a",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderWidth: 1,
-    borderColor: "#ffffff1a",
+    borderColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: 12,
-    color: "white",
+    padding: SPACING.md,
+    color: COLORS.white,
     fontSize: 16,
   },
   eyeIcon: {
     position: "absolute",
-    right: 12,
+    right: SPACING.md,
     top: "50%",
     transform: [{ translateY: -10 }],
   },
   strengthContainer: {
-    gap: 8,
+    gap: SPACING.xs,
   },
   strengthBars: {
     flexDirection: "row",
@@ -365,47 +342,47 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   strengthText: {
-    color: "#93c5fd",
+    color: COLORS.primary,
     fontSize: 14,
   },
   requirementsContainer: {
-    backgroundColor: "#ffffff1a",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    padding: SPACING.md,
+    gap: SPACING.md,
   },
   requirementsTitle: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 16,
     fontWeight: "500",
   },
   requirementsList: {
-    gap: 8,
+    gap: SPACING.xs,
   },
   requirementItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: SPACING.xs,
   },
   requirementText: {
-    color: "#93c5fd",
+    color: COLORS.primary,
     fontSize: 14,
   },
   requirementMet: {
-    color: "#4ade80",
+    color: COLORS.success,
   },
   errorContainer: {
-    backgroundColor: "#ef44441a",
-    padding: 16,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    padding: SPACING.md,
     borderRadius: 12,
   },
   errorText: {
-    color: "#f87171",
+    color: COLORS.error,
     fontSize: 14,
   },
   button: {
-    backgroundColor: "#2563eb",
-    padding: 16,
+    backgroundColor: COLORS.primary,
+    padding: SPACING.md,
     borderRadius: 12,
     alignItems: "center",
   },
@@ -413,7 +390,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   buttonText: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 16,
     fontWeight: "500",
   },

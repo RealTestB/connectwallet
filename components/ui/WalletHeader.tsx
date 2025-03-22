@@ -6,9 +6,11 @@ import {
   Modal,
   StyleSheet,
   ScrollView,
+  Image,
 } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { getStoredWallet } from "../../api/walletApi";
 
 interface Account {
   address: string;
@@ -17,15 +19,10 @@ interface Account {
 }
 
 interface WalletHeaderProps {
-  pageName: string;
   onAccountChange: (account: Account) => void;
-  leftButton?: {
-    icon: keyof typeof Ionicons.glyphMap;
-    onPress: () => void;
-  };
 }
 
-export default function WalletHeader({ pageName, onAccountChange, leftButton }: WalletHeaderProps): JSX.Element {
+export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JSX.Element {
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -37,17 +34,19 @@ export default function WalletHeader({ pageName, onAccountChange, leftButton }: 
   const loadAccounts = async (): Promise<void> => {
     try {
       console.log('[WalletHeader] Loading accounts...');
-      const accountsJson = await SecureStore.getItemAsync("walletAccounts");
-      console.log('[WalletHeader] Accounts data from storage:', accountsJson ? 'Found' : 'Not found');
+      const walletData = await getStoredWallet();
+      console.log('[WalletHeader] Wallet data:', walletData ? 'Found' : 'Not found');
       
-      if (accountsJson) {
-        const loadedAccounts = JSON.parse(accountsJson) as Account[];
-        console.log('[WalletHeader] Parsed accounts count:', loadedAccounts.length);
-        setAccounts(loadedAccounts);
+      if (walletData) {
+        const account: Account = {
+          address: walletData.address,
+          chainId: walletData.chainId
+        };
+        setAccounts([account]);
         
-        if (!selectedAccount && loadedAccounts.length > 0) {
-          console.log('[WalletHeader] Setting default account:', loadedAccounts[0].address);
-          handleAccountSelection(loadedAccounts[0]);
+        if (!selectedAccount) {
+          console.log('[WalletHeader] Setting default account:', account.address);
+          handleAccountSelection(account);
         }
       }
     } catch (error) {
@@ -100,18 +99,15 @@ export default function WalletHeader({ pageName, onAccountChange, leftButton }: 
 
   return (
     <View style={styles.header}>
-      {/* Left Side - Page Title */}
-      <View style={styles.titleContainer}>
-        {leftButton ? (
-          <TouchableOpacity onPress={leftButton.onPress} style={styles.iconContainer}>
-            <Ionicons name={leftButton.icon} size={20} color="white" />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.iconContainer}>
-            <Text style={styles.iconText}>⚡</Text>
-          </View>
-        )}
-        <Text style={styles.pageTitle}>{pageName}</Text>
+      {/* Left Side - Logo and Title */}
+      <View style={styles.leftContainer}>
+        <View style={styles.logoContainer}>
+          <Ionicons name="flash" size={20} color="white" />
+        </View>
+        <View style={styles.titleContainer}>
+          <Text style={styles.title}>Connect Wallet</Text>
+          <Text style={styles.subtitle}>The Future of Security</Text>
+        </View>
       </View>
 
       {/* Right Side - Account Selector */}
@@ -122,7 +118,7 @@ export default function WalletHeader({ pageName, onAccountChange, leftButton }: 
         <Text style={styles.accountText}>
           {selectedAccount ? formatAddress(selectedAccount.address) : "Select Account"}
         </Text>
-        <Text style={styles.dropdownIcon}>▼</Text>
+        <Ionicons name="chevron-down" size={16} color="white" style={styles.dropdownIcon} />
       </TouchableOpacity>
 
       {/* Account Selection Modal */}
@@ -167,33 +163,38 @@ export default function WalletHeader({ pageName, onAccountChange, leftButton }: 
 const styles = StyleSheet.create({
   header: {
     backgroundColor: "#1A2F6C",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingTop: 48,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  titleContainer: {
+  leftContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
-  iconContainer: {
+  logoContainer: {
     width: 32,
     height: 32,
     backgroundColor: "#6A9EFF",
     borderRadius: 8,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 8,
+    marginRight: 12,
   },
-  iconText: {
-    fontSize: 16,
-    color: "white",
+  titleContainer: {
+    flexDirection: "column",
   },
-  pageTitle: {
+  title: {
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: "600",
     color: "white",
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#6A9EFF",
   },
   accountButton: {
     flexDirection: "row",
@@ -201,16 +202,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 12,
+    borderRadius: 8,
   },
   accountText: {
     fontSize: 14,
     color: "white",
-    marginRight: 8,
+    marginRight: 4,
   },
   dropdownIcon: {
-    fontSize: 12,
-    color: "white",
+    marginLeft: 4,
   },
   modalOverlay: {
     flex: 1,
@@ -242,4 +242,4 @@ const styles = StyleSheet.create({
     color: "#6A9EFF",
     fontSize: 14,
   },
-}); 
+});

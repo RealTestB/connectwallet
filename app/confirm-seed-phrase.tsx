@@ -1,40 +1,17 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
-import { decryptSeedPhrase } from "../api/securityApi";
-import { createClassicWallet } from "../api/walletApi";
-import { addWallet, createAnonymousUser } from "../api/supabaseApi";
-import { useAuth } from "../contexts/AuthContext";
+import { sharedStyles, COLORS, SPACING } from '../styles/shared';
+import OnboardingLayout from '../components/ui/OnboardingLayout';
 
-const SETUP_STEPS = {
-  PASSWORD_CREATED: 'password_created',
-  SEED_PHRASE_GENERATED: 'seed_phrase_generated',
-  SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
-  SETUP_COMPLETED: 'setup_completed'
-};
-
-export default function ConfirmSeedPhraseScreen() {
+export default function ConfirmSeedPhrase() {
   const router = useRouter();
-  const [selectedWords, setSelectedWords] = useState<Record<number, string>>({});
-  const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
-
-  // Randomly select 4 indices that need to be verified
-  const [requiredWordIndices] = useState(() => {
-    const indices: number[] = [];
-    while (indices.length < 4) {
-      const index = Math.floor(Math.random() * 12);
-      if (!indices.includes(index)) {
-        indices.push(index);
-      }
-    }
-    return indices.sort((a, b) => a - b);
-  });
+  const [originalPhrase, setOriginalPhrase] = useState<string[]>([]);
+  const [shuffledWords, setShuffledWords] = useState<string[]>([]);
+  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     loadSeedPhrase();
@@ -42,279 +19,184 @@ export default function ConfirmSeedPhraseScreen() {
 
   const loadSeedPhrase = async () => {
     try {
-      console.log("Loading seed phrase...");
+      const phrase = await SecureStore.getItemAsync('tempSeedPhrase');
+      if (!phrase) throw new Error('No seed phrase found');
       
-      // Get the temporary seed phrase
-      const tempSeedPhrase = await SecureStore.getItemAsync('tempSeedPhrase');
-      console.log("Retrieved temporary seed phrase:", tempSeedPhrase ? "found" : "not found");
-      
-      if (!tempSeedPhrase) {
-        throw new Error('No seed phrase found');
-      }
-
-      // Split the phrase into words
-      const words = tempSeedPhrase.split(' ');
-      console.log("Split seed phrase into", words.length, "words");
-      
-      setSeedPhrase(words);
+      const words = phrase.split(' ');
+      setOriginalPhrase(words);
+      setShuffledWords([...words].sort(() => Math.random() - 0.5));
     } catch (error) {
       console.error('Error loading seed phrase:', error);
       setError('Failed to load seed phrase');
     }
   };
 
-  const handleWordInput = (index: number, value: string) => {
-    setSelectedWords((prev) => ({
-      ...prev,
-      [index]: value.toLowerCase().trim(),
-    }));
-    setError(null);
+  const handleWordSelect = (word: string) => {
+    if (selectedWords.includes(word)) {
+      setSelectedWords(selectedWords.filter(w => w !== word));
+    } else {
+      setSelectedWords([...selectedWords, word]);
+    }
+    setError('');
   };
 
   const handleVerify = async () => {
-    setIsVerifying(true);
-    setError(null);
-
-    try {
-      console.log("Verifying seed phrase...");
-      console.log("Required indices:", requiredWordIndices);
-      console.log("Selected words:", selectedWords);
-      
-      // Verify each required word matches the original seed phrase
-      const isCorrect = requiredWordIndices.every(
-        (index) => selectedWords[index]?.toLowerCase() === seedPhrase[index]?.toLowerCase()
-      );
-
-      if (!isCorrect) {
-        throw new Error('Some words do not match. Please check and try again.');
-      }
-
-      console.log("Words verified successfully");
-
-      try {
-        // Create an anonymous user first
-        console.log("Creating anonymous user...");
-        const user = await createAnonymousUser();
-        if (!user?.id) {
-          throw new Error('Failed to create user in Supabase');
-        }
-        console.log("Created anonymous user:", user.id);
-
-        // Store the user ID
-        await SecureStore.setItemAsync('userId', user.id);
-        console.log("Stored user ID in SecureStore");
-
-        // First update setup state
-        await SecureStore.setItemAsync('walletSetupState', SETUP_STEPS.SEED_PHRASE_CONFIRMED);
-        console.log("Updated setup state to SEED_PHRASE_CONFIRMED");
-
-        // Create the wallet in SecureStore
-        const walletData = await createClassicWallet();
-        console.log("Created wallet in SecureStore:", walletData.address);
-
-        // Add wallet to database
-        console.log("Adding wallet to database...");
-        const dbWallet = await addWallet({
-          user_id: user.id,
-          address: walletData.address,
-          chain_id: walletData.chainId || 1,
-          is_primary: true,
-          name: 'My Wallet'
-        });
-
-        if (!dbWallet) {
-          throw new Error('Failed to add wallet to database');
-        }
-        console.log("Added wallet to database:", dbWallet.id);
-
-        // Clean up the temporary seed phrase
-        await SecureStore.deleteItemAsync('tempSeedPhrase');
-        console.log("Cleaned up temporary seed phrase");
-
-        // Update to completed state
-        await SecureStore.setItemAsync('walletSetupState', SETUP_STEPS.SETUP_COMPLETED);
-        console.log("Updated setup state to SETUP_COMPLETED");
-
-        // Navigate to next screen using replace to prevent back navigation
-        router.replace('/secure-wallet');
-      } catch (dbError) {
-        console.error("Database error:", dbError);
-        // If we hit a database error, we should clean up
-        await SecureStore.deleteItemAsync('userId');
-        await SecureStore.deleteItemAsync('walletSetupState');
-        throw new Error(dbError instanceof Error ? dbError.message : 'Failed to create wallet. Please try again.');
-      }
-    } catch (err) {
-      console.error("Verification error:", err);
-      setError(err instanceof Error ? err.message : 'Verification failed. Please try again.');
-    } finally {
-      setIsVerifying(false);
+    if (selectedWords.join(' ') === originalPhrase.join(' ')) {
+      await SecureStore.setItemAsync('walletSetupState', 'seed_phrase_confirmed');
+      router.push('/secure-wallet');
+    } else {
+      setError('Incorrect sequence. Please try again.');
+      setSelectedWords([]);
     }
   };
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
+    <OnboardingLayout
+      progress={0.75}
+      title="Verify Recovery Phrase"
+      subtitle="Select the words in the correct order to verify you've saved your recovery phrase"
+      icon="verified-user"
     >
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.stepsContainer}>
-          <View style={styles.steps}>
-            {[1, 2, 3, 4].map((step) => (
-              <View
-                key={step}
-                style={[
-                  styles.stepDot,
-                  step === 3 ? styles.activeStep : styles.inactiveStep,
-                ]}
-              />
-            ))}
+      <View style={styles.selectedWordsContainer}>
+        {Array(12).fill(null).map((_, index) => (
+          <View key={index} style={styles.wordSlot}>
+            {selectedWords[index] ? (
+              <TouchableOpacity
+                style={styles.selectedWord}
+                onPress={() => handleWordSelect(selectedWords[index])}
+              >
+                <Text style={styles.wordText}>{selectedWords[index]}</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.placeholderText}>{index + 1}</Text>
+            )}
           </View>
+        ))}
+      </View>
+
+      {error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
         </View>
+      ) : null}
 
-        <Text style={styles.title}>Verify Recovery Phrase</Text>
-        <Text style={styles.subtitle}>
-          Please enter the following words from your recovery phrase to verify you have saved it correctly
-        </Text>
+      <View style={styles.wordGrid}>
+        {shuffledWords.map((word, index) => (
+          <TouchableOpacity
+            key={index}
+            style={[
+              styles.wordButton,
+              selectedWords.includes(word) && styles.wordButtonSelected
+            ]}
+            onPress={() => handleWordSelect(word)}
+            disabled={selectedWords.includes(word)}
+          >
+            <Text style={[
+              styles.wordButtonText,
+              selectedWords.includes(word) && styles.wordButtonTextSelected
+            ]}>
+              {word}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-        <View style={styles.wordsGrid}>
-          {seedPhrase.map((word, i) => (
-            <View key={i} style={styles.wordContainer}>
-              <Text style={styles.wordNumber}>#{i + 1}</Text>
-              {requiredWordIndices.includes(i) ? (
-                <TextInput
-                  style={styles.wordInput}
-                  placeholder="Enter word"
-                  placeholderTextColor="rgba(147, 197, 253, 0.5)"
-                  value={selectedWords[i] || ""}
-                  onChangeText={(value) => handleWordInput(i, value)}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              ) : (
-                <Text style={styles.wordText}>{word}</Text>
-              )}
-            </View>
-          ))}
-        </View>
-
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[
-            styles.verifyButton,
-            (isVerifying || requiredWordIndices.some((i) => !selectedWords[i])) && styles.verifyButtonDisabled,
-          ]}
-          onPress={handleVerify}
-          disabled={isVerifying || requiredWordIndices.some((i) => !selectedWords[i])}
-        >
-          {isVerifying ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text style={styles.verifyButtonText}>Verify</Text>
-          )}
-        </TouchableOpacity>
-      </ScrollView>
-    </LinearGradient>
+      <TouchableOpacity
+        style={[
+          styles.verifyButton,
+          selectedWords.length !== 12 && styles.verifyButtonDisabled
+        ]}
+        onPress={handleVerify}
+        disabled={selectedWords.length !== 12}
+      >
+        <Text style={styles.verifyButtonText}>Verify</Text>
+      </TouchableOpacity>
+    </OnboardingLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  selectedWordsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+    marginBottom: SPACING.xl,
   },
-  scrollView: {
-    flex: 1,
-    padding: 16,
-  },
-  stepsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 32,
-  },
-  steps: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  activeStep: {
-    backgroundColor: "#3b82f6",
-  },
-  inactiveStep: {
-    backgroundColor: "#3b82f680",
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  subtitle: {
-    color: "#93c5fd",
-    fontSize: 16,
-    textAlign: "center",
-    marginBottom: 32,
-  },
-  wordsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 32,
-  },
-  wordContainer: {
-    width: "48%",
-    backgroundColor: "#ffffff1a",
+  wordSlot: {
+    width: '48%',
+    height: 44,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
-    padding: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  wordNumber: {
-    color: "#93c5fd",
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  wordInput: {
-    color: "white",
-    fontSize: 16,
-    padding: 0,
+  selectedWord: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   wordText: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 16,
+    fontWeight: '500',
+  },
+  placeholderText: {
+    color: COLORS.primary,
+    fontSize: 14,
+    opacity: 0.7,
   },
   errorContainer: {
-    backgroundColor: "#ef44441a",
-    borderWidth: 1,
-    borderColor: "#ef444433",
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    padding: SPACING.md,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   errorText: {
-    color: "#f87171",
+    color: COLORS.error,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  wordGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+    marginBottom: SPACING.xl,
+  },
+  wordButton: {
+    width: '31%',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    padding: SPACING.sm,
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  wordButtonSelected: {
+    opacity: 0.5,
+  },
+  wordButtonText: {
+    color: COLORS.white,
     fontSize: 14,
   },
+  wordButtonTextSelected: {
+    color: COLORS.primary,
+  },
   verifyButton: {
-    backgroundColor: "#2563eb",
-    padding: 16,
+    backgroundColor: COLORS.primary,
+    padding: SPACING.md,
     borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 24,
+    alignItems: 'center',
   },
   verifyButtonDisabled: {
     opacity: 0.5,
   },
   verifyButtonText: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 16,
-    fontWeight: "500",
+    fontWeight: '500',
   },
 }); 

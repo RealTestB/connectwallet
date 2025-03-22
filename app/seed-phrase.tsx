@@ -2,14 +2,14 @@ import { useRouter } from "expo-router";
 import * as ScreenCapture from "expo-screen-capture";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View, ScrollView, ActivityIndicator, TextInput } from "react-native";
-import { encryptSeedPhrase, getEncryptedData, verifyPassword, decryptSeedPhrase } from "../api/securityApi";
-import { createClassicWallet } from "../api/walletApi";
+import { StyleSheet, Text, TouchableOpacity, View, ScrollView, ActivityIndicator } from "react-native";
+import { encryptSeedPhrase } from "../api/securityApi";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ethers } from "ethers";
 import * as Crypto from 'expo-crypto';
+import { resolveTempUserId } from "../api/supabaseApi";
 
 const SETUP_STEPS = {
   PASSWORD_CREATED: 'password_created',
@@ -25,8 +25,6 @@ export default function Page(): JSX.Element {
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [password, setPassword] = useState<string>("");
-  const [showPasswordInput, setShowPasswordInput] = useState<boolean>(false);
 
   useEffect(() => {
     disableScreenCapture();
@@ -48,6 +46,25 @@ export default function Page(): JSX.Element {
       if (setupState !== SETUP_STEPS.PASSWORD_CREATED) {
         throw new Error("Please complete password setup first");
       }
+
+      // Try to resolve temp user ID in the background without awaiting
+      const tempUserId = await SecureStore.getItemAsync('tempUserId');
+      if (tempUserId) {
+        // Don't await this - let it run in the background
+        resolveTempUserId(tempUserId)
+          .then(realUserId => {
+            if (realUserId && realUserId !== tempUserId) {
+              console.log("Successfully resolved user ID:", realUserId);
+              // Update the stored ID in the background
+              SecureStore.setItemAsync('userId', realUserId)
+                .catch(error => console.error("Error updating userId:", error));
+            }
+          })
+          .catch(error => {
+            // Just log the error but don't block the flow
+            console.warn("Failed to resolve user ID:", error);
+          });
+      }
       
       // Generate seed phrase using ethers
       const wallet = ethers.Wallet.createRandom();
@@ -58,11 +75,6 @@ export default function Page(): JSX.Element {
       setSeedPhrase(words);
       console.log("Generated seed phrase with", words.length, "words");
 
-      // Generate a temporary key for verification storage
-      const tempKeyBytes = Crypto.getRandomBytes(32);
-      const tempKey = Array.from(tempKeyBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-      console.log("Generated temporary key");
-      
       // Store the seed phrase temporarily without encryption first
       await SecureStore.setItemAsync("tempSeedPhrase", words.join(" "));
       console.log("Stored unencrypted seed phrase temporarily");
@@ -81,38 +93,11 @@ export default function Page(): JSX.Element {
 
   const handleContinue = async (): Promise<void> => {
     try {
-      // Get the stored password hash
-      const storedHash = await getEncryptedData("passwordHash");
-      if (!storedHash) {
-        throw new Error("No password found");
-      }
-      console.log("Retrieved password hash");
-
-      // Get the temporary seed phrase
-      const tempSeedPhrase = await SecureStore.getItemAsync("tempSeedPhrase");
-      if (!tempSeedPhrase) {
-        throw new Error("No seed phrase found");
-      }
-      console.log("Retrieved temporary seed phrase");
-
-      // Verify the password
-      const isValid = await verifyPassword(password, storedHash);
-      if (!isValid) {
-        setError("Invalid password");
-        return;
-      }
-      console.log("Password verified successfully");
-
-      // Encrypt the seed phrase with the password for permanent storage
-      const encryptedSeedPhrase = await encryptSeedPhrase(tempSeedPhrase, password);
-      await SecureStore.setItemAsync("encryptedSeedPhrase", encryptedSeedPhrase);
-      console.log("Stored encrypted seed phrase");
-
-      // Navigate to confirmation
+      // Navigate directly to confirmation
       router.push("/confirm-seed-phrase");
     } catch (error) {
-      console.error("Error encrypting seed phrase:", error);
-      setError("Failed to secure seed phrase. Please try again.");
+      console.error("Error proceeding to confirmation:", error);
+      setError("Failed to proceed. Please try again.");
     }
   };
 
@@ -210,26 +195,9 @@ export default function Page(): JSX.Element {
                 </Text>
               </View>
               
-              {/* Password Input */}
-              <TextInput
-                style={styles.input}
-                secureTextEntry={true}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter your password to continue"
-                placeholderTextColor="#93c5fd"
-              />
-              
-              {error && (
-                <View style={styles.errorContainer}>
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
-              )}
-              
               <TouchableOpacity
-                style={[styles.continueButton, !password && styles.buttonDisabled]}
+                style={[styles.continueButton]}
                 onPress={handleContinue}
-                disabled={!password}
               >
                 <Text style={styles.buttonText}>Continue</Text>
               </TouchableOpacity>
@@ -397,14 +365,5 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "600",
-  },
-  input: {
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  buttonDisabled: {
-    backgroundColor: "rgba(106, 158, 255, 0.3)",
   },
 }); 

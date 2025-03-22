@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAdmin } from '../lib/supabase';
 import config from './config';
+import * as SecureStore from 'expo-secure-store';
 
 // Validate Supabase configuration
 if (!config.supabase?.url || !config.supabase?.anonKey) {
@@ -31,12 +32,13 @@ export interface UserProfile {
 }
 
 export interface WalletData {
-  id: string;
-  user_id: string;
-  address: string;
-  chain_id: number;
-  created_at: string;
-  updated_at: string;
+  id?: string;
+  user_id?: string;
+  temp_user_id: string;
+  public_address: string;
+  chain_name?: string;
+  created_at?: string;
+  updated_at?: string;
   is_primary: boolean;
   name?: string;
   ens_name?: string;
@@ -136,25 +138,6 @@ export const getUserWallets = async (userId: string): Promise<WalletData[]> => {
   } catch (error) {
     console.error('Error fetching user wallets:', error);
     return [];
-  }
-};
-
-/**
- * Add wallet
- */
-export const addWallet = async (wallet: Omit<WalletData, 'id' | 'created_at' | 'updated_at'>): Promise<WalletData | null> => {
-  try {
-    const { data, error } = await supabase
-      .from('wallets')
-      .insert([wallet])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error adding wallet:', error);
-    return null;
   }
 };
 
@@ -340,179 +323,239 @@ export const updateTransaction = async (
  */
 export const checkRequiredTables = async (): Promise<boolean> => {
   try {
-    console.log('Checking required tables...');
-    
-    // Try to select one row from each table
-    const tables = ['profiles', 'wallets', 'contacts', 'transactions'];
+    // Update tables to match our actual schema
+    const tables = ['auth_users', 'wallets', 'transactions', 'networks'];
     const results = await Promise.all(
       tables.map(async (table) => {
-        const { data, error } = await supabase
-          .from(table)
-          .select('id')
-          .limit(1);
+        try {
+          console.log(`Checking table: ${table}...`);
+          const { data, error } = await supabase
+            .from(table)
+            .select('id')
+            .limit(1);
           
-        if (error) {
-          if (error.code === 'PGRST116') {
-            console.error(`Table ${table} does not exist`);
+          // Don't throw on error, just log it
+          if (error) {
+            console.warn(`Table ${table} check failed:`, error.message);
             return false;
           }
-          // Other errors might be permission related, which is fine
           return true;
+        } catch (err) {
+          console.warn(`Error checking table ${table}:`, err);
+          return false;
         }
-        console.log(`Table ${table} exists`);
-        return true;
       })
     );
-    
-    return results.every(exists => exists);
+
+    // We absolutely need auth_users and wallets tables
+    const requiredTables = ['auth_users', 'wallets'];
+    const missingRequired = requiredTables.filter((table, index) => {
+      const tableIndex = tables.indexOf(table);
+      return tableIndex !== -1 && !results[tableIndex];
+    });
+
+    if (missingRequired.length > 0) {
+      console.error('Missing required tables:', missingRequired);
+      return false;
+    }
+
+    return true;
   } catch (error) {
-    console.error('Error checking tables:', error);
+    console.error('Error checking required tables:', error);
     return false;
   }
 };
 
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
- * Create an anonymous user
+ * Create an anonymous user with password hash
  */
-export const createAnonymousUser = async (): Promise<UserProfile | null> => {
-  try {
-    console.log('Starting anonymous user creation...');
-    
-    // Check if tables exist first
-    const tablesExist = await checkRequiredTables();
-    if (!tablesExist) {
-      throw new Error('Required database tables are missing');
-    }
-    
-    // Check if Supabase is properly configured
-    if (!config.supabase?.url || !config.supabase?.anonKey) {
-      throw new Error('Supabase configuration is missing');
-    }
-    console.log('Supabase configuration validated');
-    
-    // Generate a random email and password for the anonymous user
-    const randomId = Math.random().toString(36).substring(2, 15);
-    const anonymousEmail = `anon_${randomId}@temp.wallet`;
-    const anonymousPassword = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    
-    console.log('Generated anonymous credentials');
+export const createAnonymousUser = (hashObj: { hash: string; salt: string }): Promise<string> => {
+  console.log("🛠️ Creating anonymous user in Supabase...");
 
-    // Check current auth state
-    const { data: currentSession } = await supabase.auth.getSession();
-    console.log('Current session state:', currentSession ? 'Exists' : 'None');
-
-    // Sign up the user using Supabase Auth
-    console.log('Attempting to create user with Supabase Auth...');
+  // Create a unique identifier that we'll use to find this user later
+  const timestamp = Date.now();
+  const uniqueIdentifier = `${timestamp}_${Math.random().toString(36).substring(2)}`;
+  const tempUserId = `temp_${uniqueIdentifier}`;
+  const uniqueEmail = `anonymous_${uniqueIdentifier}@temp.wallet`;
+  
+  // Send insert request without blocking
+  (async () => {
     try {
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email: anonymousEmail,
-        password: anonymousPassword,
-        options: {
-          emailRedirectTo: null as any // Disable email confirmation
-        }
-      });
+      const { status, error } = await supabaseAdmin
+        .from("auth_users")
+        .insert([
+          {
+            email: uniqueEmail,
+            temp_user_id: tempUserId,
+            setup_completed: false,
+            password_hash: hashObj,
+            setup_step: "password_created",
+          },
+        ]);
 
-      console.log('Sign up response received');
-
-      if (signUpError) {
-        console.error('Supabase Auth error:', JSON.stringify(signUpError, null, 2));
-        throw signUpError;
+      console.log("✅ User insert request sent. Status:", status);
+      if (error || status !== 201) {
+        console.error("❌ Insert failed:", error);
+        return;
       }
-
-      if (!authData.user) {
-        console.error('No user data in response:', JSON.stringify(authData, null, 2));
-        throw new Error('No user data returned from sign up');
-      }
-
-      console.log('Successfully created user with Auth:', authData.user.id);
-
-      // Store the session if we have one
-      if (authData.session) {
-        console.log('Attempting to store session...');
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: authData.session.access_token,
-          refresh_token: authData.session.refresh_token,
-        });
-
-        if (sessionError) {
-          console.error('Error storing session:', JSON.stringify(sessionError, null, 2));
-        } else {
-          console.log('Session stored successfully');
-        }
-      } else {
-        console.log('No session data received from sign up');
-      }
-
-      // Wait a moment for the RLS policies to create the profile
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // The profile is automatically created by Supabase's Row Level Security policies
-      // But we can update it with additional information if needed
-      console.log('Attempting to fetch/update profile...');
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', authData.user.id)
-        .select()
-        .single();
-
-      if (profileError) {
-        console.error('Error updating profile:', JSON.stringify(profileError, null, 2));
-        // Try to fetch the profile instead
-        const { data: fetchedProfile, error: fetchError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', authData.user.id)
-          .single();
-          
-        if (fetchError) {
-          console.error('Error fetching profile:', JSON.stringify(fetchError, null, 2));
-        } else if (fetchedProfile) {
-          console.log('Successfully fetched profile');
-          return fetchedProfile;
-        }
-      }
-
-      return profileData || {
-        id: authData.user.id,
-        email: authData.user.email!,
-        created_at: authData.user.created_at,
-        updated_at: new Date().toISOString(),
-      };
-    } catch (signUpError) {
-      console.error('Error during sign up process:', signUpError);
-      if (signUpError instanceof Error) {
-        console.error('Sign up error details:', signUpError.message);
-        console.error('Sign up error stack:', signUpError.stack);
-      }
-      throw signUpError;
+      console.log("✅ Insert confirmed.");
+    } catch (error) {
+      console.error("❌ Insert error:", error);
     }
+  })();
+
+  console.log("✅ Function execution continues while waiting for insert.");
+  
+  // Return a promise with a definite resolution time
+  return new Promise((resolve) => {
+    // Set a hard deadline of 4 seconds
+    setTimeout(() => {
+      console.log("⏰ Deadline reached, resolving with temporary ID");
+      resolve(tempUserId);
+    }, 4000);
+    
+    // Try to fetch earlier if possible
+    setTimeout(async () => {
+      try {
+        console.log("⏰ 3 second delay completed, starting fetch...");
+        const { data, error } = await supabaseAdmin
+          .from("auth_users")
+          .select("id")
+          .eq("temp_user_id", tempUserId)
+          .limit(1);
+
+        if (error) {
+          console.error("❌ Fetch error:", error);
+        } else if (data && data.length > 0) {
+          console.log("✅ Found user ID:", data[0].id);
+          resolve(tempUserId);
+          return;
+        }
+        
+        // If no result, we'll wait for the 4-second deadline
+      } catch (error: unknown) {
+        console.error("❌ Error in fetch:", error);
+        // We'll wait for the 4-second deadline
+      }
+    }, 3000);
+  });
+};
+
+// fetchUserByCredentials with improved logging
+export const fetchUserByCredentials = async (
+  hashObj: { hash: string; salt: string },
+  uniqueEmail?: string
+) => {
+  try {
+    // Only use the email approach since it's the most reliable
+    if (!uniqueEmail) {
+      console.log("❌ No email provided to fetch by");
+      return null;
+    }
+    
+    console.log("🔍 Fetching user by email:", uniqueEmail);
+    
+    const { data, error } = await supabaseAdmin
+      .from("auth_users")
+      .select("id")
+      .eq("email", uniqueEmail)
+      .limit(1);
+    
+    if (error) {
+      console.error("❌ Email query error:", error);
+      return null;
+    }
+    
+    if (!data || data.length === 0) {
+      console.log("❌ No user found with email:", uniqueEmail);
+      return null;
+    }
+    
+    console.log("✅ User fetched by email with ID:", data[0].id);
+    return data[0].id;
   } catch (error) {
-    console.error('Error in createAnonymousUser:', error);
-    if (error instanceof Error) {
-      console.error('Error details:', error.message);
-      console.error('Error stack:', error.stack);
+    console.error("❌ Fetch failed with error:", error);
+    return null;
+  } finally {
+    console.log("✅ fetchUserByCredentials completed");
+  }
+};
+
+/**
+ * Resolve a temporary user ID to a real user ID
+ */
+export const resolveTempUserId = async (tempUserId: string): Promise<string | null> => {
+  try {
+    console.log("➡️ resolveTempUserId called with:", tempUserId);
+    
+    // Call the helper function to get user by temp_user_id
+    const { data, error } = await supabaseAdmin
+      .from('auth_users')
+      .select('id')
+      .eq('temp_user_id', tempUserId)
+      .single();
+
+    if (error) {
+      console.error("❌ Error resolving temp user ID:", error);
+      return null;
     }
+
+    if (!data?.id) {
+      console.log("⚠️ No user found with temp_user_id:", tempUserId);
+      return null;
+    }
+
+    console.log("✅ Successfully resolved user ID:", data.id);
+    return data.id;
+  } catch (error: unknown) {
+    console.error("❌ Exception in resolveTempUserId:", error);
     return null;
   }
 };
 
 /**
- * Test function to fetch network data
+ * Create a wallet using proper Supabase query builder
  */
-export const testNetworkConnection = async () => {
-  try {
-    const { data, error } = await supabase
-      .from('networks')
-      .select('*')
-      .limit(1);
+export const createWallet = async (params: {
+  public_address: string;
+  temp_user_id: string;
+  name?: string;
+  chain_name?: string;
+}): Promise<string> => {
+  console.log("🛠️ Creating wallet in Supabase...");
+  console.log("📝 Wallet data:", {
+    public_address: params.public_address,
+    temp_user_id: params.temp_user_id,
+    name: params.name || 'My Wallet',
+    chain_name: params.chain_name || 'ethereum'
+  });
+  
+  // Send insert request without blocking
+  (async () => {
+    try {
+      const { status, error } = await supabaseAdmin
+        .from("wallets")
+        .insert([{
+          public_address: params.public_address,
+          temp_user_id: params.temp_user_id,
+          name: params.name || 'My Wallet',
+          chain_name: params.chain_name || 'ethereum',
+          is_primary: true
+        }]);
 
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error testing network connection:', error);
-    return null;
-  }
-}; 
+      console.log("✅ Wallet insert request sent. Status:", status);
+      if (error || status !== 201) {
+        console.error("❌ Insert failed:", error);
+        return;
+      }
+      console.log("✅ Insert confirmed.");
+    } catch (error) {
+      console.error("❌ Insert error:", error);
+    }
+  })();
+
+  // Return success immediately
+  return Promise.resolve("success");
+};

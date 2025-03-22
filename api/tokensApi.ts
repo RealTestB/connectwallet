@@ -1,8 +1,32 @@
-import { Alchemy, Network, TokenBalance as AlchemyTokenBalance, TokenMetadata as AlchemyTokenMetadata } from 'alchemy-sdk';
+import { Alchemy, Network, TokenBalancesResponse } from 'alchemy-sdk';
+import { getProvider } from './provider';
+import { NETWORKS } from './config';
 import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
-import { getProvider } from './provider';
+
+// Map Alchemy networks to our network keys
+const ALCHEMY_NETWORKS = {
+  'ethereum': Network.ETH_MAINNET,
+  'polygon': Network.MATIC_MAINNET,
+  'arbitrum': Network.ARB_MAINNET,
+  'optimism': Network.OPT_MAINNET
+} as const;
+
+export interface TokenMetadata {
+  decimals: number;
+  logo?: string;
+  name?: string;
+  symbol?: string;
+}
+
+export interface AlchemyTokenBalance {
+  contractAddress: string;
+  tokenBalance: string;
+  error?: string | null;
+  metadata?: TokenMetadata;
+  formattedBalance?: string;
+}
 
 export interface Token {
   address: string;
@@ -27,14 +51,6 @@ export interface TokenBalance {
     name?: string;
     symbol: string;
   };
-}
-
-export interface TokenMetadata {
-  name: string;
-  symbol: string;
-  decimals: number;
-  logo?: string;
-  isSpam?: boolean;
 }
 
 export interface TokenPrice {
@@ -77,60 +93,75 @@ function initializeAlchemy(network: Network = Network.ETH_MAINNET): Alchemy {
   return alchemyInstance;
 }
 
+const MAX_RETRIES = 3;
+const INITIAL_TIMEOUT = 30000; // 30 seconds
+
 /**
  * Get token balances for an address
  */
-export const getTokenBalances = async (address: string): Promise<Token[]> => {
+export const getTokenBalances = async (
+  address: string,
+  network: string = 'ethereum'
+): Promise<AlchemyTokenBalance[]> => {
   try {
-    const alchemy = initializeAlchemy();
+    // Get the provider for the specified network
+    const provider = getProvider(network);
+    
+    // Create Alchemy instance for the network
+    const alchemyNetwork = ALCHEMY_NETWORKS[network as keyof typeof ALCHEMY_NETWORKS];
+    if (!alchemyNetwork) {
+      throw new Error(`Alchemy not supported for network ${network}`);
+    }
+
+    const alchemy = new Alchemy({
+      network: alchemyNetwork,
+      apiKey: process.env.ALCHEMY_ETH_MAINNET_KEY
+    });
+
+    // Get token balances
     const balances = await alchemy.core.getTokenBalances(address);
+
+    // Filter out zero balances and fetch metadata for non-zero balances
     const nonZeroBalances = balances.tokenBalances.filter(
-      (token: AlchemyTokenBalance) => token.tokenBalance !== '0'
+      balance => balance.tokenBalance !== '0x0'
     );
 
-    const tokens: Token[] = await Promise.all(
-      nonZeroBalances.map(async (balance: AlchemyTokenBalance) => {
+    // Fetch metadata for all tokens in parallel
+    const balancesWithMetadata = await Promise.all(
+      nonZeroBalances.map(async (balance) => {
         try {
           const metadata = await alchemy.core.getTokenMetadata(balance.contractAddress);
           const formattedBalance = ethers.formatUnits(
-            balance.tokenBalance,
-            metadata.decimals
+            balance.tokenBalance || '0',
+            metadata.decimals || 18
           );
-
+          
           return {
-            address: balance.contractAddress,
-            name: metadata.name || 'Unknown Token',
-            symbol: metadata.symbol || '???',
-            decimals: metadata.decimals,
-            logo: metadata.logo,
-            balance: formattedBalance,
-            isSpam: metadata.isSpam
+            contractAddress: balance.contractAddress,
+            tokenBalance: balance.tokenBalance || '0',
+            metadata: {
+              decimals: metadata.decimals || 18,
+              logo: metadata.logo,
+              name: metadata.name,
+              symbol: metadata.symbol
+            },
+            error: null,
+            formattedBalance
           };
         } catch (error) {
-          console.error('Failed to fetch token metadata:', {
-            tokenAddress: balance.contractAddress,
-            error: error instanceof Error ? error.message : 'Unknown error',
-            stack: error instanceof Error ? error.stack : undefined
-          });
-          // Return a basic token object if metadata fetch fails
           return {
-            address: balance.contractAddress,
-            name: 'Unknown Token',
-            symbol: '???',
-            decimals: 18,
-            balance: ethers.formatUnits(balance.tokenBalance, 18)
+            contractAddress: balance.contractAddress,
+            tokenBalance: balance.tokenBalance || '0',
+            error: error instanceof Error ? error.message : 'Unknown error',
+            metadata: undefined
           };
         }
       })
     );
 
-    return tokens;
+    return balancesWithMetadata;
   } catch (error) {
-    console.error('Failed to fetch token balances:', {
-      address,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
+    console.error('Error fetching token balances:', error);
     throw error;
   }
 };

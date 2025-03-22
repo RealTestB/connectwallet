@@ -1,11 +1,11 @@
 import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
+import { WalletData } from './walletApi';
 
 export interface AuthData {
   isAuthenticated: boolean;
-  hasWallet: boolean;
-  walletAddress: string | null;
+  wallet: WalletData | null;
 }
 
 /**
@@ -14,9 +14,10 @@ export interface AuthData {
 export const checkAuth = async (): Promise<AuthData> => {
   console.log('[AuthApi] Checking authentication status');
   try {
-    const [privateKey, walletAddress] = await Promise.all([
-      SecureStore.getItemAsync('privateKey'),
-      SecureStore.getItemAsync('walletAddress')
+    const [privateKey, walletAddress, walletPassword] = await Promise.all([
+      SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey),
+      SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses),
+      SecureStore.getItemAsync('walletPassword')
     ]);
 
     const hasWallet = !!(privateKey && walletAddress);
@@ -30,8 +31,12 @@ export const checkAuth = async (): Promise<AuthData> => {
 
     return {
       isAuthenticated,
-      hasWallet,
-      walletAddress: walletAddress || null
+      wallet: hasWallet ? {
+        address: walletAddress!,
+        type: 'classic',
+        chainId: config.chain.chainId,
+        hasPassword: !!walletPassword
+      } : null
     };
   } catch (error) {
     console.error('[AuthApi] Error checking auth:', {
@@ -39,58 +44,6 @@ export const checkAuth = async (): Promise<AuthData> => {
       stack: error instanceof Error ? error.stack : undefined
     });
     throw new Error('Failed to check authentication status');
-  }
-};
-
-/**
- * Create a new wallet
- */
-export const createWallet = async (password: string): Promise<string> => {
-  console.log('[AuthApi] Creating new wallet');
-  try {
-    const wallet = ethers.Wallet.createRandom();
-    console.log('[AuthApi] Generated new wallet address:', wallet.address);
-
-    await Promise.all([
-      SecureStore.setItemAsync('privateKey', wallet.privateKey),
-      SecureStore.setItemAsync('walletAddress', wallet.address),
-      SecureStore.setItemAsync('walletPassword', password)
-    ]);
-
-    console.log('[AuthApi] Wallet credentials stored securely');
-    return wallet.address;
-  } catch (error) {
-    console.error('[AuthApi] Error creating wallet:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to create wallet');
-  }
-};
-
-/**
- * Import an existing wallet
- */
-export const importWallet = async (privateKey: string, password: string): Promise<string> => {
-  console.log('[AuthApi] Importing wallet');
-  try {
-    const wallet = new ethers.Wallet(privateKey);
-    console.log('[AuthApi] Imported wallet address:', wallet.address);
-
-    await Promise.all([
-      SecureStore.setItemAsync('privateKey', wallet.privateKey),
-      SecureStore.setItemAsync('walletAddress', wallet.address),
-      SecureStore.setItemAsync('walletPassword', password)
-    ]);
-
-    console.log('[AuthApi] Wallet credentials stored securely');
-    return wallet.address;
-  } catch (error) {
-    console.error('[AuthApi] Error importing wallet:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to import wallet');
   }
 };
 
@@ -107,8 +60,8 @@ export const signIn = async (password: string): Promise<AuthData> => {
     }
 
     const [privateKey, walletAddress] = await Promise.all([
-      SecureStore.getItemAsync('privateKey'),
-      SecureStore.getItemAsync('walletAddress')
+      SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey),
+      SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses)
     ]);
 
     if (!privateKey || !walletAddress) {
@@ -119,8 +72,12 @@ export const signIn = async (password: string): Promise<AuthData> => {
     console.log('[AuthApi] Sign in successful');
     return {
       isAuthenticated: true,
-      hasWallet: true,
-      walletAddress
+      wallet: {
+        address: walletAddress,
+        type: 'classic',
+        chainId: config.chain.chainId,
+        hasPassword: true
+      }
     };
   } catch (error) {
     console.error('[AuthApi] Error signing in:', {
@@ -138,8 +95,8 @@ export const signOut = async (): Promise<void> => {
   console.log('[AuthApi] Signing out');
   try {
     await Promise.all([
-      SecureStore.deleteItemAsync('privateKey'),
-      SecureStore.deleteItemAsync('walletAddress'),
+      SecureStore.deleteItemAsync(config.wallet.classic.storageKeys.privateKey),
+      SecureStore.deleteItemAsync(config.wallet.classic.storageKeys.addresses),
       SecureStore.deleteItemAsync('walletPassword')
     ]);
     console.log('[AuthApi] Sign out successful');

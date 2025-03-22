@@ -1,12 +1,62 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React, { useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { testReadWritePermissions } from "../api/supabaseApi";
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const result = await testReadWritePermissions();
+      setTestResult(result);
+    } catch (error) {
+      setTestResult({
+        canWrite: false,
+        canRead: false,
+        error: error instanceof Error ? error.message : "Connection failed"
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const renderTestResult = () => {
+    if (!testResult) return null;
+
+    return (
+      <View style={styles.testResultContainer}>
+        <Text style={[styles.testResultText, { color: testResult.canWrite ? "#4ade80" : "#ef4444" }]}>
+          Write: {testResult.canWrite ? "✅" : "❌"}
+        </Text>
+        <Text style={[styles.testResultText, { color: testResult.canRead ? "#4ade80" : "#ef4444" }]}>
+          Read: {testResult.canRead ? "✅" : "❌"}
+        </Text>
+        {testResult.error && (
+          <Text style={[styles.testResultText, { color: "#ef4444" }]}>
+            Error: {testResult.error}
+          </Text>
+        )}
+        {testResult.writeResponse && (
+          <Text style={styles.testResultText}>
+            Write ID: {testResult.writeResponse.id}
+          </Text>
+        )}
+        {testResult.readResponses?.recent && (
+          <Text style={styles.testResultText}>
+            Found {testResult.readResponses.recent.length} recent records
+          </Text>
+        )}
+      </View>
+    );
+  };
 
   return (
     <LinearGradient
@@ -56,17 +106,23 @@ export default function WelcomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Test Network Card */}
+        {/* Test Connection Card */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Test Network Connection</Text>
+          <Text style={styles.cardTitle}>Test Database Connection</Text>
           <Text style={styles.cardDescription}>
-            Test the Supabase network table connection.
+            Test read/write permissions on the database.
           </Text>
+          {renderTestResult()}
           <TouchableOpacity
-            style={styles.button}
-            onPress={() => router.push("/test-network")}
+            style={[styles.button, isTesting && styles.buttonDisabled]}
+            onPress={handleTestConnection}
+            disabled={isTesting}
           >
-            <Text style={styles.buttonText}>Test Connection</Text>
+            {isTesting ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.buttonText}>Test Connection</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -126,4 +182,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "500",
   },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  testResultContainer: {
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  testResultText: {
+    color: "#93c5fd",
+    fontSize: 14,
+    marginBottom: 4,
+  }
 }); 

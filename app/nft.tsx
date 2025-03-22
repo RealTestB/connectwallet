@@ -86,8 +86,7 @@ export default function NFTScreen() {
       colors={["#1A2F6C", "#0A1B3F"]}
       style={styles.container}
     >
-      <WalletHeader 
-        pageName="NFT Gallery"
+      <WalletHeader
         onAccountChange={handleAccountChange}
       />
 
@@ -129,12 +128,18 @@ export default function NFTScreen() {
           </View>
         ) : (
           <FlatList
-            data={filteredNFTs}
+            data={nfts}
+            keyExtractor={(item, index) => `${item.id || index}`}
             renderItem={renderNFTItem}
-            keyExtractor={(item) => item.id}
-            numColumns={2}
-            columnWrapperStyle={styles.nftRow}
-            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            removeClippedSubviews={false}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            initialNumToRender={5}
+            onEndReachedThreshold={0.5}
+            maintainVisibleContentPosition={{
+              minIndexForVisible: 0
+            }}
           />
         )}
       </View>
@@ -234,5 +239,8 @@ const styles = StyleSheet.create({
   emptyText: {
     color: "rgba(255, 255, 255, 0.5)",
     fontSize: 16,
+  },
+  listContent: {
+    padding: 16,
   },
 }); 

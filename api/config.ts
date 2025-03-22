@@ -9,14 +9,42 @@ import Constants from 'expo-constants';
 
 interface ExpoManifest {
   extra?: {
+    ETHEREUM_MAINNET_URL?: string;
+    ETHEREUM_SEPOLIA_URL?: string;
+    POLYGON_POS_MAINNET_URL?: string;
+    POLYGON_MUMBAI_URL?: string;
+    ARBITRUM_MAINNET_URL?: string;
+    ARBITRUM_SEPOLIA_URL?: string;
+    OPTIMISM_MAINNET_URL?: string;
+    OPTIMISM_SEPOLIA_URL?: string;
+    AVALANCHE_MAINNET_URL?: string;
+    AVALANCHE_FUJI_URL?: string;
+    BASE_MAINNET_URL?: string;
+    BASE_SEPOLIA_URL?: string;
     ALCHEMY_ETH_MAINNET_KEY?: string;
     ALCHEMY_ACCOUNT_KIT_KEY?: string;
-    SUPABASE_URL?: string;
-    SUPABASE_ANON_KEY?: string;
+    EXPO_PUBLIC_SUPABASE_URL?: string;
+    EXPO_PUBLIC_SUPABASE_ANON_KEY?: string;
+    EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY?: string;
+    SUPABASE_S3_ACCESS_KEY?: string;
+    SUPABASE_S3_SECRET_KEY?: string;
     CMC_API_KEY?: string;
     LIFI_API_KEY?: string;
   };
   hostUri?: string;
+}
+
+export interface NetworkConfig {
+  chainId: number;
+  name: string;
+  rpcUrl: string;
+  blockExplorerUrl: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  isTestnet: boolean;
 }
 
 export interface ChainConfig {
@@ -47,8 +75,9 @@ const getExpoConfig = (): ExpoManifest['extra'] => {
     const manifest = Constants.expoConfig || Constants.manifest as ExpoManifest;
     console.log('[Config] Loading environment variables:', {
       alchemyKey: manifest?.extra?.ALCHEMY_ETH_MAINNET_KEY ? 'Set' : 'Missing',
-      supabaseUrl: manifest?.extra?.SUPABASE_URL ? 'Set' : 'Missing',
-      supabaseAnonKey: manifest?.extra?.SUPABASE_ANON_KEY ? 'Set' : 'Missing',
+      supabaseUrl: manifest?.extra?.EXPO_PUBLIC_SUPABASE_URL ? 'Set' : 'Missing',
+      supabaseAnonKey: manifest?.extra?.EXPO_PUBLIC_SUPABASE_ANON_KEY ? 'Set' : 'Missing',
+      supabaseServiceRoleKey: manifest?.extra?.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Missing',
       cmcKey: manifest?.extra?.CMC_API_KEY ? 'Set' : 'Missing',
       lifiKey: manifest?.extra?.LIFI_API_KEY ? 'Set' : 'Missing'
     });
@@ -94,7 +123,6 @@ const config = {
   // Alchemy API configuration
   alchemy: {
     mainnetKey: extra?.ALCHEMY_ETH_MAINNET_KEY || '',
-    accountKitKey: extra?.ALCHEMY_ACCOUNT_KIT_KEY || '',
     rpcUrl: function(): string {
       if (!this.mainnetKey) {
         console.error('Alchemy mainnet key not found');
@@ -106,8 +134,13 @@ const config = {
 
   // Supabase configuration
   supabase: {
-    url: extra?.SUPABASE_URL || '',
-    anonKey: extra?.SUPABASE_ANON_KEY || ''
+    url: extra?.EXPO_PUBLIC_SUPABASE_URL || '',
+    anonKey: extra?.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
+    serviceRoleKey: extra?.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || '',
+    storage: {
+      accessKey: extra?.SUPABASE_S3_ACCESS_KEY || '',
+      secretKey: extra?.SUPABASE_S3_SECRET_KEY || ''
+    }
   },
 
   // API Keys
@@ -128,7 +161,8 @@ const validateConfig = (): void => {
   const requiredKeys: [string, string][] = [
     ['alchemy.mainnetKey', config.alchemy.mainnetKey],
     ['supabase.url', config.supabase.url],
-    ['supabase.anonKey', config.supabase.anonKey]
+    ['supabase.anonKey', config.supabase.anonKey],
+    ['supabase.serviceRoleKey', config.supabase.serviceRoleKey]
   ];
 
   const missingKeys = requiredKeys
@@ -141,11 +175,15 @@ const validateConfig = (): void => {
     console.error('[Config] Current configuration:', {
       alchemyKeys: {
         mainnet: config.alchemy.mainnetKey ? 'Set' : 'Missing',
-        accountKit: config.alchemy.accountKitKey ? 'Set' : 'Missing'
       },
       supabase: {
         url: config.supabase.url ? 'Set' : 'Missing',
-        anonKey: config.supabase.anonKey ? 'Set' : 'Missing'
+        anonKey: config.supabase.anonKey ? 'Set' : 'Missing',
+        serviceRoleKey: config.supabase.serviceRoleKey ? 'Set' : 'Missing',
+        storage: {
+          accessKey: config.supabase.storage.accessKey ? 'Set' : 'Missing',
+          secretKey: config.supabase.storage.secretKey ? 'Set' : 'Missing'
+        }
       }
     });
     throw new Error(error);
@@ -154,5 +192,81 @@ const validateConfig = (): void => {
 
 // Validate configuration immediately
 validateConfig();
+
+// Network configurations
+export const NETWORKS: { [key: string]: NetworkConfig } = {
+  'ethereum': {
+    chainId: 1,
+    name: 'Ethereum Mainnet',
+    rpcUrl: extra?.ETHEREUM_MAINNET_URL || '',
+    blockExplorerUrl: 'https://etherscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  'polygon': {
+    chainId: 137,
+    name: 'Polygon PoS',
+    rpcUrl: extra?.POLYGON_POS_MAINNET_URL || '',
+    blockExplorerUrl: 'https://polygonscan.com',
+    nativeCurrency: {
+      name: 'MATIC',
+      symbol: 'MATIC',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  'arbitrum': {
+    chainId: 42161,
+    name: 'Arbitrum One',
+    rpcUrl: extra?.ARBITRUM_MAINNET_URL || '',
+    blockExplorerUrl: 'https://arbiscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  'optimism': {
+    chainId: 10,
+    name: 'Optimism',
+    rpcUrl: extra?.OPTIMISM_MAINNET_URL || '',
+    blockExplorerUrl: 'https://optimistic.etherscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  'avalanche': {
+    chainId: 43114,
+    name: 'Avalanche C-Chain',
+    rpcUrl: extra?.AVALANCHE_MAINNET_URL || '',
+    blockExplorerUrl: 'https://snowtrace.io',
+    nativeCurrency: {
+      name: 'AVAX',
+      symbol: 'AVAX',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  'base': {
+    chainId: 8453,
+    name: 'Base',
+    rpcUrl: extra?.BASE_MAINNET_URL || '',
+    blockExplorerUrl: 'https://basescan.org',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  }
+};
 
 export default config; 
