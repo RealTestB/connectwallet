@@ -78,7 +78,7 @@ module.exports = {
         }
       ],
       // Add network security config for Android
-      networkSecurityConfig: "./network_security_config.xml"
+      networkSecurityConfig: "./android/app/src/main/res/xml/network_security_config.xml"
     },
     web: {
       favicon: "./assets/images/icon.png"
@@ -140,16 +140,14 @@ module.exports = {
             imageResizeMode: "native"
           }
         }
-      ],
-      // Add NetInfo for network state monitoring
-      ["@react-native-community/netinfo"]
+      ]
+      // REMOVED: NetInfo plugin
     ],
     extra: {
       eas: {
         projectId: "1083be59-e11a-48f1-844c-f8bebeb2b4d0"
       },
       // Configure fallback RPC URLs for all chains
-      // Multiple RPC endpoints for each chain
       ETHEREUM_MAINNET_URL: process.env.ETHEREUM_MAINNET_URL,
       ETHEREUM_MAINNET_FALLBACK_URLS: [
         "https://eth.llamarpc.com",
@@ -187,9 +185,56 @@ module.exports = {
         "https://mainnet.base.org",
         "https://base.gateway.tenderly.co"
       ],
+      WORLD_CHAIN_MAINNET_URL: process.env.WORLD_CHAIN_MAINNET_URL,
+      WORLD_CHAIN_SEPOLIA_URL: process.env.WORLD_CHAIN_SEPOLIA_URL,
+      SHAPE_MAINNET_URL: process.env.SHAPE_MAINNET_URL,
+      SHAPE_SEPOLIA_URL: process.env.SHAPE_SEPOLIA_URL,
+      ETHEREUM_HOLESKY_URL: process.env.ETHEREUM_HOLESKY_URL,
+      ZKSYNC_MAINNET_URL: process.env.ZKSYNC_MAINNET_URL,
+      ZKSYNC_SEPOLIA_URL: process.env.ZKSYNC_SEPOLIA_URL,
+      POLYGON_POS_AMOY_URL: process.env.POLYGON_POS_AMOY_URL,
+      POLYGON_ZKEVM_MAINNET_URL: process.env.POLYGON_ZKEVM_MAINNET_URL,
+      POLYGON_ZKEVM_CARDONA_URL: process.env.POLYGON_ZKEVM_CARDONA_URL,
+      GEIST_MAINNET_URL: process.env.GEIST_MAINNET_URL,
+      GEIST_POLTER_URL: process.env.GEIST_POLTER_URL,
+      ARBITRUM_NOVA_MAINNET_URL: process.env.ARBITRUM_NOVA_MAINNET_URL,
+      STARKNET_MAINNET_URL: process.env.STARKNET_MAINNET_URL,
+      STARKNET_SEPOLIA_URL: process.env.STARKNET_SEPOLIA_URL,
+      ASTAR_MAINNET_URL: process.env.ASTAR_MAINNET_URL,
+      ZETA_CHAIN_MAINNET_URL: process.env.ZETA_CHAIN_MAINNET_URL,
+      ZETA_CHAIN_TESTNET_URL: process.env.ZETA_CHAIN_TESTNET_URL,
+      FANTOM_OPERA_MAINNET_URL: process.env.FANTOM_OPERA_MAINNET_URL,
+      FANTOM_OPERA_TESTNET_URL: process.env.FANTOM_OPERA_TESTNET_URL,
+      MANTLE_MAINNET_URL: process.env.MANTLE_MAINNET_URL,
+      MANTLE_SEPOLIA_URL: process.env.MANTLE_SEPOLIA_URL,
+      BERACHAIN_MAINNET_URL: process.env.BERACHAIN_MAINNET_URL,
+      BLAST_MAINNET_URL: process.env.BLAST_MAINNET_URL,
+      BLAST_SEPOLIA_URL: process.env.BLAST_SEPOLIA_URL,
+      LINEA_MAINNET_URL: process.env.LINEA_MAINNET_URL,
+      LINEA_SEPOLIA_URL: process.env.LINEA_SEPOLIA_URL,
+      BASE_SEPOLIA_URL: process.env.BASE_SEPOLIA_URL,
+      GNOSIS_MAINNET_URL: process.env.GNOSIS_MAINNET_URL,
+      GNOSIS_CHIADO_URL: process.env.GNOSIS_CHIADO_URL,
+      BNB_SMART_CHAIN_MAINNET_URL: process.env.BNB_SMART_CHAIN_MAINNET_URL,
+      BNB_SMART_CHAIN_TESTNET_URL: process.env.BNB_SMART_CHAIN_TESTNET_URL,
+      AVALANCHE_FUJI_URL: process.env.AVALANCHE_FUJI_URL,
+      SOLANA_MAINNET_URL: process.env.SOLANA_MAINNET_URL,
+      SOLANA_DEVNET_URL: process.env.SOLANA_DEVNET_URL,
+      CROSSFI_MAINNET_URL: process.env.CROSSFI_MAINNET_URL,
+      CROSSFI_TESTNET_URL: process.env.CROSSFI_TESTNET_URL,
+      FLOW_EVM_MAINNET_URL: process.env.FLOW_EVM_MAINNET_URL,
+      FLOW_EVM_TESTNET_URL: process.env.FLOW_EVM_TESTNET_URL,
+      APECHAIN_MAINNET_URL: process.env.APECHAIN_MAINNET_URL,
+      APECHAIN_CURTIS_URL: process.env.APECHAIN_CURTIS_URL,
+      UNICHAIN_MAINNET_URL: process.env.UNICHAIN_MAINNET_URL,
+      UNICHAIN_SEPOLIA_URL: process.env.UNICHAIN_SEPOLIA_URL,
       EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
       EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
       EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
+      S3_URL: process.env.S3_URL,
+      S3_ACCESS_KEY: process.env.S3_ACCESS_KEY,
+      S3_SECRET_KEY: process.env.S3_SECRET_KEY,
+      S3_REGION: process.env.S3_REGION,
       CMC_API_KEY: process.env.CMC_API_KEY,
       LIFI_API_KEY: process.env.LIFI_API_KEY,
       REOWN_PROJECT_ID: process.env.REOWN_PROJECT_ID || '',

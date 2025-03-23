@@ -2535,11 +2535,6 @@
     prompts "^2.4.2"
     semver "^7.5.2"
 
-"@react-native-community/netinfo@11.4.1":
-  version "11.4.1"
-  resolved "https://registry.yarnpkg.com/@react-native-community/netinfo/-/netinfo-11.4.1.tgz#a3c247aceab35f75dd0aa4bfa85d2be5a4508688"
-  integrity sha512-B0BYAkghz3Q2V09BF88RA601XursIEA111tnc2JOaN7axJWmNefmfjZqw/KdSxKZp7CZUuPpjBmz/WCR9uaHYg==
-
 "@react-native-picker/picker@2.9.0":
   version "2.9.0"
   resolved "https://registry.yarnpkg.com/@react-native-picker/picker/-/picker-2.9.0.tgz#0a7053ca174ec697388cb79032fb4c1445554e07"
@@ -4729,9 +4724,9 @@ camelcase@^6.2.0:
   integrity sha512-Gmy6FhYlCY7uOElZUSbxo2UCDH8owEk996gkbrpsgGtrJLM3J7jGxl9Ic7Qwwj4ivOE5AWZWRMecDdF7hqGjFA==
 
 caniuse-lite@^1.0.30001688:
-  version "1.0.30001706"
-  resolved "https://registry.yarnpkg.com/caniuse-lite/-/caniuse-lite-1.0.30001706.tgz#902c3f896f4b2968031c3a546ab2ef8b465a2c8f"
-  integrity sha512-3ZczoTApMAZwPKYWmwVbQMFpXBDds3/0VciVoUwPUbldlYyVLmRVuRs/PcUZtHpbLRpzzDvrvnFuREsGt6lUug==
+  version "1.0.30001707"
+  resolved "https://registry.yarnpkg.com/caniuse-lite/-/caniuse-lite-1.0.30001707.tgz#c5e104d199e6f4355a898fcd995a066c7eb9bf41"
+  integrity sha512-3qtRjw/HQSMlDWf+X79N206fepf4SOOU6SQLMaq/0KkZLmSjPxAkBOQQ+FxbHKfHmYLZFfdWsO3KA90ceHPSnw==
 
 chalk@^2.0.1, chalk@^2.4.2:
   version "2.4.2"
@@ -6181,7 +6176,7 @@ expo-updates@~0.27.4:
     ignore "^5.3.1"
     resolve-from "^5.0.0"
 
-expo@~52.0.36:
+expo@^52.0.40:
   version "52.0.40"
   resolved "https://registry.yarnpkg.com/expo/-/expo-52.0.40.tgz#8a9d668f43afe34fd889d219d55ee2b19cc4cd9e"
   integrity sha512-kRRXW0VRlnc49LiMO9csF5DjWmUQhQ0lHudNIi3m9Z4nvecJbDaKWI5nNxB5UG7Sqj0I/wsBMes5G6gEndeYlQ==

@@ -3,8 +3,6 @@ import Constants from 'expo-constants';
 /**
  * Central configuration module that provides access to all environment variables
  * Values are sourced from Expo's config system (app.config.js -> extra)
- * During development, these values come from .env
- * During production, they come from the built app.config.js
  */
 
 interface ExpoManifest {
@@ -50,7 +48,7 @@ export interface NetworkConfig {
   chainId: number;
   name: string;
   rpcUrl: string;
-  fallbackUrls: string[];
+  fallbackUrls?: string[];
   blockExplorerUrl: string;
   nativeCurrency: {
     name: string;
@@ -64,7 +62,7 @@ export interface ChainConfig {
   chainId: number;
   name: string;
   rpcUrl: string;
-  fallbackUrls: string[];
+  fallbackUrls?: string[];
   blockExplorerUrl: string;
   nativeCurrency: {
     name: string;
@@ -93,7 +91,7 @@ export interface NetworkSettings {
 }
 
 // Default network settings if not provided in config
-const DEFAULT_NETWORK_SETTINGS: NetworkSettings = {
+export const NETWORK_SETTINGS: NetworkSettings = {
   timeoutMs: 15000,         // 15 seconds default timeout
   maxRetries: 3,            // Maximum retries for network requests
   retryDelayMs: 1000,       // Base delay between retries
@@ -104,14 +102,7 @@ const DEFAULT_NETWORK_SETTINGS: NetworkSettings = {
 const getExpoConfig = (): ExpoManifest['extra'] => {
   try {
     const manifest = Constants.expoConfig || Constants.manifest as ExpoManifest;
-    console.log('[Config] Loading environment variables:', {
-      alchemyKey: manifest?.extra?.ALCHEMY_ETH_MAINNET_KEY ? 'Set' : 'Missing',
-      supabaseUrl: manifest?.extra?.EXPO_PUBLIC_SUPABASE_URL ? 'Set' : 'Missing',
-      supabaseAnonKey: manifest?.extra?.EXPO_PUBLIC_SUPABASE_ANON_KEY ? 'Set' : 'Missing',
-      supabaseServiceRoleKey: manifest?.extra?.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Missing',
-      cmcKey: manifest?.extra?.CMC_API_KEY ? 'Set' : 'Missing',
-      lifiKey: manifest?.extra?.LIFI_API_KEY ? 'Set' : 'Missing'
-    });
+    console.log('[Config] Loading environment variables');
     return manifest?.extra || {};
   } catch (error) {
     console.error('Failed to load Expo config:', {
@@ -124,11 +115,7 @@ const getExpoConfig = (): ExpoManifest['extra'] => {
 
 const extra = getExpoConfig();
 
-// Get network settings from config or use defaults
-export const NETWORK_SETTINGS: NetworkSettings = extra?.NETWORK_SETTINGS || DEFAULT_NETWORK_SETTINGS;
-
 // Get public fallback RPC endpoints for each network
-// These are used when the primary RPC endpoint fails
 const getPublicFallbacks = (network: string): string[] => {
   switch (network) {
     case 'ethereum':
@@ -287,7 +274,7 @@ const config = {
     rpcUrl: () => {
       const key = extra?.ALCHEMY_ETH_MAINNET_KEY || '';
       if (!key) {
-        console.error('[Config] Missing Alchemy mainnet key');
+        console.warn('[Config] Missing Alchemy mainnet key, using fallback');
         return getPublicFallbacks('ethereum')[0]; // Use public fallback instead of throwing
       }
       return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
@@ -323,61 +310,5 @@ const config = {
   // Wallet configuration
   wallet: WALLET_CONFIG
 };
-
-// Validate required configuration
-const validateConfig = (): void => {
-  const requiredKeys: [string, string][] = [
-    ['supabase.url', config.supabase.url],
-    ['supabase.anonKey', config.supabase.anonKey],
-    ['supabase.serviceRoleKey', config.supabase.serviceRoleKey]
-  ];
-
-  const missingKeys = requiredKeys
-    .filter(([, value]) => !value)
-    .map(([key]) => key);
-
-  if (missingKeys.length > 0) {
-    const error = `Missing required configuration keys: ${missingKeys.join(', ')}`;
-    console.error('[Config] Validation Error:', error);
-    console.error('[Config] Current configuration:', {
-      alchemyKeys: {
-        mainnet: config.alchemy.mainnetKey ? 'Set' : 'Missing',
-      },
-      supabase: {
-        url: config.supabase.url ? 'Set' : 'Missing',
-        anonKey: config.supabase.anonKey ? 'Set' : 'Missing',
-        serviceRoleKey: config.supabase.serviceRoleKey ? 'Set' : 'Missing',
-        storage: {
-          accessKey: config.supabase.storage.accessKey ? 'Set' : 'Missing',
-          secretKey: config.supabase.storage.secretKey ? 'Set' : 'Missing'
-        }
-      }
-    });
-    
-    // Instead of throwing, log error and continue with defaults where possible
-    console.warn('[Config] Will use fallbacks where available');
-  }
-};
-
-// Check that at least one network has a valid RPC URL
-const checkNetworkConnectivity = (): void => {
-  const hasAnyRpcUrl = Object.values(NETWORKS).some(network => {
-    return network.rpcUrl || network.fallbackUrls.length > 0;
-  });
-  
-  if (!hasAnyRpcUrl) {
-    console.error('[Config] No valid RPC URLs found for any network');
-    console.warn('[Config] Application will have limited functionality');
-  }
-};
-
-// Validate configuration immediately but don't throw
-try {
-  validateConfig();
-  checkNetworkConnectivity();
-  console.log('[Config] Configuration validated successfully');
-} catch (error) {
-  console.error('[Config] Validation error:', error);
-}
 
 export default config;

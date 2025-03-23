@@ -1,6 +1,5 @@
 import { ethers } from "ethers";
 import { NETWORKS, NETWORK_SETTINGS } from './config';
-import NetInfo from '@react-native-community/netinfo';
 
 // Cache providers by network
 const providers: { [key: string]: ethers.JsonRpcProvider } = {};
@@ -11,7 +10,7 @@ const failedUrls: { [key: string]: { url: string, timestamp: number }[] } = {};
 // Configuration options for providers
 const providerOptions = {
   // Use network settings for timeout
-  timeout: NETWORK_SETTINGS.timeoutMs,
+  timeout: NETWORK_SETTINGS?.timeoutMs || 15000,
   
   // Disable continuous polling to reduce battery usage
   polling: false,
@@ -21,16 +20,24 @@ const providerOptions = {
 };
 
 /**
- * Check if the device has network connectivity
+ * Simple network check without using NetInfo
  * @returns Promise<boolean> - true if connected, false otherwise
  */
 const checkNetworkConnectivity = async (): Promise<boolean> => {
   try {
-    const netInfo = await NetInfo.fetch();
-    return netInfo.isConnected === true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch('https://google.com', { 
+      method: 'HEAD',
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+    return response.ok;
   } catch (error) {
-    console.warn('[Provider] Error checking network connectivity:', error);
-    return true; // Assume connected if we can't check
+    console.warn('[Provider] Network connectivity test failed:', error);
+    return false;
   }
 };
 
@@ -59,9 +66,9 @@ const getBestRpcUrl = (network: string): string => {
   }
 
   // Try fallback URLs that haven't recently failed
-  const availableFallbacks = networkConfig.fallbackUrls.filter(
+  const availableFallbacks = networkConfig.fallbackUrls?.filter(
     url => !recentlyFailedUrls.includes(url)
-  );
+  ) || [];
 
   if (availableFallbacks.length > 0) {
     return availableFallbacks[0]; // Use the first available fallback
@@ -74,8 +81,9 @@ const getBestRpcUrl = (network: string): string => {
   }
   
   // If primary isn't available, try first fallback
-  if (networkConfig.fallbackUrls.length > 0) {
-    return networkConfig.fallbackUrls[0];
+  const fallbackUrls = networkConfig.fallbackUrls || [];
+  if (fallbackUrls.length > 0) {
+    return fallbackUrls[0];
   }
 
   throw new Error(`No RPC URLs available for network ${network}`);
@@ -123,43 +131,47 @@ const createResilientProvider = (network: string, url: string): ethers.JsonRpcPr
   // Enhance the provider's send method with retries
   const originalSend = provider.send.bind(provider);
   provider.send = async (method: string, params: Array<any>): Promise<any> => {
+    const maxRetries = NETWORK_SETTINGS?.maxRetries || 3;
+    const timeoutMs = NETWORK_SETTINGS?.timeoutMs || 15000;
+    const retryDelayMs = NETWORK_SETTINGS?.retryDelayMs || 1000;
+    const maxRetryDelayMs = NETWORK_SETTINGS?.maxRetryDelayMs || 10000;
+    
     let lastError = new Error('Unknown error');
     
-    for (let attempt = 1; attempt <= NETWORK_SETTINGS.maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         if (attempt > 1) {
-          console.log(`[Provider] Retry attempt ${attempt}/${NETWORK_SETTINGS.maxRetries} for ${method}`);
+          console.log(`[Provider] Retry attempt ${attempt}/${maxRetries} for ${method}`);
         }
         
         // Create a timeout promise
         const sendPromise = originalSend(method, params);
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => {
-            reject(new Error(`RPC request timeout after ${NETWORK_SETTINGS.timeoutMs}ms: ${method}`));
-          }, NETWORK_SETTINGS.timeoutMs);
+            reject(new Error(`RPC request timeout after ${timeoutMs}ms: ${method}`));
+          }, timeoutMs);
         });
         
         // Race the send against the timeout
         const result = await Promise.race([sendPromise, timeoutPromise]);
         return result;
       } catch (err: unknown) {
-        const error = err as { message?: string };
-        lastError = new Error(error?.message || 'Unknown RPC error');
-        console.warn(`[Provider] RPC request failed (attempt ${attempt}/${NETWORK_SETTINGS.maxRetries}):`, error?.message);
+        const error = err instanceof Error ? err : new Error(String(err));
+        lastError = error;
+        console.warn(`[Provider] RPC request failed (attempt ${attempt}/${maxRetries}):`, error.message);
         
         // Only retry on timeout or network errors, not on RPC errors
-        if (error?.message && 
-            !error.message.includes('timeout') && 
+        if (!error.message.includes('timeout') && 
             !error.message.includes('network') &&
             !error.message.includes('connection')) {
-          throw lastError;
+          throw error;
         }
         
         // Wait before retry with exponential backoff
-        if (attempt < NETWORK_SETTINGS.maxRetries) {
+        if (attempt < maxRetries) {
           const delay = Math.min(
-            NETWORK_SETTINGS.retryDelayMs * Math.pow(2, attempt - 1),
-            NETWORK_SETTINGS.maxRetryDelayMs
+            retryDelayMs * Math.pow(2, attempt - 1),
+            maxRetryDelayMs
           );
           await new Promise(resolve => setTimeout(resolve, delay));
         }
@@ -228,9 +240,10 @@ export const getProviderSafe = async (network: string = 'ethereum'): Promise<eth
     const provider = getProvider(network);
     
     // Test the connection with a timeout
+    const timeoutMs = NETWORK_SETTINGS?.timeoutMs || 15000;
     const networkPromise = provider.getNetwork();
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Network request timeout')), NETWORK_SETTINGS.timeoutMs / 2);
+      setTimeout(() => reject(new Error('Network request timeout')), timeoutMs / 2);
     });
     
     await Promise.race([networkPromise, timeoutPromise]);
@@ -245,34 +258,6 @@ export const getProviderSafe = async (network: string = 'ethereum'): Promise<eth
     
     return null;
   }
-};
-
-/**
- * Get all available providers for all networks
- * Useful for operations that need to check multiple networks
- * @returns Object mapping network names to providers
- */
-export const getAllProviders = async (): Promise<{ [network: string]: ethers.JsonRpcProvider | null }> => {
-  const result: { [network: string]: ethers.JsonRpcProvider | null } = {};
-  
-  // Check network connectivity first
-  const isConnected = await checkNetworkConnectivity();
-  if (!isConnected) {
-    console.warn('[Provider] Device is offline, cannot get providers');
-    return result;
-  }
-  
-  // Try to get a provider for each network
-  for (const network of Object.keys(NETWORKS)) {
-    try {
-      result[network] = await getProviderSafe(network);
-    } catch (error) {
-      console.warn(`[Provider] Failed to get provider for ${network}:`, error);
-      result[network] = null;
-    }
-  }
-  
-  return result;
 };
 
 /**
@@ -310,20 +295,4 @@ export const getBlockExplorerUrl = (network: string = 'ethereum'): string => {
     throw new Error(`Network ${network} not supported`);
   }
   return networkConfig.blockExplorerUrl;
-};
-
-/**
- * Get a formatted transaction or address URL for a block explorer
- * @param network - Network identifier
- * @param type - Type of URL ('tx', 'address', 'token', or 'block')
- * @param value - Hash, address, or other identifier
- * @returns Full URL string
- */
-export const getExplorerUrl = (
-  network: string = 'ethereum',
-  type: 'tx' | 'address' | 'token' | 'block',
-  value: string
-): string => {
-  const baseUrl = getBlockExplorerUrl(network);
-  return `${baseUrl}/${type}/${value}`;
 };
