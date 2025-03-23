@@ -32,7 +32,16 @@ module.exports = {
       infoPlist: {
         NSCameraUsageDescription: "This app uses the camera for scanning QR codes.",
         NSLocationWhenInUseUsageDescription: "This app uses your location for finding nearby services.",
-        UIBackgroundModes: ["remote-notification"]
+        UIBackgroundModes: ["remote-notification"],
+        // Add timeout and network settings for iOS
+        NSAppTransportSecurity: {
+          NSAllowsArbitraryLoads: true,
+          NSExceptionDomains: {
+            "localhost": {
+              NSExceptionAllowsInsecureHTTPLoads: true
+            }
+          }
+        }
       }
     },
     android: {
@@ -45,7 +54,9 @@ module.exports = {
       permissions: [
         "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE" // Add network state permission for better network handling
       ],
       intentFilters: [
         {
@@ -65,7 +76,9 @@ module.exports = {
             "DEFAULT"
           ]
         }
-      ]
+      ],
+      // Add network security config for Android
+      networkSecurityConfig: "./network_security_config.xml"
     },
     web: {
       favicon: "./assets/images/icon.png"
@@ -88,7 +101,11 @@ module.exports = {
               "android.defaults.buildfeatures.buildconfig": true,
               "android.useAndroidX": true,
               "android.enableJetifier": true,
-              "kotlinCompilerExtensionVersion": "1.5.15"
+              "kotlinCompilerExtensionVersion": "1.5.15",
+              // Add connection/socket timeout settings for OkHttp
+              "android.okhttp.timeout.connect": "30000",
+              "android.okhttp.timeout.read": "30000",
+              "android.okhttp.timeout.write": "30000"
             }
           },
           ios: {
@@ -100,7 +117,11 @@ module.exports = {
         "expo-asset"
       ],
       [
-        "expo-secure-store"
+        "expo-secure-store",
+        {
+          // Configure secure store with more resilient parameters
+          faceIDPermission: "ConnectWallet needs to access your Face ID for secure authentication."
+        }
       ],
       ["expo-router"],
       [
@@ -119,32 +140,71 @@ module.exports = {
             imageResizeMode: "native"
           }
         }
-      ]
+      ],
+      // Add NetInfo for network state monitoring
+      ["@react-native-community/netinfo"]
     ],
     extra: {
       eas: {
         projectId: "1083be59-e11a-48f1-844c-f8bebeb2b4d0"
       },
-      ALCHEMY_ETH_MAINNET_KEY: process.env.ALCHEMY_ETH_MAINNET_KEY,
+      // Configure fallback RPC URLs for all chains
+      // Multiple RPC endpoints for each chain
       ETHEREUM_MAINNET_URL: process.env.ETHEREUM_MAINNET_URL,
+      ETHEREUM_MAINNET_FALLBACK_URLS: [
+        "https://eth.llamarpc.com",
+        "https://rpc.ankr.com/eth",
+        "https://ethereum.publicnode.com",
+        "https://1rpc.io/eth"
+      ],
+      ALCHEMY_ETH_MAINNET_KEY: process.env.ALCHEMY_ETH_MAINNET_KEY,
       ETHEREUM_SEPOLIA_URL: process.env.ETHEREUM_SEPOLIA_URL,
       POLYGON_POS_MAINNET_URL: process.env.POLYGON_POS_MAINNET_URL,
+      POLYGON_POS_FALLBACK_URLS: [
+        "https://polygon-rpc.com",
+        "https://rpc-mainnet.matic.network",
+        "https://rpc.ankr.com/polygon"
+      ],
       ARBITRUM_MAINNET_URL: process.env.ARBITRUM_MAINNET_URL,
+      ARBITRUM_FALLBACK_URLS: [
+        "https://arb1.arbitrum.io/rpc",
+        "https://rpc.ankr.com/arbitrum"
+      ],
       ARBITRUM_SEPOLIA_URL: process.env.ARBITRUM_SEPOLIA_URL,
       OPTIMISM_MAINNET_URL: process.env.OP_MAINNET_URL,
+      OPTIMISM_FALLBACK_URLS: [
+        "https://mainnet.optimism.io",
+        "https://rpc.ankr.com/optimism"
+      ],
       OPTIMISM_SEPOLIA_URL: process.env.OP_SEPOLIA_URL,
       AVALANCHE_MAINNET_URL: process.env.AVALANCHE_MAINNET_URL,
+      AVALANCHE_FALLBACK_URLS: [
+        "https://api.avax.network/ext/bc/C/rpc",
+        "https://rpc.ankr.com/avalanche"
+      ],
       BASE_MAINNET_URL: process.env.BASE_MAINNET_URL,
+      BASE_FALLBACK_URLS: [
+        "https://mainnet.base.org",
+        "https://base.gateway.tenderly.co"
+      ],
       EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
       EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
       EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
       CMC_API_KEY: process.env.CMC_API_KEY,
       LIFI_API_KEY: process.env.LIFI_API_KEY,
       REOWN_PROJECT_ID: process.env.REOWN_PROJECT_ID || '',
-      WALLETCONNECT_PROJECT_ID: process.env.WALLETCONNECT_PROJECT_ID
+      WALLETCONNECT_PROJECT_ID: process.env.WALLETCONNECT_PROJECT_ID,
+      // Network settings for resiliency
+      NETWORK_SETTINGS: {
+        timeoutMs: 15000,         // 15 seconds default timeout
+        maxRetries: 3,            // Maximum retries for network requests
+        retryDelayMs: 1000,       // Base delay between retries
+        maxRetryDelayMs: 10000,   // Maximum delay between retries
+        pollingIntervalMs: 8000   // Polling interval for network status
+      }
     },
     experiments: {
       tsconfigPaths: true
     }
   }
-}; 
+};

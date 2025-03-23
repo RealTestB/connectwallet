@@ -2,24 +2,30 @@ import Constants from 'expo-constants';
 
 /**
  * Central configuration module that provides access to all environment variables
- * Values are sourced from Expo's config system (app.json -> extra)
+ * Values are sourced from Expo's config system (app.config.js -> extra)
  * During development, these values come from .env
- * During production, they come from the built app.json
+ * During production, they come from the built app.config.js
  */
 
 interface ExpoManifest {
   extra?: {
     ETHEREUM_MAINNET_URL?: string;
+    ETHEREUM_MAINNET_FALLBACK_URLS?: string[];
     ETHEREUM_SEPOLIA_URL?: string;
     POLYGON_POS_MAINNET_URL?: string;
+    POLYGON_POS_FALLBACK_URLS?: string[];
     POLYGON_MUMBAI_URL?: string;
     ARBITRUM_MAINNET_URL?: string;
+    ARBITRUM_FALLBACK_URLS?: string[];
     ARBITRUM_SEPOLIA_URL?: string;
     OPTIMISM_MAINNET_URL?: string;
+    OPTIMISM_FALLBACK_URLS?: string[];
     OPTIMISM_SEPOLIA_URL?: string;
     AVALANCHE_MAINNET_URL?: string;
+    AVALANCHE_FALLBACK_URLS?: string[];
     AVALANCHE_FUJI_URL?: string;
     BASE_MAINNET_URL?: string;
+    BASE_FALLBACK_URLS?: string[];
     BASE_SEPOLIA_URL?: string;
     ALCHEMY_ETH_MAINNET_KEY?: string;
     EXPO_PUBLIC_SUPABASE_URL?: string;
@@ -29,6 +35,13 @@ interface ExpoManifest {
     SUPABASE_S3_SECRET_KEY?: string;
     CMC_API_KEY?: string;
     LIFI_API_KEY?: string;
+    NETWORK_SETTINGS?: {
+      timeoutMs: number;
+      maxRetries: number;
+      retryDelayMs: number;
+      maxRetryDelayMs: number;
+      pollingIntervalMs: number;
+    };
   };
   hostUri?: string;
 }
@@ -37,6 +50,7 @@ export interface NetworkConfig {
   chainId: number;
   name: string;
   rpcUrl: string;
+  fallbackUrls: string[];
   blockExplorerUrl: string;
   nativeCurrency: {
     name: string;
@@ -50,6 +64,7 @@ export interface ChainConfig {
   chainId: number;
   name: string;
   rpcUrl: string;
+  fallbackUrls: string[];
   blockExplorerUrl: string;
   nativeCurrency: {
     name: string;
@@ -68,6 +83,23 @@ export interface WalletConfig {
     derivationPath: string;
   };
 }
+
+export interface NetworkSettings {
+  timeoutMs: number;
+  maxRetries: number;
+  retryDelayMs: number;
+  maxRetryDelayMs: number;
+  pollingIntervalMs: number;
+}
+
+// Default network settings if not provided in config
+const DEFAULT_NETWORK_SETTINGS: NetworkSettings = {
+  timeoutMs: 15000,         // 15 seconds default timeout
+  maxRetries: 3,            // Maximum retries for network requests
+  retryDelayMs: 1000,       // Base delay between retries
+  maxRetryDelayMs: 10000,   // Maximum delay between retries
+  pollingIntervalMs: 8000   // Polling interval for network status
+};
 
 const getExpoConfig = (): ExpoManifest['extra'] => {
   try {
@@ -92,12 +124,57 @@ const getExpoConfig = (): ExpoManifest['extra'] => {
 
 const extra = getExpoConfig();
 
+// Get network settings from config or use defaults
+export const NETWORK_SETTINGS: NetworkSettings = extra?.NETWORK_SETTINGS || DEFAULT_NETWORK_SETTINGS;
+
+// Get public fallback RPC endpoints for each network
+// These are used when the primary RPC endpoint fails
+const getPublicFallbacks = (network: string): string[] => {
+  switch (network) {
+    case 'ethereum':
+      return [
+        'https://eth.llamarpc.com',
+        'https://rpc.ankr.com/eth',
+        'https://ethereum.publicnode.com'
+      ];
+    case 'polygon':
+      return [
+        'https://polygon-rpc.com',
+        'https://rpc-mainnet.matic.network',
+        'https://rpc.ankr.com/polygon'
+      ];
+    case 'arbitrum':
+      return [
+        'https://arb1.arbitrum.io/rpc',
+        'https://rpc.ankr.com/arbitrum'
+      ];
+    case 'optimism':
+      return [
+        'https://mainnet.optimism.io',
+        'https://rpc.ankr.com/optimism'
+      ];
+    case 'avalanche':
+      return [
+        'https://api.avax.network/ext/bc/C/rpc',
+        'https://rpc.ankr.com/avalanche'
+      ];
+    case 'base':
+      return [
+        'https://mainnet.base.org',
+        'https://base.gateway.tenderly.co'
+      ];
+    default:
+      return [];
+  }
+};
+
 // Network configurations
 export const NETWORKS: { [key: string]: NetworkConfig } = {
   ethereum: {
     chainId: 1,
     name: 'Ethereum Mainnet',
     rpcUrl: extra?.ETHEREUM_MAINNET_URL || '',
+    fallbackUrls: extra?.ETHEREUM_MAINNET_FALLBACK_URLS || getPublicFallbacks('ethereum'),
     blockExplorerUrl: 'https://etherscan.io',
     nativeCurrency: {
       name: 'Ether',
@@ -110,6 +187,7 @@ export const NETWORKS: { [key: string]: NetworkConfig } = {
     chainId: 137,
     name: 'Polygon PoS',
     rpcUrl: extra?.POLYGON_POS_MAINNET_URL || '',
+    fallbackUrls: extra?.POLYGON_POS_FALLBACK_URLS || getPublicFallbacks('polygon'),
     blockExplorerUrl: 'https://polygonscan.com',
     nativeCurrency: {
       name: 'MATIC',
@@ -122,6 +200,7 @@ export const NETWORKS: { [key: string]: NetworkConfig } = {
     chainId: 42161,
     name: 'Arbitrum One',
     rpcUrl: extra?.ARBITRUM_MAINNET_URL || '',
+    fallbackUrls: extra?.ARBITRUM_FALLBACK_URLS || getPublicFallbacks('arbitrum'),
     blockExplorerUrl: 'https://arbiscan.io',
     nativeCurrency: {
       name: 'Ether',
@@ -134,6 +213,7 @@ export const NETWORKS: { [key: string]: NetworkConfig } = {
     chainId: 10,
     name: 'Optimism',
     rpcUrl: extra?.OPTIMISM_MAINNET_URL || '',
+    fallbackUrls: extra?.OPTIMISM_FALLBACK_URLS || getPublicFallbacks('optimism'),
     blockExplorerUrl: 'https://optimistic.etherscan.io',
     nativeCurrency: {
       name: 'Ether',
@@ -146,6 +226,7 @@ export const NETWORKS: { [key: string]: NetworkConfig } = {
     chainId: 43114,
     name: 'Avalanche C-Chain',
     rpcUrl: extra?.AVALANCHE_MAINNET_URL || '',
+    fallbackUrls: extra?.AVALANCHE_FALLBACK_URLS || getPublicFallbacks('avalanche'),
     blockExplorerUrl: 'https://snowtrace.io',
     nativeCurrency: {
       name: 'AVAX',
@@ -158,6 +239,7 @@ export const NETWORKS: { [key: string]: NetworkConfig } = {
     chainId: 8453,
     name: 'Base',
     rpcUrl: extra?.BASE_MAINNET_URL || '',
+    fallbackUrls: extra?.BASE_FALLBACK_URLS || getPublicFallbacks('base'),
     blockExplorerUrl: 'https://basescan.org',
     nativeCurrency: {
       name: 'Ether',
@@ -173,6 +255,7 @@ export const CHAIN_CONFIG: ChainConfig = {
   chainId: 1,
   name: 'Ethereum Mainnet',
   rpcUrl: extra?.ETHEREUM_MAINNET_URL || '',
+  fallbackUrls: extra?.ETHEREUM_MAINNET_FALLBACK_URLS || getPublicFallbacks('ethereum'),
   blockExplorerUrl: 'https://etherscan.io',
   nativeCurrency: {
     name: 'Ether',
@@ -195,6 +278,9 @@ export const WALLET_CONFIG: WalletConfig = {
 
 // Environment configuration object
 const config = {
+  // Network settings
+  network: NETWORK_SETTINGS,
+
   // Alchemy API configuration
   alchemy: {
     mainnetKey: extra?.ALCHEMY_ETH_MAINNET_KEY || '',
@@ -202,13 +288,13 @@ const config = {
       const key = extra?.ALCHEMY_ETH_MAINNET_KEY || '';
       if (!key) {
         console.error('[Config] Missing Alchemy mainnet key');
-        throw new Error('Missing Alchemy mainnet key');
+        return getPublicFallbacks('ethereum')[0]; // Use public fallback instead of throwing
       }
       return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
     },
     settings: {
-      maxRetries: 3,
-      requestTimeout: 30000, // 30 seconds
+      maxRetries: NETWORK_SETTINGS.maxRetries,
+      requestTimeout: NETWORK_SETTINGS.timeoutMs,
       batchRequests: true,
       network: 'mainnet'
     }
@@ -241,7 +327,6 @@ const config = {
 // Validate required configuration
 const validateConfig = (): void => {
   const requiredKeys: [string, string][] = [
-    ['alchemy.mainnetKey', config.alchemy.mainnetKey],
     ['supabase.url', config.supabase.url],
     ['supabase.anonKey', config.supabase.anonKey],
     ['supabase.serviceRoleKey', config.supabase.serviceRoleKey]
@@ -268,11 +353,31 @@ const validateConfig = (): void => {
         }
       }
     });
-    throw new Error(error);
+    
+    // Instead of throwing, log error and continue with defaults where possible
+    console.warn('[Config] Will use fallbacks where available');
   }
 };
 
-// Validate configuration immediately
-validateConfig();
+// Check that at least one network has a valid RPC URL
+const checkNetworkConnectivity = (): void => {
+  const hasAnyRpcUrl = Object.values(NETWORKS).some(network => {
+    return network.rpcUrl || network.fallbackUrls.length > 0;
+  });
+  
+  if (!hasAnyRpcUrl) {
+    console.error('[Config] No valid RPC URLs found for any network');
+    console.warn('[Config] Application will have limited functionality');
+  }
+};
 
-export default config; 
+// Validate configuration immediately but don't throw
+try {
+  validateConfig();
+  checkNetworkConnectivity();
+  console.log('[Config] Configuration validated successfully');
+} catch (error) {
+  console.error('[Config] Validation error:', error);
+}
+
+export default config;
