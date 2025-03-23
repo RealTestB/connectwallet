@@ -1,13 +1,5 @@
 import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Modal,
-  StyleSheet,
-  ScrollView,
-  Image,
-} from "react-native";
+import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getStoredWallet } from "../../api/walletApi";

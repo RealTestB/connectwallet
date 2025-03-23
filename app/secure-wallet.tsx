@@ -1,206 +1,146 @@
-import React, { useState } from "react";
-import {View, Text, StyleSheet, TouchableOpacity, ScrollView, Pressable} from "react-native";
-import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useRouter, useRootNavigation } from 'expo-router';
+import { COLORS, SPACING, sharedStyles } from '../styles/shared';
+import { useAuth } from '../contexts/AuthContext';
+import { completeWalletSetup } from '../api/walletApi';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Checkbox from 'expo-checkbox';
-import * as SecureStore from 'expo-secure-store';
-import { sharedStyles, COLORS, SPACING } from '../styles/shared';
-import OnboardingLayout from '../components/ui/OnboardingLayout';
-
-interface SecurityTip {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  description: string;
-}
-
-interface SecurityOption {
-  id: string;
-  title: string;
-  description: string;
-  icon: keyof typeof Ionicons.glyphMap;
-}
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 export default function SecureWallet() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const [isConfirmed, setIsConfirmed] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
-
-  const securityTips: SecurityTip[] = [
-    {
-      icon: "shield-outline",
-      title: "Never Share Your Secret Recovery Phrase",
-      description:
-        "Your recovery phrase is the key to your wallet. Never share it with anyone or store it digitally.",
-    },
-    {
-      icon: "lock-closed-outline",
-      title: "Keep Your Password Strong",
-      description:
-        "Use a unique password with mixed characters. Never reuse passwords from other accounts.",
-    },
-    {
-      icon: "person-circle-outline",
-      title: "Be Careful of Scams",
-      description:
-        "Never give out your wallet credentials. Legitimate services will never ask for your private keys.",
-    },
-    {
-      icon: "document-text-outline",
-      title: "Verify All Transactions",
-      description:
-        "Always double-check transaction details before confirming. Make sure the amount and address are correct.",
-    },
-  ];
-
-  const securityOptions: SecurityOption[] = [
-    {
-      id: 'biometric',
-      title: 'Enable Biometric',
-      description: 'Use Face ID or fingerprint to secure your wallet',
-      icon: 'finger-print',
-    },
-    {
-      id: 'backup',
-      title: 'Backup to iCloud',
-      description: 'Securely store your wallet data in iCloud',
-      icon: 'cloud-upload',
-    },
-    {
-      id: 'notifications',
-      title: 'Enable Notifications',
-      description: 'Get alerts for important wallet activities',
-      icon: 'notifications',
-    }
-  ];
-
-  const toggleOption = (id: string) => {
-    const newSelected = new Set(selectedOptions);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedOptions(newSelected);
-  };
+  const rootNav = useRootNavigation();
+  const { updateLastActive } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleComplete = async () => {
     try {
-      // Store selected security options
-      await SecureStore.setItemAsync('securityOptions', JSON.stringify(Array.from(selectedOptions)));
-      // Navigate to portfolio
+      setIsLoading(true);
+      setError(null);
+
+      console.log('[SecureWallet] Starting wallet setup completion...');
+      await updateLastActive();
+      await completeWalletSetup();
+
+      // Wait for root navigation to be ready
+      if (!rootNav?.isReady()) {
+        console.log('[SecureWallet] Waiting for navigation to be ready...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      console.log('[SecureWallet] Navigation ready, proceeding to portfolio');
       router.replace('/portfolio');
     } catch (error) {
-      console.error('Error saving security options:', error);
+      console.error('[SecureWallet] Error completing wallet setup:', error);
+      setError('Failed to complete wallet setup. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <OnboardingLayout
-      progress={1}
-      title="Secure Your Wallet"
-      subtitle="Choose additional security options to protect your wallet"
-      icon="security"
-    >
-      <View style={styles.optionsContainer}>
-        {securityOptions.map((option) => (
-          <TouchableOpacity
-            key={option.id}
-            style={[
-              styles.optionCard,
-              selectedOptions.has(option.id) && styles.optionCardSelected
-            ]}
-            onPress={() => toggleOption(option.id)}
-          >
-            <View style={styles.optionHeader}>
-              <Ionicons
-                name={option.icon}
-                size={24}
-                color={selectedOptions.has(option.id) ? COLORS.white : COLORS.primary}
-              />
-              <View style={styles.optionTextContainer}>
-                <Text style={[
-                  styles.optionTitle,
-                  selectedOptions.has(option.id) && styles.optionTitleSelected
-                ]}>
-                  {option.title}
-                </Text>
-                <Text style={[
-                  styles.optionDescription,
-                  selectedOptions.has(option.id) && styles.optionDescriptionSelected
-                ]}>
-                  {option.description}
-                </Text>
-              </View>
-            </View>
-            <Ionicons
-              name={selectedOptions.has(option.id) ? 'checkmark-circle' : 'ellipse-outline'}
-              size={24}
-              color={selectedOptions.has(option.id) ? COLORS.white : COLORS.primary}
-            />
-          </TouchableOpacity>
-        ))}
-      </View>
+    <View style={styles.container}>
+      <LinearGradient
+        colors={['rgba(10, 27, 63, 0.9)', 'rgba(26, 47, 108, 0.9)']}
+        style={styles.gradient}
+      >
+        <View style={styles.content}>
+          <View style={styles.iconContainer}>
+            <Ionicons name="shield-checkmark" size={64} color={COLORS.primary} />
+          </View>
 
-      <TouchableOpacity style={styles.button} onPress={handleComplete}>
-        <Text style={styles.buttonText}>Complete Setup</Text>
-      </TouchableOpacity>
-    </OnboardingLayout>
+          <Text style={styles.title}>Wallet Secured!</Text>
+          <Text style={styles.description}>
+            Your wallet has been created and secured. You're ready to start using your wallet!
+          </Text>
+
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.button, isLoading && styles.buttonDisabled]}
+            onPress={handleComplete}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color={COLORS.white} />
+            ) : (
+              <Text style={styles.buttonText}>Go to Portfolio</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  optionsContainer: {
-    gap: SPACING.md,
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  gradient: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    padding: SPACING.xl,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: SPACING.xl,
   },
-  optionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    padding: SPACING.md,
-  },
-  optionCardSelected: {
-    backgroundColor: COLORS.primary,
-  },
-  optionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    gap: SPACING.md,
-  },
-  optionTextContainer: {
-    flex: 1,
-  },
-  optionTitle: {
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
     color: COLORS.white,
+    marginBottom: SPACING.lg,
+    textAlign: 'center',
+  },
+  description: {
     fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  optionTitleSelected: {
     color: COLORS.white,
-  },
-  optionDescription: {
-    color: COLORS.primary,
-    fontSize: 14,
-  },
-  optionDescriptionSelected: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+    opacity: 0.8,
   },
   button: {
     backgroundColor: COLORS.primary,
-    padding: SPACING.md,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.xl,
     borderRadius: 12,
+    width: '100%',
     alignItems: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
   buttonText: {
     color: COLORS.white,
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    padding: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.lg,
+    width: '100%',
+  },
+  errorText: {
+    color: COLORS.error,
+    textAlign: 'center',
+    fontSize: 14,
   },
 }); 

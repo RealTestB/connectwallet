@@ -22,7 +22,6 @@ interface ExpoManifest {
     BASE_MAINNET_URL?: string;
     BASE_SEPOLIA_URL?: string;
     ALCHEMY_ETH_MAINNET_KEY?: string;
-    ALCHEMY_ACCOUNT_KIT_KEY?: string;
     EXPO_PUBLIC_SUPABASE_URL?: string;
     EXPO_PUBLIC_SUPABASE_ANON_KEY?: string;
     EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -93,11 +92,87 @@ const getExpoConfig = (): ExpoManifest['extra'] => {
 
 const extra = getExpoConfig();
 
+// Network configurations
+export const NETWORKS: { [key: string]: NetworkConfig } = {
+  ethereum: {
+    chainId: 1,
+    name: 'Ethereum Mainnet',
+    rpcUrl: extra?.ETHEREUM_MAINNET_URL || '',
+    blockExplorerUrl: 'https://etherscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  polygon: {
+    chainId: 137,
+    name: 'Polygon PoS',
+    rpcUrl: extra?.POLYGON_POS_MAINNET_URL || '',
+    blockExplorerUrl: 'https://polygonscan.com',
+    nativeCurrency: {
+      name: 'MATIC',
+      symbol: 'MATIC',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  arbitrum: {
+    chainId: 42161,
+    name: 'Arbitrum One',
+    rpcUrl: extra?.ARBITRUM_MAINNET_URL || '',
+    blockExplorerUrl: 'https://arbiscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  optimism: {
+    chainId: 10,
+    name: 'Optimism',
+    rpcUrl: extra?.OPTIMISM_MAINNET_URL || '',
+    blockExplorerUrl: 'https://optimistic.etherscan.io',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  'avalanche': {
+    chainId: 43114,
+    name: 'Avalanche C-Chain',
+    rpcUrl: extra?.AVALANCHE_MAINNET_URL || '',
+    blockExplorerUrl: 'https://snowtrace.io',
+    nativeCurrency: {
+      name: 'AVAX',
+      symbol: 'AVAX',
+      decimals: 18
+    },
+    isTestnet: false
+  },
+  'base': {
+    chainId: 8453,
+    name: 'Base',
+    rpcUrl: extra?.BASE_MAINNET_URL || '',
+    blockExplorerUrl: 'https://basescan.org',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    isTestnet: false
+  }
+};
+
 // Ethereum Mainnet configuration
 export const CHAIN_CONFIG: ChainConfig = {
   chainId: 1,
   name: 'Ethereum Mainnet',
-  rpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${extra?.ALCHEMY_ETH_MAINNET_KEY || ''}`,
+  rpcUrl: extra?.ETHEREUM_MAINNET_URL || '',
   blockExplorerUrl: 'https://etherscan.io',
   nativeCurrency: {
     name: 'Ether',
@@ -112,7 +187,7 @@ export const WALLET_CONFIG: WalletConfig = {
     storageKeys: {
       privateKey: 'walletPrivateKey',
       seedPhrase: 'walletSeedPhrase',
-      addresses: 'walletAddresses'
+      addresses: 'hasWallet'
     },
     derivationPath: "m/44'/60'/0'/0"
   }
@@ -123,12 +198,19 @@ const config = {
   // Alchemy API configuration
   alchemy: {
     mainnetKey: extra?.ALCHEMY_ETH_MAINNET_KEY || '',
-    rpcUrl: function(): string {
-      if (!this.mainnetKey) {
-        console.error('Alchemy mainnet key not found');
-        throw new Error('Missing required Alchemy API key');
+    rpcUrl: () => {
+      const key = extra?.ALCHEMY_ETH_MAINNET_KEY || '';
+      if (!key) {
+        console.error('[Config] Missing Alchemy mainnet key');
+        throw new Error('Missing Alchemy mainnet key');
       }
-      return `https://eth-mainnet.g.alchemy.com/v2/${this.mainnetKey}`;
+      return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
+    },
+    settings: {
+      maxRetries: 3,
+      requestTimeout: 30000, // 30 seconds
+      batchRequests: true,
+      network: 'mainnet'
     }
   },
 
@@ -192,81 +274,5 @@ const validateConfig = (): void => {
 
 // Validate configuration immediately
 validateConfig();
-
-// Network configurations
-export const NETWORKS: { [key: string]: NetworkConfig } = {
-  'ethereum': {
-    chainId: 1,
-    name: 'Ethereum Mainnet',
-    rpcUrl: extra?.ETHEREUM_MAINNET_URL || '',
-    blockExplorerUrl: 'https://etherscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  'polygon': {
-    chainId: 137,
-    name: 'Polygon PoS',
-    rpcUrl: extra?.POLYGON_POS_MAINNET_URL || '',
-    blockExplorerUrl: 'https://polygonscan.com',
-    nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  'arbitrum': {
-    chainId: 42161,
-    name: 'Arbitrum One',
-    rpcUrl: extra?.ARBITRUM_MAINNET_URL || '',
-    blockExplorerUrl: 'https://arbiscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  'optimism': {
-    chainId: 10,
-    name: 'Optimism',
-    rpcUrl: extra?.OPTIMISM_MAINNET_URL || '',
-    blockExplorerUrl: 'https://optimistic.etherscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  'avalanche': {
-    chainId: 43114,
-    name: 'Avalanche C-Chain',
-    rpcUrl: extra?.AVALANCHE_MAINNET_URL || '',
-    blockExplorerUrl: 'https://snowtrace.io',
-    nativeCurrency: {
-      name: 'AVAX',
-      symbol: 'AVAX',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  'base': {
-    chainId: 8453,
-    name: 'Base',
-    rpcUrl: extra?.BASE_MAINNET_URL || '',
-    blockExplorerUrl: 'https://basescan.org',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  }
-};
 
 export default config; 

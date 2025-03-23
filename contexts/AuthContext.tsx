@@ -74,11 +74,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
       if (timeDiff > INACTIVITY_TIMEOUT) {
         console.log('[AuthProvider] Session expired due to inactivity');
-        await signOut();
+        setIsAuthenticated(false);
+        // Don't navigate here, let ProtectedRoute handle it
       }
     } catch (error) {
       console.error('[AuthProvider] Error checking inactivity:', error);
-      await signOut();
+      setIsAuthenticated(false);
     }
   };
 
@@ -143,22 +144,34 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const wallet = await getStoredWallet();
       const hasClassicWallet = !!wallet;
 
+      console.log('[AuthProvider] Checking wallet status:', {
+        hasWallet: hasClassicWallet,
+        walletAddress: wallet?.address
+      });
+
       setHasWallet(hasClassicWallet);
       
       // Only set authenticated if we have a wallet and are within activity timeout
       if (hasClassicWallet) {
         const lastActiveStr = await SecureStore.getItemAsync(LAST_ACTIVE_KEY);
         const isActive = lastActiveStr ? (Date.now() - parseInt(lastActiveStr, 10)) <= INACTIVITY_TIMEOUT : false;
+        
+        console.log('[AuthProvider] Checking activity status:', {
+          lastActive: lastActiveStr ? new Date(parseInt(lastActiveStr, 10)).toISOString() : null,
+          isActive,
+          timeDiff: lastActiveStr ? Date.now() - parseInt(lastActiveStr, 10) : null
+        });
+
         setIsAuthenticated(isActive);
         
         if (isActive) {
           await updateLastActive();
+          console.log('[AuthProvider] Updated last active timestamp');
         }
       } else {
         setIsAuthenticated(false);
+        console.log('[AuthProvider] No wallet found, setting authenticated to false');
       }
-      
-      console.log('[AuthProvider] Wallet status set:', hasClassicWallet);
     } catch (err) {
       console.error('[AuthProvider] Auth check failed:', err);
       setError('Failed to check authentication status');
@@ -187,7 +200,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   if (loading || !cryptoInitialized || !appIsReady) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1A2F6C' }}>
         <ActivityIndicator size="large" color="#3b82f6" />
       </View>
     );

@@ -1,18 +1,56 @@
-import React, { useState } from 'react';
-import { useRouter } from "expo-router";
+import React, { useState, useCallback } from 'react';
+import { useRouter, useNavigation } from "expo-router";
 import { StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, ActivityIndicator } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
+import * as SecureStore from 'expo-secure-store';
+
+const MAX_NAVIGATION_ATTEMPTS = 3;
+const FETCH_TIMEOUT = 8000; // 8 seconds timeout
 
 export default function Page() {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [navigationAttempts, setNavigationAttempts] = useState(0);
   const { checkAuth, updateLastActive } = useAuth();
+
+  const safeNavigate = useCallback((path: string) => {
+    if (navigationAttempts >= MAX_NAVIGATION_ATTEMPTS) {
+      console.error('[SignIn] Max navigation attempts reached');
+      Alert.alert(
+        "Navigation Error",
+        "Unable to navigate to the portfolio. Please try again later.",
+        [{ text: "OK", onPress: () => setIsLoading(false) }]
+      );
+      return;
+    }
+
+    try {
+      console.log('[SignIn] Navigating to:', path);
+      router.replace(path);
+    } catch (error) {
+      console.error('[SignIn] Navigation failed:', error);
+      Alert.alert("Error", "Navigation failed. Please try again.");
+      setIsLoading(false);
+    }
+  }, [router, navigationAttempts]);
+
+  const fetchWithTimeout = async (key: string) => {
+    const fetchPromise = SecureStore.getItemAsync(key);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Fetch timeout for key: ${key}`));
+      }, FETCH_TIMEOUT);
+    });
+
+    return Promise.race([fetchPromise, timeoutPromise]);
+  };
 
   const handleSignIn = async () => {
     if (!password.trim()) {
@@ -22,20 +60,47 @@ export default function Page() {
 
     setIsLoading(true);
     try {
+      console.log('[SignIn] Starting sign in process');
+      
+      // Verify password with timeout
+      const storedPassword = await fetchWithTimeout('walletPassword');
+      
+      if (!storedPassword) {
+        throw new Error('No password found in secure storage');
+      }
+      
+      if (storedPassword !== password) {
+        throw new Error('Invalid password');
+      }
+      
+      console.log('[SignIn] Password verified');
+      
       // Update last active timestamp and check auth status
       await updateLastActive();
       await checkAuth();
       
-      // Navigate to portfolio
-      router.replace("/portfolio");
+      console.log('[SignIn] Auth check completed, navigating to portfolio');
+      // Reset navigation attempts before trying to navigate
+      setNavigationAttempts(0);
+      safeNavigate("/portfolio");
     } catch (error) {
-      console.error("Sign in failed:", error);
-      Alert.alert("Error", "Failed to sign in. Please try again.");
-    } finally {
+      console.error("[SignIn] Sign in failed:", error);
+      let errorMessage = "Failed to sign in. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes('timeout')) {
+          errorMessage = "Connection timed out. Please check your internet connection and try again.";
+        } else if (error.message.includes('Invalid password')) {
+          errorMessage = "Incorrect password. Please try again.";
+        }
+      }
+      
+      Alert.alert("Error", errorMessage);
       setIsLoading(false);
     }
   };
 
+  // Rest of the component remains the same
   return (
     <LinearGradient
       colors={["#1A2F6C", "#0A1B3F"]}
@@ -66,6 +131,8 @@ export default function Page() {
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
+                onSubmitEditing={handleSignIn}
+                returnKeyType="go"
               />
               <TouchableOpacity
                 style={styles.eyeIcon}
@@ -178,4 +245,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "500",
   },
-}); 
+});

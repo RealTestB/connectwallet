@@ -4,7 +4,7 @@ import { sharedStyles, COLORS, SPACING } from '../../styles/shared';
 import { MaterialIcons } from '@expo/vector-icons';
 
 interface OnboardingLayoutProps {
-  progress: number;
+  progress?: number;
   title: string;
   subtitle: string;
   icon?: keyof typeof MaterialIcons.glyphMap;
@@ -23,7 +23,9 @@ export default function OnboardingLayout({
       <Image source={require('../../assets/background.png')} style={sharedStyles.backgroundImage} />
       
       {/* Progress Bar */}
-      <View style={[sharedStyles.progressBar, { width: `${progress * 100}%` }]} />
+      {progress !== undefined && (
+        <View style={[sharedStyles.progressBar, { width: `${progress * 100}%` }]} />
+      )}
       
       <ScrollView style={sharedStyles.contentContainer} showsVerticalScrollIndicator={false}>
         {icon && (

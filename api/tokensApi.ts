@@ -41,16 +41,13 @@ export interface Token {
   isSpam?: boolean;
 }
 
+type NetworkKey = keyof typeof ALCHEMY_NETWORKS;
+
 export interface TokenBalance {
   contractAddress: string;
   tokenBalance: string;
-  rawBalance: string;
-  metadata: {
-    decimals: number;
-    logo?: string;
-    name?: string;
-    symbol: string;
-  };
+  rawBalance?: string;
+  metadata?: TokenMetadata;
 }
 
 export interface TokenPrice {
@@ -81,90 +78,177 @@ export interface TokenTransferParams {
   decimals: number;
 }
 
+export interface TokenBalanceResult {
+  contractAddress: string;
+  tokenBalance: string;
+  formattedBalance: string;
+  metadata?: {
+    decimals: number;
+    logo?: string;
+    name?: string;
+    symbol: string;
+  };
+  error?: string;
+}
+
 let alchemyInstance: Alchemy | null = null;
 
-function initializeAlchemy(network: Network = Network.ETH_MAINNET): Alchemy {
-  if (!alchemyInstance) {
-    alchemyInstance = new Alchemy({
-      apiKey: config.alchemy.mainnetKey,
-      network
+export function initializeAlchemy(networkKey: NetworkKey | string = 'ethereum'): Alchemy {
+  try {
+    if (alchemyInstance) {
+      return alchemyInstance;
+    }
+
+    const network = networkKey in ALCHEMY_NETWORKS 
+      ? ALCHEMY_NETWORKS[networkKey as NetworkKey]
+      : Network.ETH_MAINNET;
+
+    console.log('[TokensApi] Initializing Alchemy with settings:', {
+      network,
+      hasApiKey: !!config.alchemy.mainnetKey,
+      timeout: 30000,
+      maxRetries: 3
     });
+
+    const settings = {
+      apiKey: config.alchemy.mainnetKey,
+      network,
+      maxRetries: 3,
+      requestTimeout: 30000,
+      batchRequests: false
+    };
+
+    alchemyInstance = new Alchemy(settings);
+    console.log('[TokensApi] Alchemy instance created successfully');
+    return alchemyInstance;
+  } catch (error) {
+    console.error('[TokensApi] Error initializing Alchemy:', error);
+    throw new Error('Failed to initialize Alchemy SDK');
   }
-  return alchemyInstance;
 }
 
 const MAX_RETRIES = 3;
 const INITIAL_TIMEOUT = 30000; // 30 seconds
 
+async function formatTokenBalance(balance: TokenBalance): Promise<TokenBalanceResult> {
+  try {
+    if (!balance.tokenBalance) {
+      return {
+        contractAddress: balance.contractAddress,
+        tokenBalance: '0',
+        formattedBalance: '0',
+        error: 'No balance data'
+      };
+    }
+
+    // Get token metadata
+    const metadata = balance.metadata;
+    const decimals = metadata?.decimals || 18;
+    
+    // Format the balance
+    const rawBalance = BigInt(balance.tokenBalance);
+    const divisor = BigInt(10 ** decimals);
+    const formattedBalance = Number(rawBalance) / Number(divisor);
+
+    return {
+      contractAddress: balance.contractAddress,
+      tokenBalance: balance.tokenBalance,
+      formattedBalance: formattedBalance.toString(),
+      metadata: {
+        decimals: metadata?.decimals || 18,
+        logo: metadata?.logo,
+        name: metadata?.name,
+        symbol: metadata?.symbol || 'Unknown'
+      }
+    };
+  } catch (error) {
+    console.error('[TokensApi] Error formatting token balance:', error);
+    return {
+      contractAddress: balance.contractAddress,
+      tokenBalance: '0',
+      formattedBalance: '0',
+      error: 'Failed to format balance'
+    };
+  }
+}
+
 /**
  * Get token balances for an address
  */
-export const getTokenBalances = async (
-  address: string,
-  network: string = 'ethereum'
-): Promise<AlchemyTokenBalance[]> => {
+export async function getTokenBalances(address: string, networkKey: string = 'ethereum'): Promise<TokenBalanceResult[] | { error: string }> {
   try {
-    // Get the provider for the specified network
-    const provider = getProvider(network);
-    
-    // Create Alchemy instance for the network
-    const alchemyNetwork = ALCHEMY_NETWORKS[network as keyof typeof ALCHEMY_NETWORKS];
-    if (!alchemyNetwork) {
-      throw new Error(`Alchemy not supported for network ${network}`);
-    }
-
-    const alchemy = new Alchemy({
-      network: alchemyNetwork,
-      apiKey: process.env.ALCHEMY_ETH_MAINNET_KEY
+    console.log('[TokensApi] Fetching token balances:', {
+      address,
+      networkKey
     });
 
+    // Initialize or get Alchemy instance
+    const alchemy = alchemyInstance || initializeAlchemy(networkKey);
+
+    console.log('[TokensApi] Alchemy initialized, fetching balances...');
+    
     // Get token balances
     const balances = await alchemy.core.getTokenBalances(address);
 
-    // Filter out zero balances and fetch metadata for non-zero balances
-    const nonZeroBalances = balances.tokenBalances.filter(
-      balance => balance.tokenBalance !== '0x0'
-    );
+    // Remove tokens with zero balance
+    const nonZeroBalances = balances.tokenBalances.filter((token) => {
+      return token.tokenBalance !== "0";
+    });
 
-    // Fetch metadata for all tokens in parallel
-    const balancesWithMetadata = await Promise.all(
-      nonZeroBalances.map(async (balance) => {
+    console.log(`[TokensApi] Found ${nonZeroBalances.length} tokens with non-zero balance`);
+
+    // Format the balances and fetch metadata
+    const formattedBalances = await Promise.all(
+      nonZeroBalances.map(async (token) => {
         try {
-          const metadata = await alchemy.core.getTokenMetadata(balance.contractAddress);
-          const formattedBalance = ethers.formatUnits(
-            balance.tokenBalance || '0',
-            metadata.decimals || 18
-          );
-          
+          // Get metadata of token
+          const metadata = await alchemy.core.getTokenMetadata(token.contractAddress);
+
+          // Compute token balance in human-readable format
+          const balance = token.tokenBalance ? 
+            (Number(token.tokenBalance) / Math.pow(10, metadata.decimals)).toFixed(4) : 
+            "0";
+
           return {
-            contractAddress: balance.contractAddress,
-            tokenBalance: balance.tokenBalance || '0',
+            contractAddress: token.contractAddress,
+            tokenBalance: token.tokenBalance || "0",
+            formattedBalance: balance,
             metadata: {
-              decimals: metadata.decimals || 18,
-              logo: metadata.logo,
-              name: metadata.name,
-              symbol: metadata.symbol
-            },
-            error: null,
-            formattedBalance
+              decimals: metadata.decimals,
+              logo: metadata.logo || undefined,
+              name: metadata.name || "Unknown",
+              symbol: metadata.symbol || "Unknown"
+            }
           };
         } catch (error) {
+          console.error('[TokensApi] Error processing token:', token.contractAddress, error);
           return {
-            contractAddress: balance.contractAddress,
-            tokenBalance: balance.tokenBalance || '0',
-            error: error instanceof Error ? error.message : 'Unknown error',
-            metadata: undefined
+            contractAddress: token.contractAddress,
+            tokenBalance: token.tokenBalance || "0",
+            formattedBalance: "0",
+            metadata: {
+              decimals: 18,
+              name: "Unknown Token",
+              symbol: "UNKNOWN"
+            }
           };
         }
       })
     );
 
-    return balancesWithMetadata;
+    console.log('[TokensApi] Successfully formatted balances:', {
+      count: formattedBalances.length
+    });
+
+    return formattedBalances;
   } catch (error) {
-    console.error('Error fetching token balances:', error);
-    throw error;
+    console.error('[TokensApi] Error fetching token balances:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    return { error: 'Failed to fetch token balances' };
   }
-};
+}
 
 /**
  * Get token metadata
@@ -399,5 +483,133 @@ export const getTokenBalance = async (contractAddress: string, ownerAddress: str
       stack: error instanceof Error ? error.stack : undefined
     });
     throw new Error('Failed to get token balance');
+  }
+};
+
+/**
+ * Store token balances in SecureStore
+ */
+export const storeTokenBalances = async (address: string, balances: { [tokenAddress: string]: string }): Promise<void> => {
+  try {
+    const key = `token_balances_${address.toLowerCase()}`;
+    await SecureStore.setItemAsync(key, JSON.stringify(balances));
+    console.log('[TokensApi] Stored token balances for:', address);
+  } catch (error) {
+    console.error('[TokensApi] Error storing token balances:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get stored token balances from SecureStore
+ */
+export const getStoredTokenBalances = async (address: string): Promise<{ [tokenAddress: string]: string }> => {
+  try {
+    const key = `token_balances_${address.toLowerCase()}`;
+    const stored = await SecureStore.getItemAsync(key);
+    if (!stored) {
+      // Initialize with zero balances for known tokens
+      const initialBalances = {
+        '0x0000000000000000000000000000000000000000': '0', // ETH
+        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': '0'  // WETH
+      };
+      await storeTokenBalances(address, initialBalances);
+      return initialBalances;
+    }
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error('[TokensApi] Error getting stored token balances:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update stored balance for a specific token
+ */
+export const updateStoredTokenBalance = async (
+  walletAddress: string,
+  tokenAddress: string,
+  newBalance: string
+): Promise<void> => {
+  try {
+    const currentBalances = await getStoredTokenBalances(walletAddress);
+    currentBalances[tokenAddress.toLowerCase()] = newBalance;
+    await storeTokenBalances(walletAddress, currentBalances);
+    console.log('[TokensApi] Updated balance for token:', tokenAddress);
+  } catch (error) {
+    console.error('[TokensApi] Error updating token balance:', error);
+    throw error;
+  }
+};
+
+interface PendingTransaction {
+  hash: string;
+  to?: string;
+  from: string;
+  value: string;
+}
+
+/**
+ * Set up transaction monitoring for a wallet
+ */
+export const setupTransactionMonitoring = async (
+  walletAddress: string,
+  networkKey: string = 'ethereum'
+): Promise<void> => {
+  try {
+    const alchemy = initializeAlchemy(networkKey);
+    const provider = getProvider();
+    
+    // Monitor for ETH transfers
+    provider.on(
+      {
+        address: walletAddress,
+        topics: [
+          ethers.id("Transfer(address,address,uint256)")
+        ]
+      },
+      async (log) => {
+        console.log('[TokensApi] New transaction detected:', log.transactionHash);
+        
+        // Update ETH balance
+        const newBalance = await alchemy.core.getBalance(walletAddress);
+        await updateStoredTokenBalance(
+          walletAddress,
+          '0x0000000000000000000000000000000000000000',
+          ethers.formatEther(newBalance)
+        );
+      }
+    );
+
+    // Monitor for token transfers
+    provider.on(
+      {
+        address: walletAddress,
+        topics: [
+          ethers.id("Transfer(address,address,uint256)")
+        ]
+      },
+      async (log) => {
+        if (!log.address) return;
+        
+        // Get new token balance
+        const contract = new ethers.Contract(log.address, ERC20_ABI, provider);
+        const [balance, decimals] = await Promise.all([
+          contract.balanceOf(walletAddress),
+          contract.decimals()
+        ]);
+        
+        await updateStoredTokenBalance(
+          walletAddress,
+          log.address.toLowerCase(),
+          ethers.formatUnits(balance, decimals)
+        );
+      }
+    );
+
+    console.log('[TokensApi] Transaction monitoring set up for:', walletAddress);
+  } catch (error) {
+    console.error('[TokensApi] Error setting up transaction monitoring:', error);
+    throw error;
   }
 }; 

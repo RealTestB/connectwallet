@@ -9,7 +9,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ethers } from "ethers";
 import * as Crypto from 'expo-crypto';
-import { resolveTempUserId } from "../api/supabaseApi";
+import { resolveTempUserId, createWallet } from "../api/supabaseApi";
+import { sharedStyles, COLORS, SPACING } from '../styles/shared';
+import OnboardingLayout from '../components/ui/OnboardingLayout';
+import config from '../api/config';
 
 const SETUP_STEPS = {
   PASSWORD_CREATED: 'password_created',
@@ -47,24 +50,26 @@ export default function Page(): JSX.Element {
         throw new Error("Please complete password setup first");
       }
 
-      // Try to resolve temp user ID in the background without awaiting
+      // Get temp user ID
       const tempUserId = await SecureStore.getItemAsync('tempUserId');
-      if (tempUserId) {
-        // Don't await this - let it run in the background
-        resolveTempUserId(tempUserId)
-          .then(realUserId => {
-            if (realUserId && realUserId !== tempUserId) {
-              console.log("Successfully resolved user ID:", realUserId);
-              // Update the stored ID in the background
-              SecureStore.setItemAsync('userId', realUserId)
-                .catch(error => console.error("Error updating userId:", error));
-            }
-          })
-          .catch(error => {
-            // Just log the error but don't block the flow
-            console.warn("Failed to resolve user ID:", error);
-          });
+      if (!tempUserId) {
+        throw new Error("No temporary user ID found");
       }
+
+      // Try to resolve temp user ID in the background without awaiting
+      resolveTempUserId(tempUserId)
+        .then(realUserId => {
+          if (realUserId && realUserId !== tempUserId) {
+            console.log("Successfully resolved user ID:", realUserId);
+            // Update the stored ID in the background
+            SecureStore.setItemAsync('userId', realUserId)
+              .catch(error => console.error("Error updating userId:", error));
+          }
+        })
+        .catch(error => {
+          // Just log the error but don't block the flow
+          console.warn("Failed to resolve user ID:", error);
+        });
       
       // Generate seed phrase using ethers
       const wallet = ethers.Wallet.createRandom();
@@ -75,9 +80,24 @@ export default function Page(): JSX.Element {
       setSeedPhrase(words);
       console.log("Generated seed phrase with", words.length, "words");
 
-      // Store the seed phrase temporarily without encryption first
+      // Store wallet data securely
+      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.privateKey, wallet.privateKey);
+      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.seedPhrase, wallet.mnemonic.phrase);
+      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.addresses, wallet.address);
+      console.log("Stored wallet data securely");
+
+      // Store the seed phrase temporarily without encryption first (for confirmation step)
       await SecureStore.setItemAsync("tempSeedPhrase", words.join(" "));
       console.log("Stored unencrypted seed phrase temporarily");
+      
+      // Create wallet in database
+      await createWallet({
+        public_address: wallet.address,
+        temp_user_id: tempUserId,
+        name: 'My Wallet',
+        chain_name: 'ethereum'
+      });
+      console.log("Created wallet in database");
       
       // Update setup state
       await SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.SEED_PHRASE_GENERATED);
@@ -103,267 +123,217 @@ export default function Page(): JSX.Element {
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3b82f6" />
-        <Text style={styles.loadingText}>Generating your wallet...</Text>
-      </View>
+      <OnboardingLayout
+        progress={0.5}
+        title="Creating Your Wallet"
+        subtitle="Please wait while we securely generate your wallet"
+        icon="wallet"
+      >
+        <View style={styles.loadingContent}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Generating your secure recovery phrase...</Text>
+          <Text style={styles.loadingSubtext}>This may take a few moments</Text>
+        </View>
+      </OnboardingLayout>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.errorContainer}>
+      <LinearGradient
+        colors={['#0A1B3F', '#1A2F6C']}
+        style={styles.errorContainer}
+      >
         <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity style={styles.retryButton} onPress={generateSeedPhrase}>
           <Text style={styles.retryButtonText}>Try Again</Text>
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
     );
   }
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
+    <OnboardingLayout
+      progress={0.5}
+      title="Secret Recovery Phrase"
+      subtitle="Write down these 12 words in order and store them securely"
+      icon="key"
     >
-      <View 
-        style={[
-          styles.content,
-          {
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-          }
-        ]}
-      >
-        {/* Back Button & Progress Dots */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#6A9EFF" />
-          </TouchableOpacity>
-          <View style={styles.progressDots}>
-            {[1, 2, 3, 4, 5].map((step) => (
-              <View key={step} style={[styles.dot, step === 2 && styles.activeDot]} />
-            ))}
-          </View>
-          <View style={{ width: 24 }} />
+      <ScrollView style={styles.scrollContent}>
+        {/* Warning Message */}
+        <View style={styles.warningBox}>
+          <Ionicons name="warning-outline" size={20} color="#facc15" />
+          <Text style={styles.warningText}>
+            Never share your recovery phrase. Anyone with these words can access your wallet.
+          </Text>
         </View>
 
-        <ScrollView style={styles.scrollContent}>
-          {/* Title & Instructions */}
-          <Text style={styles.title}>Secret Recovery Phrase</Text>
-          <Text style={styles.subtitle}>
-            Write down these 12 words in order and store them securely.
-          </Text>
-
-          {/* Warning Message */}
-          <View style={styles.warningBox}>
-            <Text style={styles.warningText}>
-              <Text style={styles.warningIcon}>⚠</Text>
-              {" Never share your recovery phrase. Anyone with these words can access your wallet."}
-            </Text>
-          </View>
-
-          {/* Seed Phrase Grid */}
-          <View style={[styles.seedContainer, !revealed && styles.hiddenSeed]}>
-            <View style={styles.seedGrid}>
-              {seedPhrase.map((word, index) => (
-                <View key={index} style={styles.seedWordBox}>
-                  <Text style={styles.seedIndex}>#{index + 1}</Text>
-                  <Text style={styles.seedWord}>{word}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Show/Continue Button */}
-          {!revealed ? (
-            <TouchableOpacity 
-              style={styles.showButton} 
-              onPress={() => setRevealed(true)}
-            >
-              <Text style={styles.buttonText}>
-                <Text>👁️ </Text>
-                <Text>Show Recovery Phrase</Text>
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <>
-              <View style={styles.securityBox}>
-                <Text style={styles.securityText}>
-                  <Text>🛡️ </Text>
-                  <Text>Make sure no one is watching your screen.</Text>
-                </Text>
+        {/* Seed Phrase Grid */}
+        <View style={[styles.seedContainer, !revealed && styles.hiddenSeed]}>
+          <View style={styles.seedGrid}>
+            {seedPhrase.map((word, index) => (
+              <View key={index} style={styles.seedWordBox}>
+                <Text style={styles.seedIndex}>#{index + 1}</Text>
+                <Text style={styles.seedWord}>{word}</Text>
               </View>
-              
-              <TouchableOpacity
-                style={[styles.continueButton]}
-                onPress={handleContinue}
-              >
-                <Text style={styles.buttonText}>Continue</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </ScrollView>
-      </View>
-    </LinearGradient>
+            ))}
+          </View>
+        </View>
+
+        {/* Show/Continue Button */}
+        {!revealed ? (
+          <TouchableOpacity 
+            style={styles.button} 
+            onPress={() => setRevealed(true)}
+          >
+            <Ionicons name="eye-outline" size={20} color="white" style={styles.buttonIcon} />
+            <Text style={styles.buttonText}>Show Recovery Phrase</Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            <View style={styles.securityBox}>
+              <Ionicons name="shield-checkmark-outline" size={20} color="#4ade80" />
+              <Text style={styles.securityText}>
+                Make sure no one is watching your screen
+              </Text>
+            </View>
+            
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleContinue}
+            >
+              <Text style={styles.buttonText}>Continue</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
+    </OnboardingLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  scrollContent: {
-    flex: 1,
-  },
-  loadingContainer: {
+  loadingContent: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#0A1B3F",
+    paddingHorizontal: SPACING.xl,
   },
   loadingText: {
-    color: "white",
-    marginTop: 16,
+    color: COLORS.white,
     fontSize: 16,
+    fontWeight: "500",
+    textAlign: "center",
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.xs,
+  },
+  loadingSubtext: {
+    color: COLORS.primary,
+    fontSize: 14,
+    textAlign: "center",
   },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#0A1B3F",
-    padding: 20,
+    padding: SPACING.xl,
   },
   errorText: {
-    color: "#ef4444",
+    color: COLORS.error,
     fontSize: 16,
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: SPACING.lg,
   },
   retryButton: {
-    backgroundColor: "#3b82f6",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.xl,
     borderRadius: 12,
   },
   retryButtonText: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "500",
   },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  progressDots: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "rgba(106, 158, 255, 0.3)",
-  },
-  activeDot: {
-    backgroundColor: "#6A9EFF",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "white",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#93c5fd",
-    textAlign: "center",
-    marginBottom: 24,
+  scrollContent: {
+    flex: 1,
   },
   warningBox: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.2)",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(250, 204, 21, 0.1)",
+    padding: SPACING.md,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    marginBottom: SPACING.xl,
+    gap: SPACING.xs,
   },
   warningText: {
-    color: "#ef4444",
+    color: "#facc15",
     fontSize: 14,
-    textAlign: "center",
-  },
-  warningIcon: {
-    fontSize: 16,
+    flex: 1,
   },
   seedContainer: {
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderRadius: 16,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
   },
   hiddenSeed: {
-    opacity: 0.2,
+    display: 'none',
   },
   seedGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
   },
   seedWordBox: {
-    width: "48%",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderRadius: 8,
-    padding: 12,
-    alignItems: "center",
+    width: '30%',
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    padding: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   seedIndex: {
-    color: "#93c5fd",
+    color: COLORS.primary,
     fontSize: 12,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   seedWord: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  showButton: {
-    backgroundColor: "#3b82f6",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    marginBottom: 16,
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: "500",
   },
   securityBox: {
-    backgroundColor: "rgba(234, 179, 8, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(234, 179, 8, 0.2)",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(74, 222, 128, 0.1)",
+    padding: SPACING.md,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
+    gap: SPACING.xs,
   },
   securityText: {
-    color: "#eab308",
+    color: "#4ade80",
     fontSize: 14,
-    textAlign: "center",
+    flex: 1,
   },
-  continueButton: {
-    backgroundColor: "#3b82f6",
+  button: {
+    backgroundColor: COLORS.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.md,
     borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
+    gap: SPACING.xs,
+  },
+  buttonIcon: {
+    marginRight: SPACING.xs,
   },
   buttonText: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "500",
   },
 }); 

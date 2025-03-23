@@ -41,9 +41,30 @@ export default function ConfirmSeedPhrase() {
   };
 
   const handleVerify = async () => {
-    if (selectedWords.join(' ') === originalPhrase.join(' ')) {
-      await SecureStore.setItemAsync('walletSetupState', 'seed_phrase_confirmed');
-      router.push('/secure-wallet');
+    const selectedPhraseString = selectedWords.join(' ');
+    const originalPhraseString = originalPhrase.join(' ');
+    
+    console.log('Selected phrase:', selectedPhraseString);
+    console.log('Original phrase:', originalPhraseString);
+    console.log('Match?', selectedPhraseString === originalPhraseString);
+    
+    if (selectedPhraseString === originalPhraseString) {
+      try {
+        // First store the actual seed phrase securely
+        await SecureStore.setItemAsync('seedPhrase', originalPhraseString);
+        
+        // Then update the wallet setup state
+        await SecureStore.setItemAsync('walletSetupState', 'seed_phrase_confirmed');
+        
+        // Clear the temporary seed phrase
+        await SecureStore.deleteItemAsync('tempSeedPhrase');
+        
+        // Navigate to secure wallet
+        router.push('/secure-wallet');
+      } catch (error) {
+        console.error('Error saving confirmed seed phrase:', error);
+        setError('Failed to save seed phrase. Please try again.');
+      }
     } else {
       setError('Incorrect sequence. Please try again.');
       setSelectedWords([]);

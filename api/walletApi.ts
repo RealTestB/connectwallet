@@ -144,4 +144,21 @@ export const signMessage = async (message: string): Promise<string> => {
     console.error("Failed to sign message:", error);
     throw error;
   }
+};
+
+/**
+ * Complete wallet setup
+ */
+export const completeWalletSetup = async (): Promise<void> => {
+  try {
+    console.log('[WalletApi] Completing wallet setup');
+    const wallet = await getStoredWallet();
+    if (!wallet) {
+      throw new Error('No wallet found');
+    }
+    console.log('[WalletApi] Wallet setup completed successfully');
+  } catch (error) {
+    console.error('[WalletApi] Error completing wallet setup:', error);
+    throw error;
+  }
 }; 

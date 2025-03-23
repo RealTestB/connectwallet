@@ -1,91 +1,61 @@
-import React, { useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import React, { useEffect } from 'react';
+import { useSegments, useRouter } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
 
-const SETUP_STEPS = {
-  PASSWORD_CREATED: 'password_created',
-  SEED_PHRASE_GENERATED: 'seed_phrase_generated',
-  SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
-  SETUP_COMPLETED: 'setup_completed'
-};
-
-const PUBLIC_PATHS = ['welcome', 'signin', ''];
-const SETUP_PATHS = ['create-password', 'seed-phrase', 'confirm-seed-phrase'];
+// Define public routes that don't require authentication
+const publicRoutes = ['welcome', 'signin', 'create-password'];
+const setupRoutes = [
+  'seed-phrase',
+  'confirm-seed-phrase',
+  'secure-wallet',
+  'wallet-created',
+  'import-wallet',
+  'import-seed-phrase',
+  'import-private-key',
+  'import-success'
+];
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const [isLoading, setIsLoading] = useState(true);
+  const segments = useSegments();
   const router = useRouter();
-  const pathname = usePathname();
-  const currentPath = pathname?.replace(/^\//, '') || '';
+  const { isAuthenticated, hasWallet } = useAuth();
 
   useEffect(() => {
-    let mounted = true;
+    const inPublicGroup = segments[0] === '(public)';
+    const inSetupGroup = segments[0] === '(setup)';
+    const path = segments.join('/');
+    const isPublicPath = publicRoutes.some(route => path.startsWith(route));
+    const isSetupPath = setupRoutes.some(route => path.startsWith(route));
 
-    const initAuth = async () => {
-      try {
-        // Add a small delay to ensure root layout is ready
-        await new Promise(resolve => setTimeout(resolve, 100));
+    console.log('[ProtectedRoute] Checking route access:', {
+      hasWallet,
+      inPublicGroup,
+      inSetupGroup,
+      isAuthenticated,
+      isPublicPath,
+      isSetupPath,
+      segments
+    });
 
-        if (!mounted) return;
+    // Handle navigation based on auth state
+    if (!hasWallet && !isPublicPath && !isSetupPath && segments.length > 0) {
+      console.log('[ProtectedRoute] No wallet, redirecting to welcome');
+      router.replace('/welcome');
+      return;
+    }
 
-        const setupState = await SecureStore.getItemAsync('walletSetupState');
-        const hasPassword = await SecureStore.getItemAsync('passwordHash');
-        
-        // Always allow public paths
-        if (PUBLIC_PATHS.includes(currentPath)) {
-          setIsLoading(false);
-          return;
-        }
+    if (hasWallet && !isAuthenticated && !isPublicPath && segments.length > 0) {
+      console.log('[ProtectedRoute] Not authenticated, redirecting to signin');
+      router.replace('/signin');
+      return;
+    }
 
-        // If we're on a setup path, allow it
-        if (SETUP_PATHS.includes(currentPath)) {
-          setIsLoading(false);
-          return;
-        }
-
-        // If we're on a non-public path and have no password
-        if (!hasPassword && !PUBLIC_PATHS.includes(currentPath)) {
-          if (currentPath !== 'welcome') {
-            await router.replace('/welcome');
-          }
-          return;
-        }
-
-        // Handle incomplete setup
-        if (setupState !== SETUP_STEPS.SETUP_COMPLETED) {
-          // Navigate to appropriate setup step only if we're not already there
-          let targetPath = '/create-password';
-          if (setupState === SETUP_STEPS.PASSWORD_CREATED) {
-            targetPath = '/seed-phrase';
-          } else if (setupState === SETUP_STEPS.SEED_PHRASE_GENERATED) {
-            targetPath = '/confirm-seed-phrase';
-          }
-
-          if (currentPath !== targetPath.replace('/', '')) {
-            await router.replace(targetPath);
-          }
-          return;
-        }
-
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        if (currentPath !== 'welcome') {
-          await router.replace('/welcome');
-        }
-      }
-    };
-
-    initAuth();
-
-    return () => {
-      mounted = false;
-    };
-  }, [pathname]);
-
-  if (isLoading) {
-    return null;
-  }
+    if (hasWallet && isAuthenticated && isPublicPath && segments.length > 0) {
+      console.log('[ProtectedRoute] Authenticated, redirecting to portfolio');
+      router.replace('/portfolio');
+      return;
+    }
+  }, [isAuthenticated, hasWallet, segments]);
 
   return <>{children}</>;
 } 

@@ -5,11 +5,12 @@ import { AuthProvider } from "../contexts/AuthContext";
 import { SettingsProvider } from "../contexts/SettingsContext";
 import { WalletProvider } from "../contexts/WalletProvider";
 import { ProtectedRoute } from "../components/ProtectedRoute";
-import BottomNav from "../components/ui/BottomNav";
-import { usePathname, useRouter } from "expo-router";
 import { View, ActivityIndicator } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as SecureStore from 'expo-secure-store';
+import config from '../api/config';
+import { COLORS } from '../styles/shared';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -19,12 +20,7 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
-  const [navigationReady, setNavigationReady] = useState(false);
-  const [showBottomNav, setShowBottomNav] = useState(false);
   const [appIsReady, setAppIsReady] = useState(false);
-  const [initialRoute, setInitialRoute] = useState<string | null>(null);
-  const router = useRouter();
-  const pathname = usePathname();
 
   // Handle initial app setup
   useEffect(() => {
@@ -32,55 +28,23 @@ export default function RootLayout() {
       try {
         // Add a shorter timeout to prevent long black screen
         await new Promise(resolve => setTimeout(resolve, 500));
-        const route = pathname?.replace(/^\//, '') || 'index';
-        setInitialRoute(route);
-        setNavigationReady(true); // Set navigation ready here
-        await SplashScreen.hideAsync(); // Hide splash screen immediately after setup
+
+        // Hide splash screen once everything is ready
+        await SplashScreen.hideAsync();
+        setAppIsReady(true);
       } catch (e) {
         console.warn('[Layout] Preparation error:', e);
-      } finally {
-        setAppIsReady(true);
+        setAppIsReady(true); // Still set app as ready to show something
       }
     }
+
     prepare();
   }, []);
 
-  // Handle navigation state
-  useEffect(() => {
-    if (!appIsReady) return;
-
-    const initializeNavigation = async () => {
-      try {
-        const excludedScreens = [
-          "import-wallet",
-          "import-private-key",
-          "import-seed-phrase",
-          "confirm-seed-phrase",
-          "secure-wallet",
-          "wallet-created",
-          "create-password",
-          "seed-phrase",
-          "import-success",
-          "signin",
-          "welcome",
-          "index"
-        ];
-
-        const routeName = pathname?.replace(/^\//, '') || '';
-        const shouldShowNav = !excludedScreens.includes(routeName);
-        setShowBottomNav(shouldShowNav);
-      } catch (error) {
-        console.error('[Layout] Error initializing navigation:', error);
-      }
-    };
-
-    initializeNavigation();
-  }, [appIsReady, pathname]);
-
-  if (!appIsReady || !navigationReady || !initialRoute) {
+  if (!appIsReady) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1A2F6C' }}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
   }
@@ -185,24 +149,6 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen 
-                  name="nft"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="nft-details"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="pay"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
                   name="receive"
                   options={{
                     headerShown: false,
@@ -214,26 +160,7 @@ export default function RootLayout() {
                     headerShown: false,
                   }}
                 />
-                <Stack.Screen 
-                  name="swap"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="transaction-details"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="transaction-history"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
               </Stack>
-              {showBottomNav && navigationReady && <BottomNav />}
             </ProtectedRoute>
           </SettingsProvider>
         </AuthProvider>
