@@ -11,93 +11,44 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import config from '../api/config';
 import { COLORS } from '../styles/shared';
-import { configureHttpClient } from '../utils/httpClient';
-import { testNetwork } from '../utils/networkTest';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
-
-// Configure global HTTP client with timeouts
-configureHttpClient();
 
 export const unstable_settings = {
   initialRouteName: 'index',
 };
 
 export default function RootLayout() {
-  const [appIsReady, setAppIsReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Handle initial app setup
   useEffect(() => {
-    async function prepare() {
+    const initializeApp = async () => {
       try {
         console.log('[Layout] Starting app initialization...');
         
-        // Add a shorter timeout to prevent long black screen
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Initialize providers and services
+        await Promise.all([
+          // Add any async initialization here
+          new Promise(resolve => setTimeout(resolve, 100)) // Small delay to ensure proper mounting
+        ]);
 
-        // Test the network first
-        if (Platform.OS !== 'web') {
-          console.log('[Layout] Testing network connectivity...');
-          const networkTest = await testNetwork();
-          if (!networkTest.success) {
-            console.warn('[Layout] Network test failed:', networkTest);
-            throw new Error('Network connectivity issue. Please check your internet connection.');
-          }
-          console.log('[Layout] Network test successful!');
-        }
-
-        // Hide splash screen once everything is ready
-        await SplashScreen.hideAsync();
-        setAppIsReady(true);
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : 'Unknown initialization error';
-        console.warn('[Layout] Preparation error:', errorMessage);
-        setError(errorMessage);
-        
-        // Still set app as ready to show error screen
-        setAppIsReady(true);
+        setIsInitialized(true);
+        setIsReady(true);
+        console.log('[Layout] App initialization complete');
+      } catch (error) {
+        console.error('[Layout] Error during initialization:', error);
       }
-    }
+    };
 
-    prepare();
-  }, [isRetrying]);
+    initializeApp();
+  }, []);
 
-  const handleRetry = () => {
-    setError(null);
-    setIsRetrying(true);
-    
-    // Reset retrying state after a short delay
-    setTimeout(() => {
-      setIsRetrying(false);
-    }, 100);
-  };
-
-  if (!appIsReady) {
+  if (!isReady || !isInitialized) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.errorCard}>
-          <Text style={styles.errorTitle}>Initialization Error</Text>
-          <Text style={styles.errorMessage}>{error}</Text>
-          <Text style={styles.errorHint}>
-            This could be due to network connectivity issues or server problems.
-          </Text>
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-              <Text style={styles.buttonText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+      <View style={{ flex: 1, backgroundColor: '#1A2F6C' }}>
+        <ActivityIndicator size="large" color="#3b82f6" />
       </View>
     );
   }

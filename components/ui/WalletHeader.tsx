@@ -84,9 +84,10 @@ export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JS
 
   const handleAccountSelection = (account: Account): void => {
     console.log('[WalletHeader] Selecting account:', account.address);
-    setSelectedAccount(account);
+    const newAccount = { ...account };
+    setSelectedAccount(newAccount);
     setIsDropdownOpen(false);
-    onAccountChange(account);
+    onAccountChange(newAccount);
   };
 
   return (

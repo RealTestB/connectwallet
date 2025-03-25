@@ -6,9 +6,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from 'expo-secure-store';
+import { verifyPassword } from "../api/securityApi";
+import { getUserData } from "../api/dualStorageApi";
 
 const MAX_NAVIGATION_ATTEMPTS = 3;
 const FETCH_TIMEOUT = 8000; // 8 seconds timeout
+
+// Add fetchWithTimeout function
+const fetchWithTimeout = async (key: string): Promise<string | null> => {
+  try {
+    const timeoutPromise = new Promise<string | null>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Timeout after ${FETCH_TIMEOUT}ms`));
+      }, FETCH_TIMEOUT);
+    });
+
+    const fetchPromise = SecureStore.getItemAsync(key);
+
+    const result = await Promise.race([fetchPromise, timeoutPromise]);
+    return result;
+  } catch (error) {
+    console.error(`[SignIn] Error fetching ${key}:`, error);
+    throw error;
+  }
+};
 
 export default function Page() {
   const router = useRouter();
@@ -19,6 +40,8 @@ export default function Page() {
   const [showPassword, setShowPassword] = useState(false);
   const [navigationAttempts, setNavigationAttempts] = useState(0);
   const { checkAuth, updateLastActive } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const safeNavigate = useCallback((path: string) => {
     if (navigationAttempts >= MAX_NAVIGATION_ATTEMPTS) {
@@ -41,66 +64,57 @@ export default function Page() {
     }
   }, [router, navigationAttempts]);
 
-  const fetchWithTimeout = async (key: string) => {
-    const fetchPromise = SecureStore.getItemAsync(key);
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`Fetch timeout for key: ${key}`));
-      }, FETCH_TIMEOUT);
-    });
-
-    return Promise.race([fetchPromise, timeoutPromise]);
-  };
-
-  const handleSignIn = async () => {
+  const handleSignIn = async (): Promise<void> => {
     if (!password.trim()) {
       Alert.alert("Error", "Please enter your password");
       return;
     }
 
-    setIsLoading(true);
     try {
       console.log('[SignIn] Starting sign in process');
-      
-      // Verify password with timeout
-      const storedPassword = await fetchWithTimeout('walletPassword');
-      
-      if (!storedPassword) {
-        throw new Error('No password found in secure storage');
+      setIsLoading(true);
+      setError(null);
+
+      // Get stored password hash
+      const storedPasswordHash = await fetchWithTimeout("passwordHash");
+      if (!storedPasswordHash) {
+        throw new Error("No password found in secure storage");
       }
-      
-      if (storedPassword !== password) {
-        throw new Error('Invalid password');
+
+      // Verify password
+      const isValid = await verifyPassword(password, storedPasswordHash);
+      if (!isValid) {
+        throw new Error("Invalid password");
       }
-      
       console.log('[SignIn] Password verified');
-      
-      // Update last active timestamp and check auth status
+
+      // Update auth state
       await updateLastActive();
-      await checkAuth();
-      
+      setIsAuthenticated(true);
+
+      // Wait for a short delay to ensure root layout is mounted
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Navigate to portfolio
       console.log('[SignIn] Auth check completed, navigating to portfolio');
-      // Reset navigation attempts before trying to navigate
-      setNavigationAttempts(0);
-      safeNavigate("/portfolio");
-    } catch (error) {
-      console.error("[SignIn] Sign in failed:", error);
-      let errorMessage = "Failed to sign in. Please try again.";
-      
-      if (error instanceof Error) {
-        if (error.message.includes('timeout')) {
-          errorMessage = "Connection timed out. Please check your internet connection and try again.";
-        } else if (error.message.includes('Invalid password')) {
-          errorMessage = "Incorrect password. Please try again.";
-        }
+      try {
+        console.log('[SignIn] Navigating to: /portfolio');
+        router.replace('/portfolio');
+      } catch (navError) {
+        console.error('[SignIn] Navigation failed:', navError);
+        // If navigation fails, try again after a short delay
+        setTimeout(() => {
+          router.replace('/portfolio');
+        }, 500);
       }
-      
-      Alert.alert("Error", errorMessage);
+    } catch (error) {
+      console.error('[SignIn] Error during sign in:', error);
+      setError(error instanceof Error ? error.message : "Failed to sign in");
+    } finally {
       setIsLoading(false);
     }
   };
 
-  // Rest of the component remains the same
   return (
     <LinearGradient
       colors={["#1A2F6C", "#0A1B3F"]}

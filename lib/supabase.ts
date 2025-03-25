@@ -9,8 +9,8 @@ const customFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Resp
   const url = typeof input === 'string' ? input : input.toString();
   console.log(`🌐 Network request to: ${url.split('?')[0]}`);
   
-  // Set longer timeout for Android emulator
-  const timeoutMs = Platform.OS === 'android' ? 15000 : 10000;
+  // Increase timeout for database operations
+  const timeoutMs = Platform.OS === 'android' ? 30000 : 20000; // Increased to 30s for Android, 20s for others
   
   return new Promise<Response>((resolve, reject) => {
     const controller = new AbortController();
@@ -25,13 +25,21 @@ const customFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Resp
     fetch(input, options)
       .then(response => {
         clearTimeout(timeoutId);
+        if (!response.ok) {
+          console.log(`⚠️ Response not OK from: ${url.split('?')[0]}, status: ${response.status}`);
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
         console.log(`✅ Response received from: ${url.split('?')[0]}, status: ${response.status}`);
         resolve(response);
       })
       .catch(error => {
         clearTimeout(timeoutId);
-        console.log(`❌ Error in fetch to: ${url.split('?')[0]}`, error);
-        reject(error);
+        console.log(`❌ Error in fetch to: ${url.split('?')[0]}:`, error.message);
+        if (error.name === 'AbortError') {
+          reject(new Error(`Request timed out after ${timeoutMs}ms`));
+        } else {
+          reject(error);
+        }
       });
   });
 };
@@ -58,8 +66,8 @@ export const supabase = createClient(
 
 // Admin client for trusted operations (with full permissions)
 export const supabaseAdmin = createClient(
-  config.supabase.url, 
-  config.supabase.serviceRoleKey, 
+  config.supabase.url,
+  config.supabase.serviceRoleKey,
   {
     auth: {
       autoRefreshToken: false,
@@ -67,13 +75,26 @@ export const supabaseAdmin = createClient(
       detectSessionInUrl: false
     },
     global: {
-      fetch: customFetch
+      fetch: customFetch,
+      headers: {
+        'x-client-info': 'supabase-js-admin',  // Identify admin client
+        'apikey': config.supabase.serviceRoleKey  // Explicitly set the service role key
+      }
     },
     db: {
       schema: 'public'
     }
   }
 );
+
+// Add error handling for admin client
+supabaseAdmin.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') {
+    console.log('❌ Admin client session ended');
+  } else if (event === 'TOKEN_REFRESHED') {
+    console.log('✅ Admin client token refreshed');
+  }
+});
 
 // Tells Supabase Auth to continuously refresh the session automatically
 // if the app is in the foreground. When this is added, you will continue

@@ -532,30 +532,84 @@ export const createWallet = async (params: {
     chain_name: params.chain_name || 'ethereum'
   });
   
-  // Send insert request without blocking
-  (async () => {
-    try {
-      const { status, error } = await supabaseAdmin
-        .from("wallets")
-        .insert([{
-          public_address: params.public_address,
-          temp_user_id: params.temp_user_id,
-          name: params.name || 'My Wallet',
-          chain_name: params.chain_name || 'ethereum',
-          is_primary: true
-        }]);
+  try {
+    // Check if user has any existing wallets
+    const { data: existingWallets, error: existingWalletsError } = await supabaseAdmin
+      .from("wallets")
+      .select('id')
+      .eq('temp_user_id', params.temp_user_id);
 
-      console.log("✅ Wallet insert request sent. Status:", status);
-      if (error || status !== 201) {
-        console.error("❌ Insert failed:", error);
-        return;
-      }
-      console.log("✅ Insert confirmed.");
-    } catch (error) {
-      console.error("❌ Insert error:", error);
+    if (existingWalletsError) {
+      console.error("❌ Error checking existing wallets:", existingWalletsError);
+      throw new Error("Failed to check existing wallets");
     }
-  })();
 
-  // Return success immediately
-  return Promise.resolve("success");
+    // Set is_primary to true if this is the first wallet or if it's an Ethereum wallet
+    const isPrimary = !existingWallets?.length || 
+      (params.chain_name === 'ethereum' || !params.chain_name);
+
+    // If making this wallet primary, update any existing primary wallets
+    if (isPrimary && existingWallets?.length) {
+      const { error: updateError } = await supabaseAdmin
+        .from("wallets")
+        .update({ is_primary: false })
+        .eq('temp_user_id', params.temp_user_id)
+        .eq('is_primary', true);
+
+      if (updateError) {
+        console.warn("⚠️ Failed to update existing primary wallets:", updateError);
+      }
+    }
+
+    // Create wallet and get its ID
+    const { data: walletData, error: walletError } = await supabaseAdmin
+      .from("wallets")
+      .insert([{
+        public_address: params.public_address,
+        temp_user_id: params.temp_user_id,
+        name: params.name || 'My Wallet',
+        chain_name: params.chain_name || 'ethereum',
+        is_primary: isPrimary
+      }])
+      .select('id')
+      .single();
+
+    if (walletError || !walletData) {
+      console.error("❌ Wallet insert failed:", walletError);
+      throw new Error("Failed to create wallet");
+    }
+
+    console.log("✅ Wallet created with ID:", walletData.id);
+
+    // Initialize token balances with the correct wallet_id
+    const { error: tokenError } = await supabaseAdmin
+      .from("token_balances")
+      .insert([
+        {
+          wallet_id: walletData.id,
+          token_address: "0x0000000000000000000000000000000000000000", // ETH
+          balance: "0",
+          usd_value: "0",
+          timestamp: new Date().toISOString()
+        },
+        {
+          wallet_id: walletData.id,
+          token_address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
+          balance: "0",
+          usd_value: "0",
+          timestamp: new Date().toISOString()
+        }
+      ]);
+
+    if (tokenError) {
+      console.error("❌ Token balances insert failed:", tokenError);
+      // We don't throw here since the wallet was created successfully
+    }
+
+    console.log("✅ All inserts completed");
+    return "success";
+  } catch (error) {
+    console.error("❌ Create wallet error:", error);
+    throw error;
+  }
 };

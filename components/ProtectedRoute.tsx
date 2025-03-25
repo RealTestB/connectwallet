@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useSegments, useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import * as SecureStore from 'expo-secure-store';
 
 // Define public routes that don't require authentication
 const publicRoutes = ['welcome', 'signin', 'create-password'];
@@ -37,24 +38,47 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       segments
     });
 
+    // Check if we have a password hash stored
+    const checkPasswordHash = async () => {
+      try {
+        const passwordHash = await SecureStore.getItemAsync('passwordHash');
+        if (!passwordHash && hasWallet) {
+          console.log('[ProtectedRoute] No password hash found, redirecting to create-password');
+          router.replace('/create-password');
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('[ProtectedRoute] Error checking password hash:', error);
+        return false;
+      }
+    };
+
     // Handle navigation based on auth state
-    if (!hasWallet && !isPublicPath && !isSetupPath && segments.length > 0) {
-      console.log('[ProtectedRoute] No wallet, redirecting to welcome');
-      router.replace('/welcome');
-      return;
-    }
+    const handleNavigation = async () => {
+      const hasNoPasswordHash = await checkPasswordHash();
+      if (hasNoPasswordHash) return;
 
-    if (hasWallet && !isAuthenticated && !isPublicPath && segments.length > 0) {
-      console.log('[ProtectedRoute] Not authenticated, redirecting to signin');
-      router.replace('/signin');
-      return;
-    }
+      if (!hasWallet && !isPublicPath && !isSetupPath && segments.length > 0) {
+        console.log('[ProtectedRoute] No wallet, redirecting to welcome');
+        router.replace('/welcome');
+        return;
+      }
 
-    if (hasWallet && isAuthenticated && isPublicPath && segments.length > 0) {
-      console.log('[ProtectedRoute] Authenticated, redirecting to portfolio');
-      router.replace('/portfolio');
-      return;
-    }
+      if (hasWallet && !isAuthenticated && !isPublicPath && segments.length > 0) {
+        console.log('[ProtectedRoute] Not authenticated, redirecting to signin');
+        router.replace('/signin');
+        return;
+      }
+
+      if (hasWallet && isAuthenticated && isPublicPath && segments.length > 0) {
+        console.log('[ProtectedRoute] Authenticated, redirecting to portfolio');
+        router.replace('/portfolio');
+        return;
+      }
+    };
+
+    handleNavigation();
   }, [isAuthenticated, hasWallet, segments]);
 
   return <>{children}</>;

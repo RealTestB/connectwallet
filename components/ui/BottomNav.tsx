@@ -27,6 +27,11 @@ export default function BottomNav({ activeTab = "portfolio" }: BottomNavProps): 
     { id: "settings", label: "Settings", icon: "settings-outline", route: "/settings" },
   ];
 
+  const handleTabPress = (route: string) => {
+    // Simple navigation without state check
+    router.push(route);
+  };
+
   return (
     <View style={styles.container}>
       <BlurView intensity={20} tint="dark" style={styles.blurContainer}>
@@ -34,7 +39,7 @@ export default function BottomNav({ activeTab = "portfolio" }: BottomNavProps): 
           {tabs.map((tab) => (
             <TouchableOpacity
               key={tab.id}
-              onPress={() => router.push(tab.route)}
+              onPress={() => handleTabPress(tab.route)}
               style={styles.tabButton}
             >
               <Ionicons

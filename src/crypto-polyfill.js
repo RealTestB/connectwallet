@@ -44,13 +44,6 @@ const setupCryptoPolyfill = () => {
     // Import process
     const process = require('process');
     
-    // Try to import WalletConnect compat
-    try {
-      require('@walletconnect/react-native-compat');
-    } catch (error) {
-      console.warn('Failed to import WalletConnect compat:', error);
-    }
-    
     // Set up crypto polyfill
     if (typeof global.crypto === 'undefined' || !global.crypto.getRandomValues) {
       const getRandomValues = (buffer) => {

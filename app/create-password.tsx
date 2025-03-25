@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import {View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Image} from "react-native";
+import {View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Image, Alert} from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
@@ -7,7 +7,7 @@ import * as SecureStore from "expo-secure-store";
 import { getRandomBytes } from 'expo-crypto';
 import { hashPassword } from "../api/securityApi";
 import * as Crypto from 'expo-crypto';
-import { createAnonymousUser } from "../api/supabaseApi";
+import { createUser } from "../api/dualStorageApi";
 import { sharedStyles, COLORS, SPACING } from '../styles/shared';
 import OnboardingLayout from '../components/ui/OnboardingLayout';
 
@@ -77,68 +77,50 @@ export default function Page() {
   };
 
   const handleContinue = async () => {
-    if (isCreating) {
-        console.log("Already processing, skipping...");
-        return;
-    }
-
-    const startTime = Date.now();
-    console.log("=== 🚀 Starting password creation process ===");
-    setError("");
-    setIsCreating(true);
-
     try {
-        console.log("Step 1: Validating password...");
-        const passwordError = validatePassword(password);
-        if (passwordError) {
-            throw new Error(passwordError);
-        }
+      // Validate password
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters long");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match");
+        return;
+      }
 
-        if (password !== confirmPassword) {
-            throw new Error("Passwords do not match");
-        }
-        console.log("✓ Password validation successful");
+      setIsCreating(true);
+      setError("");
 
-        console.log("Step 2: Hashing password...");
-        const hashStartTime = Date.now();
-        const hashedPassword = await hashPassword(password);
-        console.log(`Password hashing took: ${Date.now() - hashStartTime}ms`);
-        
-        if (!hashedPassword) {
-            throw new Error("Failed to hash password");
-        }
-        console.log("✓ Password hashed successfully");
+      // Hash the password
+      const hashedPasswordObj = await hashPassword(password);
+      const hashedPassword = JSON.parse(hashedPasswordObj);
 
-        console.log("Step 3: Creating anonymous user...");
-        const hashData = JSON.parse(hashedPassword);
-        const tempUserId = await createAnonymousUser(hashData) as string;
-        
-        if (!tempUserId) {
-            throw new Error('Failed to create user');
-        }
-        console.log("✓ Temporary user ID created:", tempUserId);
+      // Store password hash in SecureStore immediately
+      await SecureStore.setItemAsync("passwordHash", hashedPasswordObj);
+      console.log("✅ Password hash stored in SecureStore");
 
-        console.log("Step 5: Storing user data...");
-        const storeStartTime = Date.now();
-        await Promise.all([
-            SecureStore.setItemAsync('tempUserId', tempUserId),
-            SecureStore.setItemAsync("passwordHash", hashedPassword),
-            SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.PASSWORD_CREATED)
-        ]);
-        console.log(`SecureStore operations took: ${Date.now() - storeStartTime}ms`);
+      // Try to create user in database (non-blocking)
+      createUser(hashedPassword)
+        .then(tempUserId => {
+          console.log("✅ User created in database with temp ID:", tempUserId);
+        })
+        .catch(error => {
+          console.error("❌ Database user creation failed:", error);
+          // Don't throw here - we want to continue even if database fails
+        });
 
-        setIsCreating(false);
-        console.log("🚀 Navigating to /seed-phrase...");
-        console.log(`Total process time: ${Date.now() - startTime}ms`);
-        router.push("/seed-phrase");
+      // Update setup state in SecureStore
+      await SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.PASSWORD_CREATED);
+      console.log("✅ Setup state updated in SecureStore");
+
+      // Navigate to next screen
+      router.push("/seed-phrase");
 
     } catch (error) {
-        const totalTime = Date.now() - startTime;
-        console.error("=== ❌ Password creation process failed ===");
-        console.error("Error details:", error);
-        console.error(`Failed after ${totalTime}ms`);
-        setError(error instanceof Error ? error.message : 'Failed to create password. Please try again.');
-        setIsCreating(false);
+      console.error("Error in password creation:", error);
+      setError(error instanceof Error ? error.message : "Failed to create password. Please try again.");
+    } finally {
+      setIsCreating(false);
     }
   };
 

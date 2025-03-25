@@ -4,6 +4,7 @@ import { initializeCrypto } from '../utils/crypto';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SecureStore from 'expo-secure-store';
 import { getStoredWallet } from '../api/walletApi';
+import { getWalletData, STORAGE_KEYS } from '../api/dualStorageApi';
 import config from '../api/config';
 
 // Keep splash screen visible
@@ -140,19 +141,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setLoading(true);
       setError(null);
 
-      // Check if we have a stored wallet
-      const wallet = await getStoredWallet();
-      const hasClassicWallet = !!wallet;
+      // Only check SecureStore for wallet data
+      const walletData = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      const hasWalletData = !!walletData;
 
       console.log('[AuthProvider] Checking wallet status:', {
-        hasWallet: hasClassicWallet,
-        walletAddress: wallet?.address
+        hasWalletData,
+        walletAddress: hasWalletData ? JSON.parse(walletData).public_address : null
       });
 
-      setHasWallet(hasClassicWallet);
+      setHasWallet(hasWalletData);
       
       // Only set authenticated if we have a wallet and are within activity timeout
-      if (hasClassicWallet) {
+      if (hasWalletData) {
         const lastActiveStr = await SecureStore.getItemAsync(LAST_ACTIVE_KEY);
         const isActive = lastActiveStr ? (Date.now() - parseInt(lastActiveStr, 10)) <= INACTIVITY_TIMEOUT : false;
         
