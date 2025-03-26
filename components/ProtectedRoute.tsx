@@ -39,45 +39,29 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
       inSetupGroup
     });
 
-    // Allow access to public routes
-    if (inPublicGroup) {
-      console.log("[ProtectedRoute] Allowing access to public route");
-      return;
-    }
-
-    // Allow access to setup routes if not authenticated
-    if (inSetupGroup && !isAuthenticated) {
-      console.log("[ProtectedRoute] Allowing access to setup route while not authenticated");
-      return;
-    }
-
-    // Redirect to welcome if no wallet
+    // If no wallet, redirect to welcome (except for public routes)
     if (!hasWallet && !inPublicGroup) {
       console.log("[ProtectedRoute] No wallet found, redirecting to welcome");
-      console.log("[ProtectedRoute] Current auth state:", {
-        isAuthenticated,
-        hasWallet,
-        currentPath: segments.join('/')
-      });
       router.replace('/welcome');
       return;
     }
 
-    // Redirect to portfolio if authenticated and trying to access setup routes
-    if (isAuthenticated && inSetupGroup) {
-      console.log("[ProtectedRoute] Authenticated user trying to access setup route, redirecting to portfolio");
+    // If has wallet but not authenticated, redirect to signin
+    // (except for public routes which includes signin)
+    if (hasWallet && !isAuthenticated && !inPublicGroup) {
+      console.log("[ProtectedRoute] Has wallet but not authenticated, redirecting to signin");
+      router.replace('/signin');
+      return;
+    }
+
+    // If has wallet and authenticated, redirect to portfolio if trying to access setup or public routes
+    if (hasWallet && isAuthenticated && (inSetupGroup || currentRoute === 'signin')) {
+      console.log("[ProtectedRoute] Authenticated with wallet, redirecting to portfolio");
       router.replace('/portfolio');
       return;
     }
 
-    // If not authenticated and trying to access protected routes, redirect to welcome
-    if (!isAuthenticated && !inPublicGroup && !inSetupGroup) {
-      console.log("[ProtectedRoute] Unauthenticated user trying to access protected route, redirecting to welcome");
-      router.replace('/welcome');
-      return;
-    }
-
-    console.log("[ProtectedRoute] Access granted to protected route");
+    console.log("[ProtectedRoute] Access granted to current route");
   }, [segments, isAuthenticated, hasWallet]);
 
   return <>{children}</>;

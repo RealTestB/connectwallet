@@ -273,11 +273,11 @@ export const getTokenMetadata = async (contractAddress: string): Promise<any> =>
 
 // Replace CMC interfaces with CoinGecko interfaces
 interface CoinGeckoSimplePrice {
-  [id: string]: {
+  ethereum: {
     usd: number;
-    usd_24h_change?: number;
-    usd_market_cap?: number;
-    usd_24h_vol?: number;
+    usd_24h_change: number;
+    usd_24h_vol: number;
+    usd_market_cap: number;
   };
 }
 
@@ -303,77 +303,110 @@ interface CoinGeckoMarketChart {
 }
 
 const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
+const COINGECKO_API_KEY = 'CG-VCXZAmb9rowc8iR9nmbeMvkE';
 
 /**
  * Get token price from CoinGecko
  */
 export const getTokenPrice = async (address: string): Promise<TokenPrice | null> => {
+  console.log('[TokensApi] Entering getTokenPrice for address:', address);
+  
   try {
-    console.log('[TokensApi] Fetching price from CoinGecko for token:', address);
+    console.log('\n==================================');
+    console.log('🔍 FETCHING TOKEN PRICE');
+    console.log('==================================');
     
     // Handle native ETH differently
     const isNativeEth = address === '0x0000000000000000000000000000000000000000';
+    console.log('Is Native ETH:', isNativeEth);
     
     let url: string;
     if (isNativeEth) {
-      url = `${COINGECKO_BASE_URL}/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true`;
+      url = `${COINGECKO_BASE_URL}/simple/price?ids=ethereum&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
     } else {
       url = `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}`;
     }
     
-    console.log('[TokensApi] Making CoinGecko API request to:', url);
-    
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      console.error('[TokensApi] CoinGecko API error:', {
-        status: response.status,
-        statusText: response.statusText,
-        url
-      });
-      
-      // Check for rate limiting
-      if (response.status === 429) {
-        console.error('[TokensApi] CoinGecko API rate limit exceeded');
+    console.log('\n📡 API Request URL:', url);
+    console.log('\n⏳ Sending Request with headers:', {
+      'accept': 'application/json',
+      'x-cg-demo-api-key': COINGECKO_API_KEY
+    });
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'accept': 'application/json',
+        'x-cg-demo-api-key': COINGECKO_API_KEY
       }
-      
+    });
+
+    console.log('\n📥 Response received:', {
+      status: response.status,
+      ok: response.ok,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries())
+    });
+
+    // Clone response before consuming
+    const responseClone = response.clone();
+    
+    try {
+      const rawBody = await responseClone.text();
+      console.log('\n📄 Raw Response Body:', rawBody);
+    } catch (cloneError) {
+      console.warn('\n⚠️ Could not log raw response:', cloneError);
+    }
+
+    if (!response.ok) {
+      console.error('\n❌ Request failed:', {
+        status: response.status,
+        statusText: response.statusText
+      });
       return null;
     }
-    
+
+    console.log('\n🔄 Parsing response as JSON...');
     const data = await response.json();
-    console.log('[TokensApi] CoinGecko API response:', data);
-    
+    console.log('\n📦 Parsed JSON Data:', JSON.stringify(data, null, 2));
+
     if (isNativeEth) {
       // Format data from simple/price endpoint
-      const ethData = data as CoinGeckoSimplePrice;
-      if (!ethData.ethereum?.usd) {
-        console.warn('[TokensApi] No price data found for ETH');
+      if (!data?.ethereum?.usd) {
+        console.warn('\n⚠️ No ETH price data found in response:', JSON.stringify(data, null, 2));
         return null;
       }
       
-      return {
-        price: ethData.ethereum.usd,
-        change24h: ethData.ethereum.usd_24h_change,
-        marketCap: ethData.ethereum.usd_market_cap,
-        volume24h: ethData.ethereum.usd_24h_vol
+      const result = {
+        price: data.ethereum.usd,
+        change24h: data.ethereum.usd_24h_change,
+        marketCap: data.ethereum.usd_market_cap,
+        volume24h: data.ethereum.usd_24h_vol
       };
+      
+      console.log('\n✅ Formatted ETH Price Data:', result);
+      console.log('==================================\n');
+      return result;
     } else {
       // Format data from contract endpoint
-      const tokenData = data as CoinGeckoTokenData;
-      if (!tokenData.market_data?.current_price?.usd) {
-        console.warn('[TokensApi] No price data found for token:', address);
+      if (!data?.market_data?.current_price?.usd) {
+        console.warn('\n⚠️ No token price data found:', address);
         return null;
       }
       
-      return {
-        price: tokenData.market_data.current_price.usd,
-        change24h: tokenData.market_data.price_change_percentage_24h,
-        marketCap: tokenData.market_data.market_cap.usd,
-        volume24h: tokenData.market_data.total_volume.usd
+      const result = {
+        price: data.market_data.current_price.usd,
+        change24h: data.market_data.price_change_percentage_24h,
+        marketCap: data.market_data.market_cap.usd,
+        volume24h: data.market_data.total_volume.usd
       };
+      
+      console.log('\n✅ Formatted Token Price Data:', result);
+      console.log('==================================\n');
+      return result;
     }
   } catch (error) {
-    console.error('[TokensApi] Failed to fetch token price from CoinGecko:', {
+    console.error('\n❌ Failed to fetch token price:', {
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined,
       address,
@@ -394,7 +427,7 @@ export const getTokenPriceHistory = async (
   days: number = 7
 ): Promise<[number, number][]> => {
   try {
-    console.log('[TokensApi] Fetching price history from CoinGecko for token:', address);
+    console.log('[TokensApi] Fetching price history from CoinGecko API for token:', address);
     
     // Handle native ETH differently
     const isNativeEth = address === '0x0000000000000000000000000000000000000000';
@@ -408,7 +441,13 @@ export const getTokenPriceHistory = async (
     
     console.log('[TokensApi] Making CoinGecko historical API request to:', url);
     
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'accept': 'application/json',
+        'x-cg-demo-api-key': COINGECKO_API_KEY
+      }
+    });
     
     if (!response.ok) {
       console.error('[TokensApi] CoinGecko API error:', {

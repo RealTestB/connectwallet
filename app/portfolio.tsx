@@ -6,6 +6,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import BottomNav from "../components/ui/BottomNav";
 import WalletHeader from "../components/ui/WalletHeader";
 import { getTokenPrice, getTokenPriceHistory, getNativeBalance } from '../api/tokensApi';
+import { getStoredWallet } from '../api/walletApi';
 import { Network } from 'alchemy-sdk';
 import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEYS } from '../constants/storageKeys';
@@ -54,15 +55,6 @@ export default function Portfolio(): JSX.Element {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
 
-  // Add useEffect to refresh prices periodically
-  useEffect(() => {
-    if (currentAccount?.address) {
-      handleRefresh();
-      const interval = setInterval(handleRefresh, 30000); // Refresh every 30 seconds
-      return () => clearInterval(interval);
-    }
-  }, [currentAccount]);
-
   const handleTokenPress = (token: Token): void => {
     console.log('Token pressed:', token.symbol);
   };
@@ -70,77 +62,152 @@ export default function Portfolio(): JSX.Element {
   const handleAccountChange = useCallback(async (account: Account) => {
     console.log('[Portfolio] Account changed:', account.address);
     setCurrentAccount(account);
-    await handleRefresh();
   }, []);
 
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    
+    const loadData = async () => {
+      if (currentAccount?.address) {
+        await handleRefresh();
+      }
+    };
+
+    loadData(); // Initial load
+
+    // Set up interval for periodic updates - changed from 30 seconds to 2 minutes
+    if (currentAccount?.address) {
+      intervalId = setInterval(loadData, 120000); // 2 minutes
+      console.log('[Portfolio] Set up refresh interval for 2 minutes');
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        console.log('[Portfolio] Cleared refresh interval');
+      }
+    };
+  }, [currentAccount]);
+
   const handleRefresh = async () => {
+    let isActive = true;
+    let timeoutId: NodeJS.Timeout | undefined;
+    
     try {
       setIsRefreshing(true);
-      
+      console.log('[Portfolio] Starting refresh...');
+
+      // Force stop the spinner after 3 seconds
+      timeoutId = setTimeout(() => {
+        if (isActive) {
+          console.log('[Portfolio] Force stopping refresh spinner after 3 seconds');
+          setIsRefreshing(false);
+        }
+      }, 3000);
+
       if (!currentAccount?.address) {
         console.log('[Portfolio] No account selected, skipping refresh');
+        setIsRefreshing(false);
+        if (timeoutId) clearTimeout(timeoutId);
         return;
       }
 
-      console.log('[Portfolio] Refreshing balances for account:', currentAccount.address);
-      
-      // Get wallet data from SecureStore
+      console.log('[Portfolio] Getting stored wallet data...');
       const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
       if (!walletDataStr) {
-        throw new Error('No wallet data found');
+        console.log('[Portfolio] No wallet data found in storage');
+        setIsRefreshing(false);
+        if (timeoutId) clearTimeout(timeoutId);
+        return;
       }
 
       const walletData = JSON.parse(walletDataStr);
-      console.log('[Portfolio] Got wallet data from SecureStore');
+      console.log('[Portfolio] Wallet data:', {
+        hasAddress: !!walletData.address,
+        hasBalance: !!walletData.balance,
+        balance: walletData.balance
+      });
+
+      console.log('[Portfolio] Fetching ETH price data...');
+      const priceData = await getTokenPrice("0x0000000000000000000000000000000000000000");
+      console.log('[Portfolio] ETH price data received:', priceData);
+
+      // Only update state if the component is still mounted and refresh hasn't been cancelled
+      if (!isActive) {
+        console.log('[Portfolio] Refresh was cancelled, skipping state updates');
+        if (timeoutId) clearTimeout(timeoutId);
+        return;
+      }
+
+      if (!priceData) {
+        console.warn('[Portfolio] No price data received, keeping existing price data');
+        if (timeoutId) clearTimeout(timeoutId);
+        return;
+      }
+
+      // Create updated token with new data
+      const balance = walletData.balance || "0";
+      const updatedToken = {
+        ...tokens[0],
+        balance,
+        price: priceData.price,
+        priceChange24h: priceData.change24h || 0,
+        balanceUSD: parseFloat(balance) * priceData.price,
+        priceHistory: tokens[0].priceHistory // Keep existing price history if new one fails
+      };
+
+      console.log('[Portfolio] Fetching ETH price history...');
+      const priceHistoryData = await getTokenPriceHistory("0x0000000000000000000000000000000000000000", 1);
       
-      // Update tokens with new prices, balances, and price history
-      const updatedTokens = await Promise.all(tokens.map(async (token) => {
-        try {
-          // Use balance from wallet data for native token
-          let balance = token.balance;
-          if (token.isNative) {
-            balance = walletData.balance || "0";
-          }
-          
-          // Get price and 24h price history in parallel
-          const [priceData, priceHistoryData] = await Promise.all([
-            getTokenPrice(token.address),
-            getTokenPriceHistory(token.address, 1) // 1 day instead of 7
-          ]);
+      // Check again if we should continue
+      if (!isActive) {
+        console.log('[Portfolio] Refresh was cancelled, skipping state updates');
+        if (timeoutId) clearTimeout(timeoutId);
+        return;
+      }
 
-          // Transform price history data to match the expected format
-          const priceHistory = priceHistoryData.map(([timestamp, value]) => ({
-            timestamp,
-            value
-          }));
+      console.log('[Portfolio] Price history received:', {
+        points: priceHistoryData?.length,
+        firstPoint: priceHistoryData?.[0],
+        lastPoint: priceHistoryData?.[priceHistoryData.length - 1]
+      });
 
-          return {
-            ...token,
-            balance,
-            price: priceData?.price || 0,
-            priceChange24h: priceData?.change24h || 0,
-            balanceUSD: parseFloat(balance) * (priceData?.price || 0),
-            priceHistory
-          };
-        } catch (error) {
-          console.error(`[Portfolio] Error updating token ${token.symbol}:`, error);
-          return {
-            ...token,
-            priceHistory: []
-          };
-        }
-      }));
+      if (priceHistoryData && priceHistoryData.length > 0) {
+        updatedToken.priceHistory = priceHistoryData.map(([timestamp, value]) => ({
+          timestamp,
+          value
+        }));
+      }
 
-      console.log('[Portfolio] Setting updated tokens:', updatedTokens);
-      setTokens(updatedTokens);
+      console.log('[Portfolio] Updating token state:', {
+        price: updatedToken.price,
+        change24h: updatedToken.priceChange24h,
+        balance: updatedToken.balance,
+        balanceUSD: updatedToken.balanceUSD,
+        historyPoints: updatedToken.priceHistory.length
+      });
+
+      setTokens([updatedToken]);
+      setTotalValue(updatedToken.balanceUSD.toFixed(2));
       
-      // Calculate total value
-      const total = updatedTokens.reduce((sum, token) => sum + (token.balanceUSD || 0), 0);
-      setTotalValue(total.toFixed(2));
+      console.log('[Portfolio] State updated successfully');
     } catch (error) {
-      console.error('[Portfolio] Error refreshing portfolio:', error);
-    } finally {
+      console.error('[Portfolio] Error during refresh:', error);
       setIsRefreshing(false);
+    } finally {
+      // Clear the timeout if it exists
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      // Set refreshing to false one final time to ensure it's stopped
+      setIsRefreshing(false);
+      // Return cleanup function
+      return () => {
+        isActive = false;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      };
     }
   };
 

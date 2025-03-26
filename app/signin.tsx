@@ -88,25 +88,16 @@ export default function Page() {
       }
       console.log('[SignIn] Password verified');
 
-      // Update auth state
+      // Update auth state and wait for it to complete
+      console.log('[SignIn] Updating authentication state...');
       await updateLastActive();
-      setIsAuthenticated(true);
-
-      // Wait for a short delay to ensure root layout is mounted
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Navigate to portfolio
-      console.log('[SignIn] Auth check completed, navigating to portfolio');
-      try {
-        console.log('[SignIn] Navigating to: /portfolio');
-        router.replace('/portfolio');
-      } catch (navError) {
-        console.error('[SignIn] Navigation failed:', navError);
-        // If navigation fails, try again after a short delay
-        setTimeout(() => {
-          router.replace('/portfolio');
-        }, 500);
-      }
+      await checkAuth();
+      
+      // Add a small delay to ensure state updates are processed
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      console.log('[SignIn] Authentication state updated, navigating to portfolio');
+      router.replace('/portfolio');
     } catch (error) {
       console.error('[SignIn] Error during sign in:', error);
       setError(error instanceof Error ? error.message : "Failed to sign in");

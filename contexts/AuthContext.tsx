@@ -167,8 +167,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       // Only set authenticated if we have a wallet and are within activity timeout
       if (hasWalletData) {
-        // If no lastActive timestamp exists, set it now
-        if (!walletData.lastActive) {
+        // Get the latest lastActive timestamp from storage
+        const lastActiveStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
+        
+        if (!lastActiveStr) {
           const now = Date.now().toString();
           await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, now);
           setIsAuthenticated(true);
@@ -176,12 +178,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           return;
         }
 
-        const isActive = (Date.now() - parseInt(walletData.lastActive, 10)) <= INACTIVITY_TIMEOUT;
+        const lastActive = parseInt(lastActiveStr, 10);
+        const now = Date.now();
+        const timeDiff = now - lastActive;
+        const isActive = timeDiff <= INACTIVITY_TIMEOUT;
         
         console.log('[AuthProvider] Checking activity status:', {
-          lastActive: new Date(parseInt(walletData.lastActive, 10)).toISOString(),
+          lastActive: new Date(lastActive).toISOString(),
           isActive,
-          timeDiff: Date.now() - parseInt(walletData.lastActive, 10)
+          timeDiff,
+          timeout: INACTIVITY_TIMEOUT
         });
 
         setIsAuthenticated(isActive);
