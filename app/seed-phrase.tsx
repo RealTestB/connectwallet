@@ -6,16 +6,10 @@ import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { ethers } from "ethers";
 import config from "../api/config";
-import { createWallet } from "../api/dualStorageApi";
+import { createClassicWallet } from "../api/walletApi";
 import { sharedStyles, COLORS, SPACING } from '../styles/shared';
 import OnboardingLayout from '../components/ui/OnboardingLayout';
-
-const SETUP_STEPS = {
-  PASSWORD_CREATED: 'password_created',
-  SEED_PHRASE_GENERATED: 'seed_phrase_generated',
-  SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
-  SETUP_COMPLETED: 'setup_completed'
-};
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export default function Page(): JSX.Element {
   const router = useRouter();
@@ -51,32 +45,16 @@ export default function Page(): JSX.Element {
       setSeedPhrase(words);
       console.log("Generated seed phrase with", words.length, "words");
 
-      // Store wallet data securely in SecureStore
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.privateKey, wallet.privateKey);
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.seedPhrase, wallet.mnemonic.phrase);
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.addresses, wallet.address);
-      console.log("✅ Stored wallet data securely in SecureStore");
+      // Create wallet using walletApi
+      await createClassicWallet();
+      console.log("✅ Wallet created and stored securely");
 
-      // Store the seed phrase temporarily without encryption first (for confirmation step)
-      await SecureStore.setItemAsync("tempSeedPhrase", words.join(" "));
+      // Store the seed phrase temporarily
+      await SecureStore.setItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE, words.join(" "));
       console.log("✅ Stored unencrypted seed phrase temporarily");
 
-      // Try to create wallet in database (non-blocking)
-      createWallet({
-        public_address: wallet.address,
-        name: 'My Wallet',
-        chain_name: 'ethereum'
-      })
-        .then(() => {
-          console.log("✅ Wallet created in database");
-        })
-        .catch(error => {
-          console.error("❌ Database wallet creation failed:", error);
-          // Don't throw here - we want to continue even if database fails
-        });
-
-      // Update setup state in SecureStore
-      await SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.SEED_PHRASE_GENERATED);
+      // Update setup state
+      await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.SEED_PHRASE_GENERATED);
       console.log("✅ Setup state updated in SecureStore");
 
     } catch (error) {

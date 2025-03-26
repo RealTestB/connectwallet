@@ -4,6 +4,7 @@ import { NETWORKS } from './config';
 import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 // Map Alchemy networks to our network keys
 const ALCHEMY_NETWORKS = {
@@ -270,43 +271,184 @@ export const getTokenMetadata = async (contractAddress: string): Promise<any> =>
   }
 };
 
+// Replace CMC interfaces with CoinGecko interfaces
+interface CoinGeckoSimplePrice {
+  [id: string]: {
+    usd: number;
+    usd_24h_change?: number;
+    usd_market_cap?: number;
+    usd_24h_vol?: number;
+  };
+}
+
+interface CoinGeckoTokenData {
+  market_data: {
+    current_price: {
+      usd: number;
+    };
+    price_change_percentage_24h: number;
+    market_cap: {
+      usd: number;
+    };
+    total_volume: {
+      usd: number;
+    };
+  };
+}
+
+interface CoinGeckoMarketChart {
+  prices: [number, number][];
+  market_caps: [number, number][];
+  total_volumes: [number, number][];
+}
+
+const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
+
 /**
- * Get token price from CoinMarketCap
+ * Get token price from CoinGecko
  */
-export const getTokenPrice = async (
-  address: string,
-  network: Network = Network.ETH_MAINNET
-): Promise<TokenPrice | null> => {
+export const getTokenPrice = async (address: string): Promise<TokenPrice | null> => {
   try {
-    const response = await fetch(
-      `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest?address=${address}&chain=${network === Network.ETH_MAINNET ? 'ETH' : 'MATIC'}`,
-      {
-        headers: {
-          'X-CMC_PRO_API_KEY': config.apiKeys.cmcKey
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch token price');
+    console.log('[TokensApi] Fetching price from CoinGecko for token:', address);
+    
+    // Handle native ETH differently
+    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
+    
+    let url: string;
+    if (isNativeEth) {
+      url = `${COINGECKO_BASE_URL}/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true`;
+    } else {
+      url = `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}`;
     }
-
-    const data = await response.json();
-    const tokenData = Object.values(data.data)[0] as any;
-
-    if (!tokenData) {
+    
+    console.log('[TokensApi] Making CoinGecko API request to:', url);
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.error('[TokensApi] CoinGecko API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        url
+      });
+      
+      // Check for rate limiting
+      if (response.status === 429) {
+        console.error('[TokensApi] CoinGecko API rate limit exceeded');
+      }
+      
       return null;
     }
-
-    return {
-      price: tokenData.quote.USD.price,
-      change24h: tokenData.quote.USD.percent_change_24h,
-      marketCap: tokenData.quote.USD.market_cap,
-      volume24h: tokenData.quote.USD.volume_24h
-    };
+    
+    const data = await response.json();
+    console.log('[TokensApi] CoinGecko API response:', data);
+    
+    if (isNativeEth) {
+      // Format data from simple/price endpoint
+      const ethData = data as CoinGeckoSimplePrice;
+      if (!ethData.ethereum?.usd) {
+        console.warn('[TokensApi] No price data found for ETH');
+        return null;
+      }
+      
+      return {
+        price: ethData.ethereum.usd,
+        change24h: ethData.ethereum.usd_24h_change,
+        marketCap: ethData.ethereum.usd_market_cap,
+        volume24h: ethData.ethereum.usd_24h_vol
+      };
+    } else {
+      // Format data from contract endpoint
+      const tokenData = data as CoinGeckoTokenData;
+      if (!tokenData.market_data?.current_price?.usd) {
+        console.warn('[TokensApi] No price data found for token:', address);
+        return null;
+      }
+      
+      return {
+        price: tokenData.market_data.current_price.usd,
+        change24h: tokenData.market_data.price_change_percentage_24h,
+        marketCap: tokenData.market_data.market_cap.usd,
+        volume24h: tokenData.market_data.total_volume.usd
+      };
+    }
   } catch (error) {
-    console.error('Failed to fetch token price:', error);
+    console.error('[TokensApi] Failed to fetch token price from CoinGecko:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      address,
+      isNativeEth: address === '0x0000000000000000000000000000000000000000'
+    });
     return null;
+  }
+};
+
+/**
+ * Get historical token prices for charting from CoinGecko
+ * @param address Token contract address
+ * @param days Number of days of history to fetch
+ * @returns Array of [timestamp, price] tuples
+ */
+export const getTokenPriceHistory = async (
+  address: string,
+  days: number = 7
+): Promise<[number, number][]> => {
+  try {
+    console.log('[TokensApi] Fetching price history from CoinGecko for token:', address);
+    
+    // Handle native ETH differently
+    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
+    
+    let url: string;
+    if (isNativeEth) {
+      url = `${COINGECKO_BASE_URL}/coins/ethereum/market_chart?vs_currency=usd&days=${days}&interval=daily`;
+    } else {
+      url = `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
+    }
+    
+    console.log('[TokensApi] Making CoinGecko historical API request to:', url);
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.error('[TokensApi] CoinGecko API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        isNativeEth,
+        address
+      });
+      
+      // Check for rate limiting
+      if (response.status === 429) {
+        console.error('[TokensApi] CoinGecko API rate limit exceeded');
+      }
+      
+      return [];
+    }
+    
+    const data = await response.json() as CoinGeckoMarketChart;
+    console.log('[TokensApi] CoinGecko historical API response:', {
+      dataPoints: data.prices?.length || 0
+    });
+    
+    if (!data.prices?.length) {
+      console.warn('[TokensApi] No historical data found for token:', {
+        token: isNativeEth ? 'ETH' : address
+      });
+      return [];
+    }
+    
+    // CoinGecko returns prices as [timestamp, price] pairs
+    return data.prices;
+  } catch (error) {
+    console.error('[TokensApi] Failed to fetch token price history from CoinGecko:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      address,
+      isNativeEth: address === '0x0000000000000000000000000000000000000000'
+    });
+    return [];
   }
 };
 
@@ -331,7 +473,7 @@ export const getNativeBalance = async (
     };
 
     // Get price data
-    const price = await getTokenPrice(nativeToken.address, network);
+    const price = await getTokenPrice(nativeToken.address);
     if (price) {
       nativeToken.price = price.price;
       nativeToken.priceChange24h = price.change24h;
@@ -431,7 +573,7 @@ export const transferToken = async (params: TokenTransferParams): Promise<string
   const provider = getProvider();
   
   try {
-    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
     if (!privateKey) {
       console.error('[TokensApi] Private key not found in secure storage');
       throw new Error('Private key not found');
@@ -489,13 +631,11 @@ export const getTokenBalance = async (contractAddress: string, ownerAddress: str
 /**
  * Store token balances in SecureStore
  */
-export const storeTokenBalances = async (address: string, balances: { [tokenAddress: string]: string }): Promise<void> => {
+export const storeTokenBalances = async (balances: TokenBalanceResult[]): Promise<void> => {
   try {
-    const key = `token_balances_${address.toLowerCase()}`;
-    await SecureStore.setItemAsync(key, JSON.stringify(balances));
-    console.log('[TokensApi] Stored token balances for:', address);
+    await SecureStore.setItemAsync(STORAGE_KEYS.TOKEN_BALANCES, JSON.stringify(balances));
   } catch (error) {
-    console.error('[TokensApi] Error storing token balances:', error);
+    console.error('Error storing token balances:', error);
     throw error;
   }
 };
@@ -503,23 +643,14 @@ export const storeTokenBalances = async (address: string, balances: { [tokenAddr
 /**
  * Get stored token balances from SecureStore
  */
-export const getStoredTokenBalances = async (address: string): Promise<{ [tokenAddress: string]: string }> => {
+export const getStoredTokenBalances = async (): Promise<TokenBalanceResult[] | null> => {
   try {
-    const key = `token_balances_${address.toLowerCase()}`;
-    const stored = await SecureStore.getItemAsync(key);
-    if (!stored) {
-      // Initialize with zero balances for known tokens
-      const initialBalances = {
-        '0x0000000000000000000000000000000000000000': '0', // ETH
-        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': '0'  // WETH
-      };
-      await storeTokenBalances(address, initialBalances);
-      return initialBalances;
-    }
+    const stored = await SecureStore.getItemAsync(STORAGE_KEYS.TOKEN_BALANCES);
+    if (!stored) return null;
     return JSON.parse(stored);
   } catch (error) {
-    console.error('[TokensApi] Error getting stored token balances:', error);
-    throw error;
+    console.error('Error getting stored token balances:', error);
+    return null;
   }
 };
 
@@ -532,9 +663,16 @@ export const updateStoredTokenBalance = async (
   newBalance: string
 ): Promise<void> => {
   try {
-    const currentBalances = await getStoredTokenBalances(walletAddress);
-    currentBalances[tokenAddress.toLowerCase()] = newBalance;
-    await storeTokenBalances(walletAddress, currentBalances);
+    const currentBalances = await getStoredTokenBalances();
+    if (currentBalances) {
+      const updatedBalances = currentBalances.map(balance =>
+        balance.contractAddress === tokenAddress ? {
+          ...balance,
+          tokenBalance: newBalance
+        } : balance
+      );
+      await storeTokenBalances(updatedBalances);
+    }
     console.log('[TokensApi] Updated balance for token:', tokenAddress);
   } catch (error) {
     console.error('[TokensApi] Error updating token balance:', error);

@@ -4,7 +4,7 @@ import { Stack } from "expo-router";
 import { AuthProvider } from "../contexts/AuthContext";
 import { SettingsProvider } from "../contexts/SettingsContext";
 import { WalletProvider } from "../contexts/WalletProvider";
-import { ProtectedRoute } from "../components/ProtectedRoute";
+import ProtectedRoute from "../components/ProtectedRoute";
 import { View, ActivityIndicator, Text, StyleSheet, Alert, Platform, TouchableOpacity } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';

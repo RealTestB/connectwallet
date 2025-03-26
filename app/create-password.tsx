@@ -7,22 +7,16 @@ import * as SecureStore from "expo-secure-store";
 import { getRandomBytes } from 'expo-crypto';
 import { hashPassword } from "../api/securityApi";
 import * as Crypto from 'expo-crypto';
-import { createUser } from "../api/dualStorageApi";
+import { createAnonymousUser } from "../api/supabaseApi";
 import { sharedStyles, COLORS, SPACING } from '../styles/shared';
 import OnboardingLayout from '../components/ui/OnboardingLayout';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface Account {
   address: string;
   name?: string;
   chainId?: number;
 }
-
-const SETUP_STEPS = {
-  PASSWORD_CREATED: 'password_created',
-  SEED_PHRASE_GENERATED: 'seed_phrase_generated',
-  SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
-  SETUP_COMPLETED: 'setup_completed'
-};
 
 export default function Page() {
   const router = useRouter();
@@ -76,51 +70,35 @@ export default function Page() {
     return "#4ade80";
   };
 
-  const handleContinue = async () => {
+  const handleCreatePassword = async () => {
     try {
-      // Validate password
-      if (password.length < 8) {
-        setError("Password must be at least 8 characters long");
+      if (!password || !confirmPassword) {
+        Alert.alert('Error', 'Please fill in all fields');
         return;
       }
+
       if (password !== confirmPassword) {
-        setError("Passwords do not match");
+        Alert.alert('Error', 'Passwords do not match');
         return;
       }
 
-      setIsCreating(true);
-      setError("");
+      const hashedPasswordStr = await hashPassword(password);
+      const hashedPasswordObj = JSON.parse(hashedPasswordStr);
+      
+      // Store the hashed password
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, hashedPasswordStr);
 
-      // Hash the password
-      const hashedPasswordObj = await hashPassword(password);
-      const hashedPassword = JSON.parse(hashedPasswordObj);
+      // Create anonymous user in Supabase
+      const tempUserId = createAnonymousUser(hashedPasswordObj);
+      await SecureStore.setItemAsync(STORAGE_KEYS.TEMP_USER_ID, tempUserId);
 
-      // Store password hash in SecureStore immediately
-      await SecureStore.setItemAsync("passwordHash", hashedPasswordObj);
-      console.log("✅ Password hash stored in SecureStore");
+      // Update setup state
+      await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.PASSWORD_CREATED);
 
-      // Try to create user in database (non-blocking)
-      createUser(hashedPassword)
-        .then(tempUserId => {
-          console.log("✅ User created in database with temp ID:", tempUserId);
-        })
-        .catch(error => {
-          console.error("❌ Database user creation failed:", error);
-          // Don't throw here - we want to continue even if database fails
-        });
-
-      // Update setup state in SecureStore
-      await SecureStore.setItemAsync("walletSetupState", SETUP_STEPS.PASSWORD_CREATED);
-      console.log("✅ Setup state updated in SecureStore");
-
-      // Navigate to next screen
-      router.push("/seed-phrase");
-
+      router.push('/seed-phrase');
     } catch (error) {
-      console.error("Error in password creation:", error);
-      setError(error instanceof Error ? error.message : "Failed to create password. Please try again.");
-    } finally {
-      setIsCreating(false);
+      console.error('Error creating password:', error);
+      Alert.alert('Error', 'Failed to create password');
     }
   };
 
@@ -260,7 +238,7 @@ export default function Page() {
 
         <TouchableOpacity
           style={[styles.button, isCreating && styles.buttonDisabled]}
-          onPress={handleContinue}
+          onPress={handleCreatePassword}
           disabled={isCreating}
         >
           {isCreating ? (

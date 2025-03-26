@@ -1,12 +1,15 @@
-import React, { useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Image, ActivityIndicator } from "react-native";
+import React, { useState, useCallback, useEffect } from "react";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Image, ActivityIndicator, Dimensions } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING } from '../styles/shared';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import BottomNav from "../components/ui/BottomNav";
 import WalletHeader from "../components/ui/WalletHeader";
-import { getTokenPrice, getNativeBalance } from '../api/tokensApi';
+import { getTokenPrice, getTokenPriceHistory, getNativeBalance } from '../api/tokensApi';
 import { Network } from 'alchemy-sdk';
+import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+import { LineChart } from 'react-native-chart-kit';
 
 interface Token {
   symbol: string;
@@ -19,6 +22,12 @@ interface Token {
   balanceUSD: number;
   priceChange24h: number;
   isNative: boolean;
+  priceHistory: Array<[number, number]>;
+}
+
+interface Account {
+  address: string;
+  chainId?: number;
 }
 
 export default function Portfolio(): JSX.Element {
@@ -33,62 +42,91 @@ export default function Portfolio(): JSX.Element {
       isNative: true,
       price: 0,
       balanceUSD: 0,
-      priceChange24h: 0
+      priceChange24h: 0,
+      priceHistory: []
     }
   ]);
 
   const [totalValue, setTotalValue] = useState<string>("0");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
+
+  // Add useEffect to refresh prices periodically
+  useEffect(() => {
+    if (currentAccount?.address) {
+      handleRefresh();
+      const interval = setInterval(handleRefresh, 30000); // Refresh every 30 seconds
+      return () => clearInterval(interval);
+    }
+  }, [currentAccount]);
 
   const handleTokenPress = (token: Token): void => {
     console.log('Token pressed:', token.symbol);
   };
 
+  const handleAccountChange = useCallback(async (account: Account) => {
+    console.log('[Portfolio] Account changed:', account.address);
+    setCurrentAccount(account);
+    await handleRefresh();
+  }, []);
+
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
       
-      // Update tokens with new prices and balances
+      if (!currentAccount?.address) {
+        console.log('[Portfolio] No account selected, skipping refresh');
+        return;
+      }
+
+      console.log('[Portfolio] Refreshing balances for account:', currentAccount.address);
+      
+      // Get wallet data from SecureStore
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletDataStr) {
+        throw new Error('No wallet data found');
+      }
+
+      const walletData = JSON.parse(walletDataStr);
+      console.log('[Portfolio] Got wallet data from SecureStore');
+      
+      // Update tokens with new prices, balances, and price history
       const updatedTokens = await Promise.all(tokens.map(async (token) => {
         try {
-          // Get updated balance if it's a native token
+          // Use balance from wallet data for native token
           let balance = token.balance;
           if (token.isNative) {
-            const nativeToken = await getNativeBalance(token.address);
-            balance = nativeToken.balance;
-            
-            // For native ETH, we'll use the price from getNativeBalance
-            return {
-              ...token,
-              balance,
-              price: nativeToken.price || 0,
-              priceChange24h: nativeToken.priceChange24h || 0,
-              balanceUSD: parseFloat(balance) * (nativeToken.price || 0)
-            };
+            balance = walletData.balance || "0";
           }
           
-          // For other tokens, get price from getTokenPrice
-          const priceData = await getTokenPrice(token.address);
+          // Get price and price history in parallel
+          const [priceData, priceHistory] = await Promise.all([
+            getTokenPrice(token.address),
+            getTokenPriceHistory(token.address, 7)
+          ]);
+
           return {
             ...token,
             balance,
             price: priceData?.price || 0,
             priceChange24h: priceData?.change24h || 0,
-            balanceUSD: parseFloat(balance) * (priceData?.price || 0)
+            balanceUSD: parseFloat(balance) * (priceData?.price || 0),
+            priceHistory
           };
         } catch (error) {
-          console.error(`Error updating token ${token.symbol}:`, error);
+          console.error(`[Portfolio] Error updating token ${token.symbol}:`, error);
           return token;
         }
       }));
 
+      console.log('[Portfolio] Setting updated tokens:', updatedTokens);
       setTokens(updatedTokens);
       
       // Calculate total value
       const total = updatedTokens.reduce((sum, token) => sum + (token.balanceUSD || 0), 0);
       setTotalValue(total.toFixed(2));
     } catch (error) {
-      console.error('Error refreshing portfolio:', error);
+      console.error('[Portfolio] Error refreshing portfolio:', error);
     } finally {
       setIsRefreshing(false);
     }
@@ -96,6 +134,7 @@ export default function Portfolio(): JSX.Element {
 
   const renderTokenCard = (token: Token) => {
     const priceChangeColor = (token.priceChange24h || 0) >= 0 ? "#4ADE80" : "#FF4D4D";
+    const screenWidth = Dimensions.get('window').width;
     
     return (
       <TouchableOpacity 
@@ -126,10 +165,45 @@ export default function Portfolio(): JSX.Element {
             </View>
           </View>
 
-          {/* Price Chart Placeholder */}
-          <View style={styles.chartContainer}>
-            <View style={[styles.chartLine, { backgroundColor: priceChangeColor }]} />
-          </View>
+          {/* Price Chart */}
+          {token.priceHistory && token.priceHistory.length > 0 ? (
+            <View style={styles.chartContainer}>
+              <LineChart
+                data={{
+                  labels: [],
+                  datasets: [{
+                    data: token.priceHistory.map(point => point[1])
+                  }]
+                }}
+                width={screenWidth - 64} // Adjust based on padding
+                height={100}
+                chartConfig={{
+                  backgroundColor: 'transparent',
+                  backgroundGradientFrom: 'transparent',
+                  backgroundGradientTo: 'transparent',
+                  decimalPlaces: 2,
+                  color: (opacity = 1) => priceChangeColor,
+                  style: {
+                    borderRadius: 16
+                  }
+                }}
+                bezier
+                style={{
+                  marginVertical: 8,
+                  borderRadius: 16
+                }}
+                withDots={false}
+                withInnerLines={false}
+                withOuterLines={false}
+                withVerticalLabels={false}
+                withHorizontalLabels={false}
+              />
+            </View>
+          ) : (
+            <View style={styles.chartContainer}>
+              <View style={[styles.chartLine, { backgroundColor: priceChangeColor }]} />
+            </View>
+          )}
           
           {/* Token Value */}
           <View style={styles.tokenValue}>
@@ -149,7 +223,7 @@ export default function Portfolio(): JSX.Element {
     <View style={styles.container}>
       <View style={styles.content}>
         <WalletHeader 
-          onAccountChange={() => {}}
+          onAccountChange={handleAccountChange}
         />
 
         {/* Portfolio Value */}
@@ -159,7 +233,7 @@ export default function Portfolio(): JSX.Element {
           <TouchableOpacity 
             style={styles.refreshButton}
             onPress={handleRefresh}
-            disabled={isRefreshing}
+            disabled={isRefreshing || !currentAccount?.address}
           >
             {isRefreshing ? (
               <ActivityIndicator color={COLORS.primary} size="small" />

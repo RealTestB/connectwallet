@@ -1,43 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useRouter, useRootNavigation } from 'expo-router';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
 import { COLORS, SPACING, sharedStyles } from '../styles/shared';
 import { useAuth } from '../contexts/AuthContext';
 import { completeWalletSetup } from '../api/walletApi';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export default function SecureWallet() {
   const router = useRouter();
-  const rootNav = useRootNavigation();
-  const { updateLastActive } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
+  const { updateLastActive, checkAuth } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const handleComplete = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  useEffect(() => {
+    const checkSetupState = async () => {
+      try {
+        setIsLoading(true);
+        console.log("[SecureWallet] Checking wallet setup state...");
+        
+        // Get current setup state
+        const setupState = await SecureStore.getItemAsync(STORAGE_KEYS.SETUP_STATE);
+        
+        if (setupState !== STORAGE_KEYS.SETUP_STEPS.COMPLETE) {
+          console.error("[SecureWallet] Setup not complete");
+          setError("Wallet setup was not completed properly");
+          return;
+        }
 
-      console.log('[SecureWallet] Starting wallet setup completion...');
-      await updateLastActive();
-      await completeWalletSetup();
-
-      // Wait for root navigation to be ready
-      if (!rootNav?.isReady()) {
-        console.log('[SecureWallet] Waiting for navigation to be ready...');
+        // Update auth state
+        await checkAuth();
+        
+        // Wait a moment to ensure auth state is updated
         await new Promise(resolve => setTimeout(resolve, 1000));
-      }
+        
+        // Navigate to portfolio
+        router.replace("/portfolio");
 
-      console.log('[SecureWallet] Navigation ready, proceeding to portfolio');
-      router.replace('/portfolio');
-    } catch (error) {
-      console.error('[SecureWallet] Error completing wallet setup:', error);
-      setError('Failed to complete wallet setup. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      } catch (error) {
+        console.error("[SecureWallet] Error checking setup state:", error);
+        setError(error instanceof Error ? error.message : "Failed to verify wallet setup");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkSetupState();
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -63,8 +74,8 @@ export default function SecureWallet() {
 
           <TouchableOpacity
             style={[styles.button, isLoading && styles.buttonDisabled]}
-            onPress={handleComplete}
             disabled={isLoading}
+            onPress={() => router.replace("/portfolio")}
           >
             {isLoading ? (
               <ActivityIndicator color={COLORS.white} />

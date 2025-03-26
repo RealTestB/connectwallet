@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import { encryptSeedPhrase, decryptSeedPhrase } from './securityApi';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export interface SeedPhraseData {
   phrase: string;
@@ -55,7 +56,7 @@ export const storeSeedPhrase = async (
 ): Promise<void> => {
   try {
     const encryptedPhrase = await encryptSeedPhrase(phrase, password);
-    await SecureStore.setItemAsync('seedPhrase', encryptedPhrase);
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, encryptedPhrase);
   } catch (error) {
     console.error('Error storing seed phrase:', error);
     throw error;
@@ -67,13 +68,13 @@ export const storeSeedPhrase = async (
  */
 export const getSeedPhrase = async (password: string): Promise<string> => {
   try {
-    const encryptedPhrase = await SecureStore.getItemAsync('seedPhrase');
+    const encryptedPhrase = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE);
     if (!encryptedPhrase) {
       throw new Error('No seed phrase found');
     }
     return await decryptSeedPhrase(encryptedPhrase, password);
   } catch (error) {
-    console.error('Error retrieving seed phrase:', error);
+    console.error('Error getting seed phrase:', error);
     throw error;
   }
 };
@@ -83,7 +84,7 @@ export const getSeedPhrase = async (password: string): Promise<string> => {
  */
 export const deleteSeedPhrase = async (): Promise<void> => {
   try {
-    await SecureStore.deleteItemAsync('seedPhrase');
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE);
   } catch (error) {
     console.error('Error deleting seed phrase:', error);
     throw error;

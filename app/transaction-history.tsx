@@ -8,6 +8,7 @@ import { Network } from "alchemy-sdk";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TransactionResponse } from "ethers";
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface Account {
   address: string;
@@ -54,8 +55,8 @@ export default function TransactionHistoryScreen(): JSX.Element {
 
   const loadWalletData = async (): Promise<void> => {
     try {
-      const storedWalletAddress = await SecureStore.getItemAsync("walletAddress");
-      const storedNetworkId = await SecureStore.getItemAsync("networkId");
+      const storedWalletAddress = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
+      const storedNetworkId = await SecureStore.getItemAsync(STORAGE_KEYS.NETWORK.ID);
 
       if (storedWalletAddress) setWalletAddress(storedWalletAddress);
       if (storedNetworkId) {

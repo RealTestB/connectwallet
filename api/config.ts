@@ -77,6 +77,7 @@ export interface WalletConfig {
       privateKey: string;
       seedPhrase: string;
       addresses: string;
+      lastActive: string;
     };
     derivationPath: string;
   };
@@ -257,7 +258,8 @@ export const WALLET_CONFIG: WalletConfig = {
     storageKeys: {
       privateKey: 'walletPrivateKey',
       seedPhrase: 'walletSeedPhrase',
-      addresses: 'hasWallet'
+      addresses: 'hasWallet',
+      lastActive: 'lastActiveTimestamp'
     },
     derivationPath: "m/44'/60'/0'/0"
   }

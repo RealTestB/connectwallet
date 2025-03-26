@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { sharedStyles, COLORS, SPACING } from '../styles/shared';
 import OnboardingLayout from '../components/ui/OnboardingLayout';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+import { completeWalletSetup } from '../api/walletApi';
 
 export default function ConfirmSeedPhrase() {
   const router = useRouter();
@@ -19,7 +21,7 @@ export default function ConfirmSeedPhrase() {
 
   const loadSeedPhrase = async () => {
     try {
-      const phrase = await SecureStore.getItemAsync('tempSeedPhrase');
+      const phrase = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
       if (!phrase) throw new Error('No seed phrase found');
       
       const words = phrase.split(' ');
@@ -50,20 +52,14 @@ export default function ConfirmSeedPhrase() {
     
     if (selectedPhraseString === originalPhraseString) {
       try {
-        // First store the actual seed phrase securely
-        await SecureStore.setItemAsync('seedPhrase', originalPhraseString);
-        
-        // Then update the wallet setup state
-        await SecureStore.setItemAsync('walletSetupState', 'seed_phrase_confirmed');
-        
-        // Clear the temporary seed phrase
-        await SecureStore.deleteItemAsync('tempSeedPhrase');
+        // Complete the wallet setup
+        await completeWalletSetup();
         
         // Navigate to secure wallet
         router.push('/secure-wallet');
       } catch (error) {
-        console.error('Error saving confirmed seed phrase:', error);
-        setError('Failed to save seed phrase. Please try again.');
+        console.error('Error completing wallet setup:', error);
+        setError('Failed to complete wallet setup. Please try again.');
       }
     } else {
       setError('Incorrect sequence. Please try again.');

@@ -16,70 +16,69 @@ const setupRoutes = [
   'import-success'
 ];
 
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
+export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, hasWallet } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const { isAuthenticated, hasWallet } = useAuth();
 
   useEffect(() => {
-    const inPublicGroup = segments[0] === '(public)';
-    const inSetupGroup = segments[0] === '(setup)';
-    const path = segments.join('/');
-    const isPublicPath = publicRoutes.some(route => path.startsWith(route));
-    const isSetupPath = setupRoutes.some(route => path.startsWith(route));
-
-    console.log('[ProtectedRoute] Checking route access:', {
-      hasWallet,
-      inPublicGroup,
-      inSetupGroup,
+    console.log("[ProtectedRoute] Route check triggered with:", {
+      segments,
       isAuthenticated,
-      isPublicPath,
-      isSetupPath,
-      segments
+      hasWallet,
+      currentPath: segments.join('/')
     });
 
-    // Check if we have a password hash stored
-    const checkPasswordHash = async () => {
-      try {
-        const passwordHash = await SecureStore.getItemAsync('passwordHash');
-        if (!passwordHash && hasWallet) {
-          console.log('[ProtectedRoute] No password hash found, redirecting to create-password');
-          router.replace('/create-password');
-          return true;
-        }
-        return false;
-      } catch (error) {
-        console.error('[ProtectedRoute] Error checking password hash:', error);
-        return false;
-      }
-    };
+    const currentRoute = segments[0] || '';
+    const inPublicGroup = publicRoutes.includes(currentRoute);
+    const inSetupGroup = setupRoutes.includes(currentRoute);
 
-    // Handle navigation based on auth state
-    const handleNavigation = async () => {
-      const hasNoPasswordHash = await checkPasswordHash();
-      if (hasNoPasswordHash) return;
+    console.log("[ProtectedRoute] Route analysis:", {
+      currentRoute,
+      inPublicGroup,
+      inSetupGroup
+    });
 
-      if (!hasWallet && !isPublicPath && !isSetupPath && segments.length > 0) {
-        console.log('[ProtectedRoute] No wallet, redirecting to welcome');
-        router.replace('/welcome');
-        return;
-      }
+    // Allow access to public routes
+    if (inPublicGroup) {
+      console.log("[ProtectedRoute] Allowing access to public route");
+      return;
+    }
 
-      if (hasWallet && !isAuthenticated && !isPublicPath && segments.length > 0) {
-        console.log('[ProtectedRoute] Not authenticated, redirecting to signin');
-        router.replace('/signin');
-        return;
-      }
+    // Allow access to setup routes if not authenticated
+    if (inSetupGroup && !isAuthenticated) {
+      console.log("[ProtectedRoute] Allowing access to setup route while not authenticated");
+      return;
+    }
 
-      if (hasWallet && isAuthenticated && isPublicPath && segments.length > 0) {
-        console.log('[ProtectedRoute] Authenticated, redirecting to portfolio');
-        router.replace('/portfolio');
-        return;
-      }
-    };
+    // Redirect to welcome if no wallet
+    if (!hasWallet && !inPublicGroup) {
+      console.log("[ProtectedRoute] No wallet found, redirecting to welcome");
+      console.log("[ProtectedRoute] Current auth state:", {
+        isAuthenticated,
+        hasWallet,
+        currentPath: segments.join('/')
+      });
+      router.replace('/welcome');
+      return;
+    }
 
-    handleNavigation();
-  }, [isAuthenticated, hasWallet, segments]);
+    // Redirect to portfolio if authenticated and trying to access setup routes
+    if (isAuthenticated && inSetupGroup) {
+      console.log("[ProtectedRoute] Authenticated user trying to access setup route, redirecting to portfolio");
+      router.replace('/portfolio');
+      return;
+    }
+
+    // If not authenticated and trying to access protected routes, redirect to welcome
+    if (!isAuthenticated && !inPublicGroup && !inSetupGroup) {
+      console.log("[ProtectedRoute] Unauthenticated user trying to access protected route, redirecting to welcome");
+      router.replace('/welcome');
+      return;
+    }
+
+    console.log("[ProtectedRoute] Access granted to protected route");
+  }, [segments, isAuthenticated, hasWallet]);
 
   return <>{children}</>;
 } 

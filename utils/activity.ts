@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface ActivityLog {
   type: 'login' | 'transaction' | 'import' | 'backup' | 'settings';
@@ -20,7 +21,7 @@ export const logActivity = async (
 
     // Get existing logs
     console.log('[Activity] Fetching existing logs from storage');
-    const existingLogsStr = await SecureStore.getItemAsync('activityLogs');
+    const existingLogsStr = await SecureStore.getItemAsync(STORAGE_KEYS.ACTIVITY_LOGS);
     console.log('[Activity] Existing logs found:', !!existingLogsStr);
     
     let existingLogs: ActivityLog[] = [];
@@ -50,22 +51,18 @@ export const logActivity = async (
     console.log('[Activity] Created updated logs array, count:', updatedLogs.length);
 
     // Store updated logs
-    await SecureStore.setItemAsync('activityLogs', JSON.stringify(updatedLogs));
+    await SecureStore.setItemAsync(STORAGE_KEYS.ACTIVITY_LOGS, JSON.stringify(updatedLogs));
     console.log('[Activity] Successfully stored updated logs');
   } catch (error) {
-    console.error('[Activity] Failed to log activity:', {
-      type,
-      details,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
+    console.error('[Activity] Failed to log activity:', error);
+    throw error;
   }
 };
 
 export const getActivityLogs = async (): Promise<ActivityLog[]> => {
   console.log('[Activity] Retrieving activity logs');
   try {
-    const logsStr = await SecureStore.getItemAsync('activityLogs');
+    const logsStr = await SecureStore.getItemAsync(STORAGE_KEYS.ACTIVITY_LOGS);
     console.log('[Activity] Retrieved logs from storage:', !!logsStr);
     
     if (!logsStr) {
@@ -90,10 +87,7 @@ export const getActivityLogs = async (): Promise<ActivityLog[]> => {
       return [];
     }
   } catch (error) {
-    console.error('[Activity] Failed to retrieve activity logs:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
+    console.error('[Activity] Failed to retrieve activity logs:', error);
     return [];
   }
 };
@@ -101,13 +95,11 @@ export const getActivityLogs = async (): Promise<ActivityLog[]> => {
 export const clearActivityLogs = async (): Promise<void> => {
   console.log('[Activity] Clearing activity logs');
   try {
-    await SecureStore.deleteItemAsync('activityLogs');
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.ACTIVITY_LOGS);
     console.log('[Activity] Successfully cleared activity logs');
   } catch (error) {
-    console.error('[Activity] Failed to clear activity logs:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
+    console.error('[Activity] Failed to clear activity logs:', error);
+    throw error;
   }
 };
 
@@ -118,7 +110,7 @@ export const updateLastActive = async (): Promise<void> => {
     
     // First, ensure we can access SecureStore
     try {
-      await SecureStore.getItemAsync('test_key');
+      await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
       console.log('[Activity] SecureStore access verified');
     } catch (e) {
       console.warn('[Activity] SecureStore not ready:', {
@@ -129,7 +121,7 @@ export const updateLastActive = async (): Promise<void> => {
     }
 
     // Then try to update the last active time
-    await SecureStore.setItemAsync('lastActiveTime', timestamp);
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, timestamp);
     console.log('[Activity] Updated last active timestamp:', timestamp);
     
     // Also update activity logs
@@ -143,7 +135,7 @@ export const updateLastActive = async (): Promise<void> => {
     console.log('[Activity] Fetching existing logs for update');
     let existingLogs: ActivityLog[] = [];
     try {
-      const existingLogsStr = await SecureStore.getItemAsync('activityLogs');
+      const existingLogsStr = await SecureStore.getItemAsync(STORAGE_KEYS.ACTIVITY_LOGS);
       if (existingLogsStr) {
         const parsed = JSON.parse(existingLogsStr);
         if (Array.isArray(parsed)) {
@@ -166,7 +158,7 @@ export const updateLastActive = async (): Promise<void> => {
     const updatedLogs = [log, ...safeExistingLogs].slice(0, 100);
     console.log('[Activity] Created updated logs array for update, count:', updatedLogs.length);
 
-    await SecureStore.setItemAsync('activityLogs', JSON.stringify(updatedLogs));
+    await SecureStore.setItemAsync(STORAGE_KEYS.ACTIVITY_LOGS, JSON.stringify(updatedLogs));
     console.log('[Activity] Successfully stored updated activity logs');
   } catch (error) {
     console.warn('[Activity] Failed to update last active time:', {
@@ -180,7 +172,7 @@ export const updateLastActive = async (): Promise<void> => {
 export const checkLastActive = async (minutes: number = 30): Promise<boolean> => {
   console.log('[Activity] Checking last active time, threshold minutes:', minutes);
   try {
-    const lastActiveStr = await SecureStore.getItemAsync('lastActiveTime');
+    const lastActiveStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
     console.log('[Activity] Retrieved last active time:', !!lastActiveStr);
     
     if (!lastActiveStr) {

@@ -3,10 +3,6 @@ import { Buffer } from 'buffer';
 import cryptoBrowserify from 'crypto-browserify';
 
 declare global {
-  interface Window {
-    crypto: typeof cryptoBrowserify;
-  }
-  var crypto: typeof cryptoBrowserify;
   var Buffer: typeof Buffer;
 }
 
@@ -19,6 +15,7 @@ export const initializeCrypto = async (): Promise<boolean> => {
 
     // Initialize crypto-related globals
     if (typeof global.crypto === 'undefined') {
+      // @ts-ignore
       global.crypto = cryptoBrowserify;
     }
 

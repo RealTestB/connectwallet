@@ -4,15 +4,13 @@ import { initializeCrypto } from '../utils/crypto';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SecureStore from 'expo-secure-store';
 import { getStoredWallet } from '../api/walletApi';
-import { getWalletData, STORAGE_KEYS } from '../api/dualStorageApi';
-import config from '../api/config';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 // Keep splash screen visible
 SplashScreen.preventAutoHideAsync();
 
 // Constants
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
-const LAST_ACTIVE_KEY = 'lastActiveTimestamp';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -63,7 +61,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const checkInactivity = async () => {
     try {
-      const lastActiveStr = await SecureStore.getItemAsync(LAST_ACTIVE_KEY);
+      const lastActiveStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
       if (!lastActiveStr) {
         await signOut();
         return;
@@ -76,7 +74,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (timeDiff > INACTIVITY_TIMEOUT) {
         console.log('[AuthProvider] Session expired due to inactivity');
         setIsAuthenticated(false);
-        // Don't navigate here, let ProtectedRoute handle it
       }
     } catch (error) {
       console.error('[AuthProvider] Error checking inactivity:', error);
@@ -86,7 +83,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const updateLastActive = async () => {
     try {
-      await SecureStore.setItemAsync(LAST_ACTIVE_KEY, Date.now().toString());
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, Date.now().toString());
     } catch (error) {
       console.error('[AuthProvider] Failed to update last active timestamp:', error);
     }
@@ -112,15 +109,18 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         console.log('[AuthProvider] Crypto initialized successfully');
         setCryptoInitialized(true);
 
-        // Then check wallet status and inactivity
-        await Promise.all([checkAuth(), checkInactivity()]);
+        // Check auth status and inactivity
+        await checkAuth();
+        await checkInactivity();
+        
+        console.log('[AuthProvider] Initialization complete');
       } catch (error) {
         console.error('[AuthProvider] Error during initialization:', error);
         setHasWallet(false);
         setIsAuthenticated(false);
         setError('Initialization failed');
       } finally {
-        console.log('[AuthProvider] Initialization complete');
+        console.log('[AuthProvider] Setting ready state');
         setLoading(false);
         setAppIsReady(true);
       }
@@ -141,26 +141,47 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setLoading(true);
       setError(null);
 
-      // Only check SecureStore for wallet data
-      const walletData = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
-      const hasWalletData = !!walletData;
+      console.log('[AuthProvider] Starting auth check...');
+
+      // Get wallet data
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletDataStr) {
+        console.log('[AuthProvider] No wallet data found');
+        setHasWallet(false);
+        setIsAuthenticated(false);
+        return;
+      }
+
+      const walletData = JSON.parse(walletDataStr);
+      const hasWalletData = !!(walletData.address && walletData.privateKey);
 
       console.log('[AuthProvider] Checking wallet status:', {
         hasWalletData,
-        walletAddress: hasWalletData ? JSON.parse(walletData).public_address : null
+        hasAddress: !!walletData.address,
+        hasPrivateKey: !!walletData.privateKey,
+        hasLastActive: !!walletData.lastActive
       });
 
+      // Set hasWallet based on essential wallet data presence
       setHasWallet(hasWalletData);
       
       // Only set authenticated if we have a wallet and are within activity timeout
       if (hasWalletData) {
-        const lastActiveStr = await SecureStore.getItemAsync(LAST_ACTIVE_KEY);
-        const isActive = lastActiveStr ? (Date.now() - parseInt(lastActiveStr, 10)) <= INACTIVITY_TIMEOUT : false;
+        // If no lastActive timestamp exists, set it now
+        if (!walletData.lastActive) {
+          const now = Date.now().toString();
+          await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, now);
+          setIsAuthenticated(true);
+          console.log('[AuthProvider] No last active timestamp found, setting now:', now);
+          return;
+        }
+
+        const isActive = (Date.now() - parseInt(walletData.lastActive, 10)) <= INACTIVITY_TIMEOUT;
         
         console.log('[AuthProvider] Checking activity status:', {
-          lastActive: lastActiveStr ? new Date(parseInt(lastActiveStr, 10)).toISOString() : null,
+          lastActive: new Date(parseInt(walletData.lastActive, 10)).toISOString(),
           isActive,
-          timeDiff: lastActiveStr ? Date.now() - parseInt(lastActiveStr, 10) : null
+          timeDiff: Date.now() - parseInt(walletData.lastActive, 10)
         });
 
         setIsAuthenticated(isActive);
@@ -168,6 +189,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         if (isActive) {
           await updateLastActive();
           console.log('[AuthProvider] Updated last active timestamp');
+        } else {
+          console.log('[AuthProvider] Session expired due to inactivity');
         }
       } else {
         setIsAuthenticated(false);
@@ -187,7 +210,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       setLoading(true);
       // Clear activity timestamp
-      await SecureStore.deleteItemAsync(LAST_ACTIVE_KEY);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
       
       // Don't clear wallet data, just set authenticated to false
       setIsAuthenticated(false);

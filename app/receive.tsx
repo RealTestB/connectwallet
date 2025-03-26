@@ -12,6 +12,7 @@ import {
   StyleSheet,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface Network {
   id: string;
@@ -40,20 +41,19 @@ const Receive: React.FC = () => {
   const [networkId, setNetworkId] = useState<number | null>(null);
 
   useEffect(() => {
+    const loadWalletData = async () => {
+      try {
+        const storedAddress = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
+        const storedNetwork = await SecureStore.getItemAsync(STORAGE_KEYS.NETWORK.ID);
+        if (storedAddress) setWalletAddress(storedAddress);
+        if (storedNetwork) setNetworkId(parseInt(storedNetwork));
+      } catch (error) {
+        console.error('Error loading wallet data:', error);
+      }
+    };
+
     loadWalletData();
-  }, [selectedNetwork]);
-
-  const loadWalletData = async (): Promise<void> => {
-    try {
-      const storedAddress = await SecureStore.getItemAsync("walletAddress");
-      const storedNetwork = await SecureStore.getItemAsync("networkId");
-
-      if (storedAddress) setWalletAddress(storedAddress);
-      if (storedNetwork) setNetworkId(parseInt(storedNetwork));
-    } catch (error) {
-      Alert.alert("Error", "Failed to load wallet data.");
-    }
-  };
+  }, []);
 
   const handleCopyAddress = async (): Promise<void> => {
     if (walletAddress) {

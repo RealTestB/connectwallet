@@ -44,7 +44,7 @@ export const validateEthereumAddress = async (
         try {
           const code = await (provider instanceof JsonRpcProvider 
             ? provider.getCode(checksumAddress)
-            : provider.core.getCode(checksumAddress));
+            : (provider as any).core.getCode(checksumAddress)) as string;
 
           if (code !== "0x") {
             return {

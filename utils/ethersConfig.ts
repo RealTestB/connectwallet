@@ -1,17 +1,18 @@
 import { ethers } from 'ethers';
 import { Platform } from 'react-native';
 
+type FetchDataFunction = (url: string, json?: string, processFunc?: (value: any) => any) => Promise<any>;
+
 // Configure ethers.js for React Native environment
 export function configureEthers() {
   try {
     console.log('[Ethers] Configuring ethers.js for React Native');
     
     // Modify the fetchJson function to add timeout
-    const originalFetchJson = ethers.utils._fetchData;
+    const originalFetchJson = (ethers as any)._fetchData as FetchDataFunction;
     
     if (typeof originalFetchJson === 'function') {
-      // @ts-ignore - Access internal method
-      ethers.utils._fetchData = async (url: string, json?: string, processFunc?: (value: any) => any) => {
+      (ethers as any)._fetchData = async (url: string, json?: string, processFunc?: (value: any) => any) => {
         const fetchPromise = originalFetchJson(url, json, processFunc);
         
         // Create a timeout promise
@@ -33,7 +34,7 @@ export function configureEthers() {
     // Configure additional ethers.js settings
     if (Platform.OS === 'android' || Platform.OS === 'ios') {
       // Reduce polling interval for mobile
-      ethers.providers.StaticJsonRpcProvider.defaultPollingInterval = 8000; // 8 seconds
+      (ethers as any).defaultPollingInterval = 8000; // 8 seconds
       
       console.log('[Ethers] Set mobile-optimized polling interval');
     }
@@ -53,7 +54,7 @@ export function createResilientProvider(
     timeout?: number;
     retries?: number;
   }
-): ethers.providers.JsonRpcProvider {
+): ethers.JsonRpcProvider {
   const timeout = options?.timeout || 15000; // 15 seconds default
   const retries = options?.retries || 3;
   
@@ -61,12 +62,12 @@ export function createResilientProvider(
   
   // Create provider with network information to avoid detection
   const network = chainId ? { chainId, name: `chain-${chainId}` } : undefined;
-  const provider = new ethers.providers.JsonRpcProvider(rpcUrl, network);
+  const provider = new ethers.JsonRpcProvider(rpcUrl, network);
   
   // Enhance the provider's send method with retries and timeout
   const originalSend = provider.send.bind(provider);
-  provider.send = async (method, params) => {
-    let lastError;
+  provider.send = async (method: string, params: any[]) => {
+    let lastError: Error | undefined;
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -87,15 +88,16 @@ export function createResilientProvider(
         
         console.log(`[Ethers] RPC request ${method} successful`);
         return result;
-      } catch (error) {
-        lastError = error;
-        console.warn(`[Ethers] RPC request failed (attempt ${attempt}/${retries}):`, error.message);
+      } catch (error: unknown) {
+        const err = error as Error;
+        lastError = err;
+        console.warn(`[Ethers] RPC request failed (attempt ${attempt}/${retries}):`, err.message);
         
         // Only retry on timeout or network errors, not on RPC errors
-        if (!error.message.includes('timeout') && 
-            !error.message.includes('network') &&
-            !error.message.includes('connection')) {
-          throw error;
+        if (!err.message.includes('timeout') && 
+            !err.message.includes('network') &&
+            !err.message.includes('connection')) {
+          throw err;
         }
         
         // Wait before retry with exponential backoff

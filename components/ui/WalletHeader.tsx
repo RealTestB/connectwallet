@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image } from "react-native";
+import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image, Alert } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getStoredWallet } from "../../api/walletApi";
@@ -18,6 +18,8 @@ export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JS
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadAccounts();
@@ -25,7 +27,10 @@ export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JS
 
   const loadAccounts = async (): Promise<void> => {
     try {
+      setIsLoading(true);
+      setError(null);
       console.log('[WalletHeader] Loading accounts...');
+      
       const walletData = await getStoredWallet();
       console.log('[WalletHeader] Wallet data:', walletData ? 'Found' : 'Not found');
       
@@ -40,13 +45,41 @@ export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JS
           console.log('[WalletHeader] Setting default account:', account.address);
           handleAccountSelection(account);
         }
+      } else {
+        setError("No wallet found. Please create or import a wallet.");
+        Alert.alert(
+          "No Wallet Found",
+          "Please create or import a wallet to continue.",
+          [
+            {
+              text: "Create Wallet",
+              onPress: () => {
+                // Navigate to create wallet screen
+                // This will be handled by the parent component
+                onAccountChange({ address: "", chainId: undefined });
+              }
+            },
+            {
+              text: "Import Wallet",
+              onPress: () => {
+                // Navigate to import wallet screen
+                // This will be handled by the parent component
+                onAccountChange({ address: "", chainId: undefined });
+              }
+            }
+          ]
+        );
       }
     } catch (error) {
       console.error("[WalletHeader] Failed to load accounts:", error);
-      if (error instanceof Error) {
-        console.error("[WalletHeader] Error details:", error.message);
-        console.error("[WalletHeader] Error stack:", error.stack);
-      }
+      setError("Failed to load wallet. Please try again.");
+      Alert.alert(
+        "Error",
+        "Failed to load wallet. Please try again or contact support if the problem persists.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -105,13 +138,26 @@ export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JS
 
       {/* Right Side - Account Selector */}
       <TouchableOpacity 
-        style={styles.accountButton}
-        onPress={() => setIsDropdownOpen(true)}
+        style={[
+          styles.accountButton,
+          isLoading && styles.accountButtonDisabled,
+          error && styles.accountButtonError
+        ]}
+        onPress={() => !isLoading && setIsDropdownOpen(true)}
+        disabled={isLoading}
       >
-        <Text style={styles.accountText}>
-          {selectedAccount ? formatAddress(selectedAccount.address) : "Select Account"}
-        </Text>
-        <Ionicons name="chevron-down" size={16} color="white" style={styles.dropdownIcon} />
+        {isLoading ? (
+          <Text style={styles.accountText}>Loading...</Text>
+        ) : error ? (
+          <Text style={styles.accountTextError}>Error</Text>
+        ) : (
+          <>
+            <Text style={styles.accountText}>
+              {selectedAccount ? formatAddress(selectedAccount.address) : "Select Account"}
+            </Text>
+            <Ionicons name="chevron-down" size={16} color="white" style={styles.dropdownIcon} />
+          </>
+        )}
       </TouchableOpacity>
 
       {/* Account Selection Modal */}
@@ -233,6 +279,16 @@ const styles = StyleSheet.create({
   },
   accountAddressText: {
     color: "#6A9EFF",
+    fontSize: 14,
+  },
+  accountButtonDisabled: {
+    opacity: 0.7,
+  },
+  accountButtonError: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+  },
+  accountTextError: {
+    color: "#ef4444",
     fontSize: 14,
   },
 });

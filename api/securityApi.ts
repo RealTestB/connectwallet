@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import { EncryptedData, CryptoConfig, SecurityConfig } from "../types/crypto";
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 const CRYPTO_CONFIG: CryptoConfig = {
   algorithm: 'AES-GCM',
@@ -157,11 +158,11 @@ export async function getEncryptedData(key: string): Promise<string | null> {
  * ✅ Session Management
  */
 export async function updateLastActive(): Promise<void> {
-  await SecureStore.setItemAsync("lastActiveTimestamp", Date.now().toString());
+  await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, Date.now().toString());
 }
 
 export async function checkSessionValid(): Promise<boolean> {
-  const lastActiveStr = await SecureStore.getItemAsync("lastActiveTimestamp");
+  const lastActiveStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
   if (!lastActiveStr) return false;
   
   const lastActive = parseInt(lastActiveStr);

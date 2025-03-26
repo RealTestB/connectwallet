@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
 import { getProvider } from './provider';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export interface NFTTransferParams {
   contractAddress: string;
@@ -106,7 +107,7 @@ export const transferNFT = async (params: NFTTransferParams): Promise<string> =>
     };
     console.log('[NFTTransactions] Created transfer transaction:', transaction);
 
-    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
     if (!privateKey) {
       console.error('[NFTTransactions] Private key not found in secure storage');
       throw new Error('Private key not found');
@@ -295,7 +296,7 @@ export const sendTransaction = async (txData: any): Promise<string> => {
   console.log('[NFTTransactions] Sending transaction:', txData);
   try {
     const provider = getProvider();
-    const privateKey = await SecureStore.getItemAsync('privateKey');
+    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
     if (!privateKey) {
       console.error('[NFTTransactions] Private key not found');
       throw new Error('Private key not found');
@@ -308,11 +309,20 @@ export const sendTransaction = async (txData: any): Promise<string> => {
     console.log('[NFTTransactions] Transaction sent successfully:', tx.hash);
     return tx.hash;
   } catch (error) {
-    console.error('[NFTTransactions] Error sending transaction:', {
-      txData,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
+    console.error('[NFTTransactions] Error sending transaction:', error);
+    throw error;
+  }
+};
+
+const signTransaction = async (transaction: ethers.Transaction): Promise<string> => {
+  try {
+    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
+    if (!privateKey) throw new Error('No private key found');
+    
+    const wallet = new ethers.Wallet(privateKey);
+    return await wallet.signTransaction(transaction);
+  } catch (error) {
+    console.error('Error signing transaction:', error);
     throw error;
   }
 }; 

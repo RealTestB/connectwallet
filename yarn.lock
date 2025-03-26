@@ -7968,7 +7968,7 @@ lodash.throttle@^4.1.1:
   resolved "https://registry.yarnpkg.com/lodash.throttle/-/lodash.throttle-4.1.1.tgz#c23e91b710242ac70c37f1e1cda9274cc39bf2f4"
   integrity sha512-wIkUCfVKpVsWo3JSZlc+8MB5it+2AN5W8J7YVMST30UrvcQNZ1Okbj+rbVniijTWE6FGYy4XJq/rHkas8qJMLQ==
 
-lodash@^4.17.15, lodash@^4.17.21:
+lodash@^4.17.13, lodash@^4.17.15, lodash@^4.17.21:
   version "4.17.21"
   resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.21.tgz#679591c564c3bffaae8454cf0b3df370c3d6911c"
   integrity sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==
@@ -9056,6 +9056,11 @@ path-type@^4.0.0:
   resolved "https://registry.yarnpkg.com/path-type/-/path-type-4.0.0.tgz#84ed01c0a7ba380afe09d90a8c180dcd9d03043b"
   integrity sha512-gDKb8aZMDeD/tZWs9P6+q0J9Mwkdl6xMV8TjnGP3qJVJ06bdMgkbBlLU8IdfOsIsFz2BW1rNVT3XuNEl8zPAvw==
 
+paths-js@^0.4.10:
+  version "0.4.11"
+  resolved "https://registry.yarnpkg.com/paths-js/-/paths-js-0.4.11.tgz#b2a9d5f94ee9949aa8fee945f78a12abff44599e"
+  integrity sha512-3mqcLomDBXOo7Fo+UlaenG6f71bk1ZezPQy2JCmYHy2W2k5VKpP+Jbin9H0bjXynelTbglCqdFhSEkeIkKTYUA==
+
 pbkdf2@3.0.8:
   version "3.0.8"
   resolved "https://registry.yarnpkg.com/pbkdf2/-/pbkdf2-3.0.8.tgz#2f8abf16ebecc82277945d748aba1d78761f61e2"
@@ -9168,6 +9173,11 @@ pngjs@^5.0.0:
   version "5.0.0"
   resolved "https://registry.yarnpkg.com/pngjs/-/pngjs-5.0.0.tgz#e79dd2b215767fd9c04561c01236df960bce7fbb"
   integrity sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==
+
+point-in-polygon@^1.0.1:
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/point-in-polygon/-/point-in-polygon-1.1.0.tgz#b0af2616c01bdee341cbf2894df643387ca03357"
+  integrity sha512-3ojrFwjnnw8Q9242TzgXuTD+eKiutbzyslcq1ydfu82Db2y+Ogbmyrkpv0Hgj31qwT3lbS9+QAAO/pIQM35XRw==
 
 possible-typed-array-names@^1.0.0:
   version "1.1.0"
@@ -9474,6 +9484,15 @@ react-native-animatable@1.4.0:
   dependencies:
     prop-types "^15.8.1"
 
+react-native-chart-kit@^6.12.0:
+  version "6.12.0"
+  resolved "https://registry.yarnpkg.com/react-native-chart-kit/-/react-native-chart-kit-6.12.0.tgz#187a4987a668a85b7e93588c248ed2c33b3a06f6"
+  integrity sha512-nZLGyCFzZ7zmX0KjYeeSV1HKuPhl1wOMlTAqa0JhlyW62qV/1ZPXHgT8o9s8mkFaGxdqbspOeuaa6I9jUQDgnA==
+  dependencies:
+    lodash "^4.17.13"
+    paths-js "^0.4.10"
+    point-in-polygon "^1.0.1"
+
 react-native-crypto@^2.0.1:
   version "2.2.0"
   resolved "https://registry.yarnpkg.com/react-native-crypto/-/react-native-crypto-2.2.0.tgz#c999ed7c96064f830e1f958687f53d0c44025770"
@@ -9607,10 +9626,10 @@ react-native-size-matters@^0.4.0:
   resolved "https://registry.yarnpkg.com/react-native-size-matters/-/react-native-size-matters-0.4.2.tgz#4348bdd6fc47383f60326d58ad69870c998a5f9a"
   integrity sha512-DKE3f/sdcozd24oASgkP1iGg+YU3HoajRa5k3a4wkRzpiqREq8SGX12Y5zBgAt/8IivLQoTMYkyQu1/Giuy+zQ==
 
-react-native-svg@15.8.0:
-  version "15.8.0"
-  resolved "https://registry.yarnpkg.com/react-native-svg/-/react-native-svg-15.8.0.tgz#9b5fd4f5cf5675197b3f4cbfcc77c215de2b9502"
-  integrity sha512-KHJzKpgOjwj1qeZzsBjxNdoIgv2zNCO9fVcoq2TEhTRsVV5DGTZ9JzUZwybd7q4giT/H3RdtqC3u44dWdO0Ffw==
+react-native-svg@^15.11.2:
+  version "15.11.2"
+  resolved "https://registry.yarnpkg.com/react-native-svg/-/react-native-svg-15.11.2.tgz#7540e8e1eabc4dcd3b1e35ada5a1d9f1b96d37c4"
+  integrity sha512-+YfF72IbWQUKzCIydlijV1fLuBsQNGMT6Da2kFlo1sh+LE3BIm/2Q7AR1zAAR6L0BFLi1WaQPLfFUC9bNZpOmw==
   dependencies:
     css-select "^5.1.0"
     css-tree "^1.1.3"

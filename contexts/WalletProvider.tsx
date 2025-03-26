@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { Wallet, ethers } from 'ethers';
 import config from '../api/config';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface WalletContextType {
   isInitialized: boolean;
@@ -41,7 +42,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsLoading(true);
       
       // Load stored account if exists
-      const address = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses);
+      const address = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
       if (address) {
         setAccount(address);
       }
@@ -57,23 +58,16 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const createWallet = async () => {
     try {
-      setIsLoading(true);
-      // Generate a random wallet
       const wallet = ethers.Wallet.createRandom();
-      
-      // Store the private key and seed phrase securely
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.privateKey, wallet.privateKey);
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.seedPhrase, wallet.mnemonic?.phrase || '');
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.addresses, wallet.address);
-      
-      setAccount(wallet.address);
+      if (!wallet.mnemonic?.phrase) {
+        throw new Error('Failed to generate seed phrase');
+      }
+
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, wallet.mnemonic.phrase);
       return wallet.address;
-    } catch (err) {
-      console.error('Failed to create wallet:', err);
-      setError('Failed to create wallet');
-      throw err;
-    } finally {
-      setIsLoading(false);
+    } catch (error) {
+      console.error('Error creating wallet:', error);
+      throw error;
     }
   };
 
@@ -84,8 +78,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const wallet = new ethers.Wallet(privateKey);
       
       // Store the private key securely
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.privateKey, wallet.privateKey);
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.addresses, wallet.address);
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, wallet.privateKey);
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_ADDRESS, wallet.address);
       
       setAccount(wallet.address);
       return wallet.address;
@@ -100,29 +94,18 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const importFromSeedPhrase = async (seedPhrase: string) => {
     try {
-      setIsLoading(true);
-      // Create wallet instance from seed phrase
       const wallet = ethers.Wallet.fromPhrase(seedPhrase);
-      
-      // Store the private key and seed phrase securely
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.privateKey, wallet.privateKey);
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.seedPhrase, seedPhrase);
-      await SecureStore.setItemAsync(config.wallet.classic.storageKeys.addresses, wallet.address);
-      
-      setAccount(wallet.address);
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, seedPhrase);
       return wallet.address;
-    } catch (err) {
-      console.error('Failed to import wallet from seed phrase:', err);
-      setError('Failed to import wallet from seed phrase');
-      throw err;
-    } finally {
-      setIsLoading(false);
+    } catch (error) {
+      console.error('Error importing from seed phrase:', error);
+      throw error;
     }
   };
 
   const signTransaction = async (transaction: ethers.Transaction) => {
     try {
-      const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+      const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
       if (!privateKey) throw new Error('No private key found');
       
       const wallet = new ethers.Wallet(privateKey);
@@ -137,7 +120,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const signMessage = async (message: string) => {
     try {
-      const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+      const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
       if (!privateKey) throw new Error('No private key found');
       
       const wallet = new ethers.Wallet(privateKey);

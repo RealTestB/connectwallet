@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ethers } from "ethers";
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface Account {
   address: string;
@@ -82,8 +83,8 @@ export default function PayScreen(): JSX.Element {
 
   const loadWalletData = async (): Promise<void> => {
     try {
-      const storedWallet = await SecureStore.getItemAsync("walletAddress");
-      const storedNetwork = await SecureStore.getItemAsync("networkId");
+      const storedWallet = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
+      const storedNetwork = await SecureStore.getItemAsync(STORAGE_KEYS.NETWORK.ID);
 
       if (storedWallet) setWalletAddress(storedWallet);
       if (storedNetwork) {

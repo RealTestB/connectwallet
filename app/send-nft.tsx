@@ -7,6 +7,7 @@ import { estimateNFTTransferGas, transferNFT } from '../api/nftTransactionsApi';
 import * as SecureStore from 'expo-secure-store';
 import config from '../api/config';
 import { useLocalSearchParams } from 'expo-router';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 type SendNFTScreenRouteProp = RouteProp<RootStackParamList, 'send-nft'>;
 
@@ -29,10 +30,9 @@ export default function SendNFTScreen(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load wallet address
-    const loadWalletAddress = async () => {
+    const loadWalletData = async () => {
       try {
-        const address = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses);
+        const address = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
         if (address) {
           setFromAddress(address);
         }
@@ -41,7 +41,7 @@ export default function SendNFTScreen(): JSX.Element {
       }
     };
 
-    loadWalletAddress();
+    loadWalletData();
   }, []);
 
   const validateAddress = (address: string): boolean => {

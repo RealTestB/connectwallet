@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
 import { getProvider } from './provider';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export interface Transaction {
   hash: string;
@@ -169,7 +170,7 @@ export const estimateGas = async (request: TransactionRequest): Promise<GasEstim
   const provider = getProvider();
   
   try {
-    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
     if (!privateKey) {
       console.error('[TransactionsApi] Private key not found in secure storage');
       throw new Error('Private key not found');
@@ -201,12 +202,8 @@ export const estimateGas = async (request: TransactionRequest): Promise<GasEstim
       maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? undefined
     };
   } catch (error) {
-    console.error('[TransactionsApi] Gas estimation error:', {
-      request,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to estimate gas');
+    console.error('[TransactionsApi] Gas estimation error:', error);
+    throw error;
   }
 };
 
@@ -218,7 +215,7 @@ export const sendTransaction = async (request: TransactionRequest): Promise<stri
   const provider = getProvider();
   
   try {
-    const privateKey = await SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey);
+    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
     if (!privateKey) {
       console.error('[TransactionsApi] Private key not found in secure storage');
       throw new Error('Private key not found');
@@ -247,11 +244,20 @@ export const sendTransaction = async (request: TransactionRequest): Promise<stri
     console.log('[TransactionsApi] Transaction sent:', tx.hash);
     return tx.hash;
   } catch (error) {
-    console.error('[TransactionsApi] Transaction error:', {
-      request,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to send transaction');
+    console.error('[TransactionsApi] Transaction error:', error);
+    throw error;
+  }
+};
+
+const signTransaction = async (transaction: ethers.Transaction): Promise<string> => {
+  try {
+    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
+    if (!privateKey) throw new Error('No private key found');
+    
+    const wallet = new ethers.Wallet(privateKey);
+    return await wallet.signTransaction(transaction);
+  } catch (error) {
+    console.error('Error signing transaction:', error);
+    throw error;
   }
 }; 

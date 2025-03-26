@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { COLORS } from '../styles/shared';
 import * as SecureStore from 'expo-secure-store';
 import config from '../api/config';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export default function Index() {
   const router = useRouter();
@@ -17,8 +18,8 @@ export default function Index() {
       try {
         console.log('[Index] Checking wallet status...');
         
-        // Check if we have a wallet with a timeout
-        const hasWalletPromise = SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses);
+        // Check if we have wallet data with a timeout
+        const walletDataPromise = SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
         
         // Add a timeout to prevent hanging
         const timeoutPromise = new Promise((_, reject) => {
@@ -28,16 +29,16 @@ export default function Index() {
         });
         
         // Race the promises
-        const hasWallet = await Promise.race([hasWalletPromise, timeoutPromise]);
+        const walletDataStr = await Promise.race([walletDataPromise, timeoutPromise]);
         
         if (!mounted) return;
         clearTimeout(timeout);
 
-        console.log('[Index] Wallet check complete, has wallet:', !!hasWallet);
+        console.log('[Index] Wallet check complete, has wallet data:', !!walletDataStr);
         
         // Navigate based on wallet status
         timeout = setTimeout(() => {
-          if (hasWallet) {
+          if (walletDataStr) {
             router.replace('/signin');
           } else {
             router.replace('/welcome');

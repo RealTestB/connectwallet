@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
 import { WalletData } from './walletApi';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+import { verifyPassword } from './securityApi';
 
 export interface AuthData {
   isAuthenticated: boolean;
@@ -14,28 +16,30 @@ export interface AuthData {
 export const checkAuth = async (): Promise<AuthData> => {
   console.log('[AuthApi] Checking authentication status');
   try {
-    const [privateKey, walletAddress, walletPassword] = await Promise.all([
-      SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey),
-      SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses),
-      SecureStore.getItemAsync('walletPassword')
-    ]);
+    const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+    if (!walletDataStr) {
+      console.log('[AuthApi] No wallet data found');
+      return {
+        isAuthenticated: false,
+        wallet: null
+      };
+    }
 
-    const hasWallet = !!(privateKey && walletAddress);
-    const isAuthenticated = hasWallet;
+    const walletData = JSON.parse(walletDataStr);
+    const hasWallet = !!(walletData.address && walletData.privateKey);
 
     console.log('[AuthApi] Auth check result:', {
-      isAuthenticated,
       hasWallet,
-      walletAddress: walletAddress || null
+      walletAddress: walletData.address || null
     });
 
     return {
-      isAuthenticated,
+      isAuthenticated: hasWallet,
       wallet: hasWallet ? {
-        address: walletAddress!,
+        address: walletData.address,
         type: 'classic',
         chainId: config.chain.chainId,
-        hasPassword: !!walletPassword
+        hasPassword: true
       } : null
     };
   } catch (error) {
@@ -53,27 +57,35 @@ export const checkAuth = async (): Promise<AuthData> => {
 export const signIn = async (password: string): Promise<AuthData> => {
   console.log('[AuthApi] Signing in');
   try {
-    const storedPassword = await SecureStore.getItemAsync('walletPassword');
+    // Verify password
+    const storedPassword = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
     if (!storedPassword || storedPassword !== password) {
       console.error('[AuthApi] Invalid password');
       throw new Error('Invalid password');
     }
 
-    const [privateKey, walletAddress] = await Promise.all([
-      SecureStore.getItemAsync(config.wallet.classic.storageKeys.privateKey),
-      SecureStore.getItemAsync(config.wallet.classic.storageKeys.addresses)
-    ]);
-
-    if (!privateKey || !walletAddress) {
-      console.error('[AuthApi] Wallet credentials not found');
-      throw new Error('Wallet credentials not found');
+    // Get wallet data
+    const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+    if (!walletDataStr) {
+      console.error('[AuthApi] Wallet data not found');
+      throw new Error('Wallet data not found');
     }
+
+    const walletData = JSON.parse(walletDataStr);
+    if (!walletData.address || !walletData.privateKey) {
+      console.error('[AuthApi] Invalid wallet data');
+      throw new Error('Invalid wallet data');
+    }
+
+    // Update lastActive
+    walletData.lastActive = Date.now().toString();
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
 
     console.log('[AuthApi] Sign in successful');
     return {
       isAuthenticated: true,
       wallet: {
-        address: walletAddress,
+        address: walletData.address,
         type: 'classic',
         chainId: config.chain.chainId,
         hasPassword: true
@@ -95,9 +107,8 @@ export const signOut = async (): Promise<void> => {
   console.log('[AuthApi] Signing out');
   try {
     await Promise.all([
-      SecureStore.deleteItemAsync(config.wallet.classic.storageKeys.privateKey),
-      SecureStore.deleteItemAsync(config.wallet.classic.storageKeys.addresses),
-      SecureStore.deleteItemAsync('walletPassword')
+      SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY),
+      SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_ADDRESS)
     ]);
     console.log('[AuthApi] Sign out successful');
   } catch (error) {
@@ -106,5 +117,16 @@ export const signOut = async (): Promise<void> => {
       stack: error instanceof Error ? error.stack : undefined
     });
     throw new Error('Failed to sign out');
+  }
+};
+
+export const verifyWalletPassword = async (password: string): Promise<boolean> => {
+  try {
+    const storedPassword = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+    if (!storedPassword) return false;
+    return await verifyPassword(password, storedPassword);
+  } catch (error) {
+    console.error('Error verifying password:', error);
+    return false;
   }
 }; 

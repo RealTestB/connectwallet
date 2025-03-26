@@ -7,7 +7,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from 'expo-secure-store';
 import { verifyPassword } from "../api/securityApi";
-import { getUserData } from "../api/dualStorageApi";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 
 const MAX_NAVIGATION_ATTEMPTS = 3;
 const FETCH_TIMEOUT = 8000; // 8 seconds timeout
@@ -75,8 +75,8 @@ export default function Page() {
       setIsLoading(true);
       setError(null);
 
-      // Get stored password hash
-      const storedPasswordHash = await fetchWithTimeout("passwordHash");
+      // Get stored password hash using correct storage key
+      const storedPasswordHash = await fetchWithTimeout(STORAGE_KEYS.WALLET_PASSWORD);
       if (!storedPasswordHash) {
         throw new Error("No password found in secure storage");
       }
