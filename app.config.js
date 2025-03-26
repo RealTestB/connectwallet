@@ -2,7 +2,7 @@ module.exports = {
   expo: {
     name: "ConnectWallet",
     slug: "connectwallet",
-    version: "1.0.1",
+    version: "1.0.2",
     runtimeVersion: {
       policy: "sdkVersion"
     },
@@ -46,7 +46,7 @@ module.exports = {
     },
     android: {
       package: "com.concordianova.connectwallet",
-      versionCode: 68,
+      versionCode: 71,
       adaptiveIcon: {
         foregroundImage: "./assets/images/adaptive-icon.png",
         backgroundColor: "#ffffff"

@@ -9,7 +9,7 @@ import { getTokenPrice, getTokenPriceHistory, getNativeBalance } from '../api/to
 import { Network } from 'alchemy-sdk';
 import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEYS } from '../constants/storageKeys';
-import { LineChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-wagmi-charts';
 
 interface Token {
   symbol: string;
@@ -22,7 +22,10 @@ interface Token {
   balanceUSD: number;
   priceChange24h: number;
   isNative: boolean;
-  priceHistory: Array<[number, number]>;
+  priceHistory: Array<{
+    timestamp: number;
+    value: number;
+  }>;
 }
 
 interface Account {
@@ -99,11 +102,17 @@ export default function Portfolio(): JSX.Element {
             balance = walletData.balance || "0";
           }
           
-          // Get price and price history in parallel
-          const [priceData, priceHistory] = await Promise.all([
+          // Get price and 24h price history in parallel
+          const [priceData, priceHistoryData] = await Promise.all([
             getTokenPrice(token.address),
-            getTokenPriceHistory(token.address, 7)
+            getTokenPriceHistory(token.address, 1) // 1 day instead of 7
           ]);
+
+          // Transform price history data to match the expected format
+          const priceHistory = priceHistoryData.map(([timestamp, value]) => ({
+            timestamp,
+            value
+          }));
 
           return {
             ...token,
@@ -115,7 +124,10 @@ export default function Portfolio(): JSX.Element {
           };
         } catch (error) {
           console.error(`[Portfolio] Error updating token ${token.symbol}:`, error);
-          return token;
+          return {
+            ...token,
+            priceHistory: []
+          };
         }
       }));
 
@@ -166,38 +178,16 @@ export default function Portfolio(): JSX.Element {
           </View>
 
           {/* Price Chart */}
-          {token.priceHistory && token.priceHistory.length > 0 ? (
+          {token.priceHistory.length > 0 ? (
             <View style={styles.chartContainer}>
-              <LineChart
-                data={{
-                  labels: [],
-                  datasets: [{
-                    data: token.priceHistory.map(point => point[1])
-                  }]
-                }}
-                width={screenWidth - 64} // Adjust based on padding
-                height={100}
-                chartConfig={{
-                  backgroundColor: 'transparent',
-                  backgroundGradientFrom: 'transparent',
-                  backgroundGradientTo: 'transparent',
-                  decimalPlaces: 2,
-                  color: (opacity = 1) => priceChangeColor,
-                  style: {
-                    borderRadius: 16
-                  }
-                }}
-                bezier
-                style={{
-                  marginVertical: 8,
-                  borderRadius: 16
-                }}
-                withDots={false}
-                withInnerLines={false}
-                withOuterLines={false}
-                withVerticalLabels={false}
-                withHorizontalLabels={false}
-              />
+              <LineChart.Provider data={token.priceHistory}>
+                <LineChart height={100} width={screenWidth - 64}>
+                  <LineChart.Path color={priceChangeColor} width={2} />
+                  <LineChart.CursorCrosshair>
+                    <LineChart.Tooltip />
+                  </LineChart.CursorCrosshair>
+                </LineChart>
+              </LineChart.Provider>
             </View>
           ) : (
             <View style={styles.chartContainer}>
