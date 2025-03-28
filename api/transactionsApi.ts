@@ -69,13 +69,6 @@ export interface TransactionRequest {
   from?: string;
 }
 
-export interface GasEstimate {
-  gasLimit: bigint;
-  gasPrice: bigint;
-  maxFeePerGas?: bigint;
-  maxPriorityFeePerGas?: bigint;
-}
-
 let alchemyInstance: Alchemy | null = null;
 let provider: ethers.JsonRpcProvider | null = null;
 
@@ -160,45 +153,6 @@ export const getTransaction = async (
   } catch (error) {
     console.error('Failed to fetch transaction:', error);
     return null;
-  }
-};
-
-/**
- * Estimate gas for a transaction
- */
-export const estimateGas = async (request: TransactionRequest): Promise<GasEstimate> => {
-  console.log('[TransactionsApi] Estimating gas:', request);
-  const provider = getProvider();
-  
-  try {
-    // For gas estimation, we don't need a signer/wallet
-    // Just create the transaction object
-    const txObject = {
-      to: request.to,
-      value: ethers.parseEther(request.value || '0'),
-      data: request.data || '0x',
-      from: request.from // Include from address for more accurate estimation
-    };
-    console.log('[TransactionsApi] Created transaction object for gas estimation:', txObject);
-
-    const [gasEstimate, feeData] = await Promise.all([
-      provider.estimateGas(txObject),
-      provider.getFeeData()
-    ]);
-    console.log('[TransactionsApi] Gas estimation results:', {
-      gasEstimate: gasEstimate.toString(),
-      gasPrice: feeData.gasPrice?.toString()
-    });
-
-    return {
-      gasLimit: gasEstimate,
-      gasPrice: feeData.gasPrice ?? BigInt(0),
-      maxFeePerGas: feeData.maxFeePerGas ?? undefined,
-      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? undefined
-    };
-  } catch (error) {
-    console.error('[TransactionsApi] Gas estimation error:', error);
-    throw error;
   }
 };
 

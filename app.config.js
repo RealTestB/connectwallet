@@ -83,6 +83,7 @@ module.exports = {
     owner: "connectwallet",
     plugins: [
       ["expo-dev-client"],
+      ["expo-barcode-scanner"],
       [
         "expo-build-properties",
         {

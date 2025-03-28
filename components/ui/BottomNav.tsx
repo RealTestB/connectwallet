@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 
-type TabId = "portfolio" | "nft" | "pay" | "settings";
+type TabId = "portfolio" | "nft" | "pay" | "receive" | "settings";
 
 interface Tab {
   id: TabId;
@@ -24,6 +24,7 @@ export default function BottomNav({ activeTab = "portfolio" }: BottomNavProps): 
     { id: "portfolio", label: "Portfolio", icon: "wallet-outline", route: "/portfolio" },
     { id: "nft", label: "NFT", icon: "grid-outline", route: "/nft" },
     { id: "pay", label: "Pay", icon: "swap-horizontal-outline", route: "/pay" },
+    { id: "receive", label: "Receive", icon: "download-outline", route: "/receive" },
     { id: "settings", label: "Settings", icon: "settings-outline", route: "/settings" },
   ];
 

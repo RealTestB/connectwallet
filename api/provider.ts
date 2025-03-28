@@ -155,6 +155,17 @@ const createResilientProvider = (network: string, url: string): ethers.JsonRpcPr
         params,
         timestamp: Date.now()
       });
+
+      // Validate transaction parameters
+      const tx = params[0];
+      if (!tx || !tx.to) {
+        const error = new Error('Invalid transaction parameters: missing required fields');
+        provider.emit('gasEstimationError', {
+          error: error.message,
+          timestamp: Date.now()
+        });
+        throw error;
+      }
     }
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -191,6 +202,25 @@ const createResilientProvider = (network: string, url: string): ethers.JsonRpcPr
             // Emit insufficient funds event
             provider.emit('gasEstimationInsufficientFunds', {
               error: error.message,
+              timestamp: Date.now()
+            });
+            
+            throw error;
+          }
+
+          // Handle other common Alchemy error codes
+          if (result?.error?.code) {
+            const error = new Error(`Gas estimation failed: ${result.error.message}`);
+            error.name = 'GasEstimationError';
+            console.error('[Provider] Gas estimation error:', {
+              code: result.error.code,
+              message: result.error.message,
+              timestamp: new Date().toISOString()
+            });
+            
+            provider.emit('gasEstimationError', {
+              error: error.message,
+              code: result.error.code,
               timestamp: Date.now()
             });
             
@@ -239,10 +269,11 @@ const createResilientProvider = (network: string, url: string): ethers.JsonRpcPr
           if (attempt === maxRetries) {
             try {
               console.log('[Provider] Attempting fallback gas estimation');
-              // Use a simpler gas estimation method
+              // Use a simpler gas estimation method with standard ETH transfer gas limit
               const fallbackResult = await originalSend('eth_estimateGas', [{
                 ...params[0],
-                gas: '0x5208' // Standard ETH transfer gas limit
+                gas: '0x5208', // Standard ETH transfer gas limit
+                value: params[0].value || '0x0'
               }]);
               
               if (fallbackResult) {

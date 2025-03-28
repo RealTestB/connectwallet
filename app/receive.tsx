@@ -1,203 +1,173 @@
-import BottomNav from "../components/ui/BottomNav";
-import WalletHeader from "../components/ui/WalletHeader";
-import * as Clipboard from "expo-clipboard";
-import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import {
-  Alert,
-  Share,
-  Text,
-  TouchableOpacity,
-  View,
-  StyleSheet,
-} from "react-native";
-import QRCode from "react-native-qrcode-svg";
+import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import QRCode from 'react-native-qrcode-svg';
+import * as Clipboard from 'expo-clipboard';
+import { Ionicons } from "@expo/vector-icons";
+import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import WalletHeader from "../components/ui/WalletHeader";
+import BottomNav from "../components/ui/BottomNav";
+import { COLORS, SPACING, sharedStyles } from '../styles/shared';
+import { useRouter } from 'expo-router';
 
-interface Network {
-  id: string;
-  name: string;
-  chainId: number;
-}
+export default function ReceiveScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [walletAddress, setWalletAddress] = useState<string>('');
+  const [copied, setCopied] = useState(false);
 
-interface Account {
-  address: string;
-  name?: string;
-  chainId?: number;
-}
-
-const networks: Network[] = [
-  { id: "ethereum", name: "Ethereum", chainId: 1 },
-  { id: "polygon", name: "Polygon", chainId: 137 },
-  { id: "arbitrum", name: "Arbitrum", chainId: 42161 },
-  { id: "optimism", name: "Optimism", chainId: 10 },
-  { id: "avalanche", name: "Avalanche", chainId: 43114 },
-  { id: "bsc", name: "Binance Smart Chain", chainId: 56 },
-];
-
-const Receive: React.FC = () => {
-  const [selectedNetwork, setSelectedNetwork] = useState<string>("ethereum");
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [networkId, setNetworkId] = useState<number | null>(null);
+  const handleAccountChange = (account: { address: string }) => {
+    setWalletAddress(account.address);
+  };
 
   useEffect(() => {
-    const loadWalletData = async () => {
-      try {
-        const storedAddress = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
-        const storedNetwork = await SecureStore.getItemAsync(STORAGE_KEYS.NETWORK.ID);
-        if (storedAddress) setWalletAddress(storedAddress);
-        if (storedNetwork) setNetworkId(parseInt(storedNetwork));
-      } catch (error) {
-        console.error('Error loading wallet data:', error);
-      }
-    };
-
-    loadWalletData();
+    loadWalletAddress();
   }, []);
 
-  const handleCopyAddress = async (): Promise<void> => {
-    if (walletAddress) {
+  const loadWalletAddress = async () => {
+    try {
+      const address = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
+      if (address) {
+        setWalletAddress(address);
+      }
+    } catch (error) {
+      console.error('Error loading wallet address:', error);
+    }
+  };
+
+  const copyToClipboard = async () => {
+    try {
       await Clipboard.setStringAsync(walletAddress);
-      Alert.alert("Copied!", "Wallet address has been copied to clipboard.");
-    }
-  };
-
-  const handleShare = async (): Promise<void> => {
-    if (walletAddress) {
-      try {
-        await Share.share({
-          message: `My Wallet Address: ${walletAddress}`,
-        });
-      } catch (error) {
-        Alert.alert("Error", "Failed to share address");
-      }
-    }
-  };
-
-  const handleAccountChange = (account: Account): void => {
-    setWalletAddress(account.address);
-    if (account.chainId) {
-      setNetworkId(account.chainId);
-      const network = networks.find(n => n.chainId === account.chainId);
-      if (network) {
-        setSelectedNetwork(network.id);
-      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <View style={sharedStyles.container}>
+      <Image 
+        source={require('../assets/background.png')} 
+        style={sharedStyles.backgroundImage}
+      />
+
       <WalletHeader 
-        pageName="Receive"
         onAccountChange={handleAccountChange}
       />
 
-      <Text style={styles.title}>Receive Tokens</Text>
+      <View style={[styles.content, { paddingTop: insets.top + 80 }]}>
+        <View style={styles.card}>
+          <View style={styles.qrSection}>
+            <View style={styles.qrHeader}>
+              <Text style={styles.qrLabel}>Receive Tokens</Text>
+              <TouchableOpacity 
+                style={styles.scanButton}
+                onPress={() => router.push('/scan-qr')}
+              >
+                <Ionicons name="scan" size={20} color={COLORS.white} />
+                <Text style={styles.scanButtonText}>Scan QR</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.qrContainer}>
+              {walletAddress && (
+                <QRCode
+                  value={walletAddress}
+                  size={200}
+                  backgroundColor='white'
+                  color='black'
+                />
+              )}
+            </View>
+          </View>
 
-      {/* Network Selector */}
-      <Text style={styles.label}>Select Network</Text>
-      <View style={styles.networkSelector}>
-        {networks.map((network) => (
-          <TouchableOpacity
-            key={network.id}
-            style={[
-              styles.networkButton,
-              selectedNetwork === network.id && styles.activeNetwork,
-            ]}
-            onPress={() => setSelectedNetwork(network.id)}
+          <TouchableOpacity 
+            style={styles.addressBox} 
+            onPress={copyToClipboard}
+            activeOpacity={0.7}
           >
-            <Text style={styles.networkText}>{network.name}</Text>
+            <Text style={styles.address}>{walletAddress}</Text>
+            <Ionicons 
+              name={copied ? "checkmark" : "copy-outline"} 
+              size={20} 
+              color={copied ? COLORS.success : COLORS.white} 
+            />
           </TouchableOpacity>
-        ))}
+          
+          <Text style={styles.helperText}>
+            Tap address to copy to clipboard
+          </Text>
+        </View>
       </View>
-
-      {/* QR Code */}
-      <View style={styles.qrContainer}>
-        {walletAddress ? (
-          <QRCode value={walletAddress} size={200} backgroundColor="white" />
-        ) : (
-          <Text style={styles.loadingText}>Loading...</Text>
-        )}
-      </View>
-
-      {/* Wallet Address */}
-      <Text style={styles.label}>Wallet Address</Text>
-      <TouchableOpacity style={styles.addressContainer} onPress={handleCopyAddress}>
-        <Text style={styles.addressText}>{walletAddress || "Loading..."}</Text>
-      </TouchableOpacity>
-
-      {/* Share Button */}
-      <TouchableOpacity onPress={handleShare} style={styles.shareButton}>
-        <Text style={styles.shareButtonText}>Share Address</Text>
-      </TouchableOpacity>
 
       <BottomNav activeTab="receive" />
     </View>
   );
-};
+}
 
-// Styles
 const styles = StyleSheet.create({
-  container: {
+  content: {
     flex: 1,
-    backgroundColor: "#1A2F6C",
-    padding: 16,
+    paddingHorizontal: SPACING.lg,
   },
-  title: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 10,
+  card: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 16,
+    padding: SPACING.lg,
   },
-  label: {
-    color: "white",
-    marginBottom: 5,
+  qrSection: {
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
   },
-  networkSelector: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    marginBottom: 15,
+  qrHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: SPACING.md,
   },
-  networkButton: {
-    backgroundColor: "#333",
-    padding: 10,
-    borderRadius: 5,
-    margin: 5,
+  qrLabel: {
+    fontSize: 16,
+    color: COLORS.white,
   },
-  activeNetwork: {
-    backgroundColor: "#007bff",
+  scanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 8,
   },
-  networkText: {
-    color: "white",
+  scanButtonText: {
+    color: COLORS.white,
+    marginLeft: SPACING.xs,
+    fontSize: 14,
   },
   qrContainer: {
-    alignItems: "center",
-    marginVertical: 20,
+    backgroundColor: COLORS.white,
+    padding: SPACING.md,
+    borderRadius: 12,
   },
-  loadingText: {
-    color: "white",
+  addressBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    padding: SPACING.md,
   },
-  addressContainer: {
-    backgroundColor: "white",
-    padding: 10,
-    borderRadius: 5,
+  address: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+    marginRight: SPACING.sm,
   },
-  addressText: {
-    fontFamily: "monospace",
+  helperText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: SPACING.sm,
   },
-  shareButton: {
-    backgroundColor: "#007bff",
-    padding: 15,
-    borderRadius: 5,
-    marginTop: 20,
-  },
-  shareButtonText: {
-    color: "white",
-    textAlign: "center",
-    fontWeight: "bold",
-  },
-});
-
-export default Receive; 
+}); 

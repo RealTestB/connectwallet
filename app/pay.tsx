@@ -1,5 +1,6 @@
-import { getTokenBalances, Token, getStoredTokenBalances, TokenBalanceResult } from "../api/tokensApi";
-import { sendTransaction, TransactionRequest, estimateGas } from "../api/transactionsApi";
+import { getTokenBalances, getStoredTokenBalances, TokenBalanceResult, estimateTokenTransferGas, makeAlchemyRequest } from "../api/tokensApi";
+import { sendTransaction, TransactionRequest } from "../api/transactionsApi";
+import { getProvider } from "../api/provider";
 import BottomNav from "../components/ui/BottomNav";
 import WalletHeader from "../components/ui/WalletHeader";
 import { validateEthereumAddress } from "../utils/validators";
@@ -18,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ethers } from "ethers";
 import { COLORS, SPACING } from '../styles/shared';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import { useLocalSearchParams } from "expo-router";
 
 interface Account {
   address: string;
@@ -47,11 +49,24 @@ export interface ExtendedTransactionRequest extends TransactionRequest {
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'pay'>;
 
+interface Token {
+  address: string;
+  symbol: string;
+  decimals: number;
+  balance: string;
+  price?: number;
+  name?: string;
+  logo?: string;
+  balanceUSD?: number;
+  priceChange24h?: number;
+}
+
 export default function PayScreen(): JSX.Element {
   const navigation = useNavigation<NavigationProp>();
   const router = useRouter();
+  const params = useLocalSearchParams<{ scannedAddress?: string }>();
   const insets = useSafeAreaInsets();
-  const [selectedToken, setSelectedToken] = useState<string>("ETH");
+  const [selectedToken, setSelectedToken] = useState<Token | null>(null);
   const [amount, setAmount] = useState<string>("");
   const [recipient, setRecipient] = useState<string>("");
   const [usdValue, setUsdValue] = useState<string>("0.00");
@@ -101,7 +116,7 @@ export default function PayScreen(): JSX.Element {
           setTokens(portfolioData.tokens);
           
           // Update price for currently selected token
-          const selectedTokenData = portfolioData.tokens.find((t: Token) => t.symbol === selectedToken);
+          const selectedTokenData = portfolioData.tokens.find((t: Token) => t.symbol === selectedToken?.symbol);
           if (selectedTokenData?.price) {
             console.log('[Pay] Updating price from refresh:', selectedTokenData.price);
             setTokenPrice(selectedTokenData.price);
@@ -112,9 +127,9 @@ export default function PayScreen(): JSX.Element {
       }
     };
 
-    // Refresh immediately and then every 30 seconds
+    // Refresh immediately and then every 2 minutes
     refreshPortfolio();
-    const refreshInterval = setInterval(refreshPortfolio, 30000);
+    const refreshInterval = setInterval(refreshPortfolio, 120000);
 
     return () => clearInterval(refreshInterval);
   }, []);
@@ -155,9 +170,9 @@ export default function PayScreen(): JSX.Element {
         setTokens(portfolioData.tokens);
 
         // Set initial token price if we have a selected token
-        const selectedTokenData = portfolioData.tokens.find((t: Token) => t.symbol === selectedToken);
+        const selectedTokenData = portfolioData.tokens.find((t: Token) => t.symbol === selectedToken?.symbol);
         console.log('[Pay] Selected token data:', {
-          symbol: selectedToken,
+          symbol: selectedToken?.symbol,
           price: selectedTokenData?.price,
           found: !!selectedTokenData
         });
@@ -175,9 +190,9 @@ export default function PayScreen(): JSX.Element {
 
   // Add effect to update token price when selected token changes
   useEffect(() => {
-    const selectedTokenData = tokens.find(t => t.symbol === selectedToken);
+    const selectedTokenData = tokens.find(t => t.symbol === selectedToken?.symbol);
     console.log('[Pay] Token selection changed:', {
-      symbol: selectedToken,
+      symbol: selectedToken?.symbol,
       price: selectedTokenData?.price,
       allTokens: tokens.map(t => ({ symbol: t.symbol, price: t.price }))
     });
@@ -202,6 +217,13 @@ export default function PayScreen(): JSX.Element {
     }
   }, [selectedToken, tokens]);
 
+  // Handle scanned address from QR code
+  useEffect(() => {
+    if (params.scannedAddress) {
+      setRecipient(params.scannedAddress);
+    }
+  }, [params.scannedAddress]);
+
   const updateGasEstimate = async () => {
     if (!recipient || !amount || !walletAddress) return;
 
@@ -213,23 +235,30 @@ export default function PayScreen(): JSX.Element {
         return;
       }
 
-      // Create transaction request
-      const transactionRequest: ExtendedTransactionRequest = {
-        to: recipient,
-        value: amount,
-        chainId: networkId as unknown as number,
-        from: walletAddress
-      };
+      // Get the token address for the selected token
+      const selectedTokenData = tokens.find(t => t.symbol === selectedToken?.symbol);
+      if (!selectedTokenData?.address) {
+        setError('Selected token not found');
+        return;
+      }
 
-      // Get gas estimate with timeout handling
-      const estimate = await Promise.race([
-        estimateGas(transactionRequest),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Gas estimation timed out')), 15000)
-        )
-      ]) as { gasLimit: bigint; gasPrice: bigint };
+      // Get gas estimate using the token-specific function
+      const gasEstimate = await estimateTokenTransferGas(
+        selectedTokenData.address,
+        walletAddress,
+        recipient,
+        amount
+      );
 
-      const totalGasCost = (estimate.gasLimit * estimate.gasPrice);
+      // Get current gas price using direct Alchemy call
+      const gasPrice = await makeAlchemyRequest('eth_gasPrice', [])
+        .catch((error: Error) => {
+          console.error('[Pay] Error getting gas price:', error);
+          return '0x0'; // Default to 0 if call fails
+        });
+
+      // Calculate total gas cost
+      const totalGasCost = gasEstimate * BigInt(gasPrice);
       const formattedGas = ethers.formatEther(totalGasCost);
       setGasEstimate(formattedGas);
 
@@ -298,60 +327,50 @@ export default function PayScreen(): JSX.Element {
     }
   };
 
-  const handleSend = async (): Promise<void> => {
-    if (!walletAddress) {
-      setError("No connected wallet found.");
-      return;
-    }
-
-    if (!alchemy) {
-      setError("Alchemy not initialized.");
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    
+  const handleSend = async () => {
     try {
-      // Validate recipient address
-      const validationResult = await validateEthereumAddress(recipient, alchemy);
-      
-      if (!validationResult.isValid) {
-        setError(validationResult.error || "Invalid recipient address");
-        setIsLoading(false);
+      if (!recipient || !amount || !selectedToken) {
         return;
       }
 
-      // If address was corrected (checksum), update the display
-      if (validationResult.address && validationResult.address !== recipient) {
-        setRecipient(validationResult.address);
-      }
-
-      // Show warning if present
-      if (validationResult.warning) {
-        console.warn(validationResult.warning);
-      }
-
-      // Create transaction request
-      const transactionRequest: ExtendedTransactionRequest = {
-        to: validationResult.address || recipient,
-        value: amount, // Amount in ETH
-        chainId: networkId as unknown as number,
-        from: walletAddress
-      };
+      setIsLoading(true);
 
       // Get gas estimate
-      const gasEstimate = await estimateGas(transactionRequest);
-      const totalGasCost = (gasEstimate.gasLimit * gasEstimate.gasPrice);
-      setGasEstimate(ethers.formatEther(totalGasCost));
+      const gasLimit = await estimateTokenTransferGas(
+        selectedToken.address,
+        walletAddress || '',
+        recipient,
+        amount
+      );
 
-      // Send transaction
-      const txHash = await sendTransaction(transactionRequest);
+      // Get current gas price
+      const gasPrice = await makeAlchemyRequest('eth_gasPrice', []);
+      
+      // Calculate network fee (gas limit * gas price)
+      const networkFee = ethers.formatEther(gasLimit * BigInt(gasPrice));
+      
+      // Calculate total (amount + network fee)
+      const total = (parseFloat(amount) + parseFloat(networkFee)).toString();
 
-      console.log("Transaction Successful:", txHash);
-    } catch (err) {
-      setError("Transaction failed. Please try again.");
-      console.error('Transaction error:', err);
+      // Navigate to confirmation screen
+      router.push({
+        pathname: '/confirm-transaction',
+        params: {
+          amount,
+          to: recipient,
+          from: walletAddress || '',
+          tokenSymbol: selectedToken.symbol,
+          tokenAddress: selectedToken.address,
+          decimals: selectedToken.decimals.toString(),
+          gasLimit: gasLimit.toString(),
+          gasPrice,
+          networkFee,
+          total
+        }
+      });
+    } catch (error) {
+      console.error('Error preparing transaction:', error);
+      // Show error message
     } finally {
       setIsLoading(false);
     }
@@ -370,8 +389,6 @@ export default function PayScreen(): JSX.Element {
       setNetworkId(networkMap[account.chainId] || Network.ETH_MAINNET);
     }
   };
-
-  const selectedTokenData = tokens.find(t => t.symbol === selectedToken);
 
   return (
     <View style={styles.container}>
@@ -402,9 +419,9 @@ export default function PayScreen(): JSX.Element {
                   onPress={() => setShowTokenPicker(!showTokenPicker)}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {selectedTokenData?.logo && (
+                    {selectedToken?.logo && (
                       <Image
-                        source={{ uri: selectedTokenData.logo }}
+                        source={{ uri: selectedToken.logo }}
                         style={{
                           width: 24,
                           height: 24,
@@ -414,12 +431,12 @@ export default function PayScreen(): JSX.Element {
                       />
                     )}
                     <Text style={styles.selectText}>
-                      {selectedToken}
+                      {selectedToken?.symbol}
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={[styles.selectText, { opacity: 0.7, marginRight: SPACING.sm }]}>
-                      {selectedTokenData?.balance || '0.00'}
+                      {selectedToken?.balance || '0.00'}
                     </Text>
                     <Ionicons 
                       name={showTokenPicker ? "chevron-up" : "chevron-down"} 
@@ -435,10 +452,10 @@ export default function PayScreen(): JSX.Element {
                         key={token.symbol}
                         style={[
                           styles.tokenOption,
-                          token.symbol === selectedToken && styles.tokenOptionActive
+                          token.symbol === selectedToken?.symbol && styles.tokenOptionActive
                         ]}
                         onPress={() => {
-                          setSelectedToken(token.symbol);
+                          setSelectedToken(token);
                           setShowTokenPicker(false);
                         }}
                       >
@@ -470,13 +487,21 @@ export default function PayScreen(): JSX.Element {
               {/* Recipient Address */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Recipient Address</Text>
-                <TextInput
-                  style={styles.input}
-                  value={recipient}
-                  onChangeText={setRecipient}
-                  placeholder="Enter wallet address"
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                />
+                <View style={styles.addressInputContainer}>
+                  <TextInput
+                    style={[styles.input, styles.addressInput]}
+                    value={recipient}
+                    onChangeText={setRecipient}
+                    placeholder="Enter wallet address"
+                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                  />
+                  <TouchableOpacity
+                    style={styles.scanButton}
+                    onPress={() => router.push('/scan-qr')}
+                  >
+                    <Ionicons name="qr-code-outline" size={24} color={COLORS.white} />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {/* Amount */}
@@ -493,7 +518,7 @@ export default function PayScreen(): JSX.Element {
                     }}
                   >
                     <Text style={styles.currencyToggleText}>
-                      {isFiatInput ? 'USD' : selectedToken}
+                      {isFiatInput ? 'USD' : selectedToken?.symbol}
                     </Text>
                     <Ionicons 
                       name="swap-horizontal" 
@@ -514,7 +539,7 @@ export default function PayScreen(): JSX.Element {
                   />
                   <Text style={styles.conversionValue}>
                     ≈ {isFiatInput 
-                      ? `${parseFloat(tokenAmount || '0').toFixed(6)} ${selectedToken}`
+                      ? `${parseFloat(tokenAmount || '0').toFixed(6)} ${selectedToken?.symbol}`
                       : `$${parseFloat(fiatAmount || '0').toFixed(2)}`}
                   </Text>
                 </View>
@@ -522,10 +547,16 @@ export default function PayScreen(): JSX.Element {
 
               {/* Gas Estimate */}
               <View style={styles.gasContainer}>
-                <Text style={styles.gasLabel}>Estimated Gas Fee</Text>
-                <View style={styles.gasValue}>
-                  <Text style={styles.gasAmount}>{gasEstimate} ETH</Text>
-                  <Text style={styles.gasUsd}>(≈ ${gasUsd})</Text>
+                <View style={styles.gasInfo}>
+                  <Text style={styles.gasLabel}>Estimated Gas Fee</Text>
+                  <View style={styles.gasValue}>
+                    <Text style={styles.gasAmount} numberOfLines={2} adjustsFontSizeToFit>
+                      {gasEstimate} ETH
+                    </Text>
+                    <Text style={styles.gasUsd}>
+                      (≈ ${gasUsd})
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -677,9 +708,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.05)",
     borderRadius: 12,
     padding: SPACING.md,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  },
+  gasInfo: {
+    gap: SPACING.xs,
   },
   gasLabel: {
     color: COLORS.white,
@@ -687,14 +718,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   gasValue: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SPACING.xs,
+    flexDirection: "column",
+    gap: SPACING.xs/2,
   },
   gasAmount: {
     color: COLORS.white,
     fontSize: 14,
     fontWeight: "500",
+    flexShrink: 1,
   },
   gasUsd: {
     color: COLORS.white,
@@ -757,5 +788,21 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     opacity: 0.7,
     fontSize: 14,
+  },
+  addressInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  addressInput: {
+    flex: 1,
+  },
+  scanButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 }); 

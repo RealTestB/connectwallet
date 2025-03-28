@@ -307,7 +307,7 @@ const fetchWithRetry = async (url: string, retries = 3): Promise<Response> => {
  * @returns Array of [timestamp, price] tuples
  */
 
-const makeAlchemyRequest = (method: string, params: any[]): Promise<any> => {
+export const makeAlchemyRequest = (method: string, params: any[]): Promise<any> => {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.timeout = 5000; // 5 second timeout
@@ -432,23 +432,60 @@ export const estimateTokenTransferGas = async (
   fromAddress: string,
   toAddress: string,
   amount: string
-) => {
+): Promise<bigint> => {
+  console.log('[TokensApi] Estimating gas for token transfer:', { 
+    tokenAddress, 
+    fromAddress, 
+    toAddress, 
+    amount 
+  });
+  
   try {
-    const provider = getProvider();
-    const tokenContract = new ethers.Contract(
+    // Get token metadata first to ensure we have the correct decimals
+    const metadata = await makeAlchemyRequest('alchemy_getTokenMetadata', [tokenAddress])
+      .catch(error => {
+        console.error('[TokensApi] Error getting token metadata:', {
+          tokenAddress,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        // Return default decimals of 18 if metadata fetch fails
+        return { decimals: 18 };
+      });
+
+    // Convert amount to wei using the token's decimals
+    const amountInWei = ethers.parseUnits(amount, metadata.decimals);
+
+    // Create interface for transfer function
+    const iface = new ethers.Interface(['function transfer(address to, uint256 amount)']);
+
+    // Make the gas estimation request
+    const data = await makeAlchemyRequest('eth_estimateGas', [{
+      from: fromAddress,
+      to: tokenAddress,
+      data: iface.encodeFunctionData('transfer', [toAddress, amountInWei])
+    }]).catch(error => {
+      console.error('[TokensApi] Error estimating gas:', {
+        tokenAddress,
+        fromAddress,
+        toAddress,
+        amount,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      // Return a safe default gas limit if estimation fails
+      return BigInt(100000); // Standard ERC20 transfer gas limit
+    });
+
+    console.log('[TokensApi] Gas estimation result:', {
       tokenAddress,
-      ['function transfer(address to, uint256 amount)'],
-      provider
-    );
-
-    const gasEstimate = await tokenContract.transfer.estimateGas(
+      fromAddress,
       toAddress,
-      amount
-    );
+      amount,
+      gasEstimate: data.toString()
+    });
 
-    return gasEstimate;
+    return BigInt(data);
   } catch (error) {
-    console.error('Failed to estimate token transfer gas:', {
+    console.error('[TokensApi] Error in gas estimation:', {
       tokenAddress,
       fromAddress,
       toAddress,
@@ -456,7 +493,8 @@ export const estimateTokenTransferGas = async (
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw error;
+    // Return a safe default gas limit for any errors
+    return BigInt(100000); // Standard ERC20 transfer gas limit
   }
 };
 
