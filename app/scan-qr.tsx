@@ -1,50 +1,56 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
-import { BarCodeScanner } from 'expo-barcode-scanner';
+import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING } from '../styles/shared';
 
 export default function ScanQRScreen() {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [scanned, setScanned] = useState(false);
+  const [hasPermission, setHasPermission] = useState(false);
   const router = useRouter();
+  const device = useCameraDevice('back');
 
   useEffect(() => {
-    const getBarCodeScannerPermissions = async () => {
-      const { status } = await BarCodeScanner.requestPermissionsAsync();
-      setHasPermission(status === 'granted');
+    const getPermission = async () => {
+      const permission = await Camera.requestCameraPermission();
+      setHasPermission(permission === 'granted');
     };
-
-    getBarCodeScannerPermissions();
+    getPermission();
   }, []);
 
-  const handleBarCodeScanned = ({ data }: { data: string }) => {
-    setScanned(true);
-    // Check if the scanned data is a valid Ethereum address
-    if (data.match(/^0x[a-fA-F0-9]{40}$/)) {
-      router.push({
-        pathname: '/pay',
-        params: { scannedAddress: data }
-      });
-    } else {
-      alert('Invalid Ethereum address QR code');
-      setScanned(false);
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr'],
+    onCodeScanned: (codes) => {
+      const data = codes[0]?.value;
+      if (data && data.match(/^0x[a-fA-F0-9]{40}$/)) {
+        router.push({
+          pathname: '/pay',
+          params: { scannedAddress: data }
+        });
+      } else {
+        alert('Invalid Ethereum address QR code');
+      }
     }
-  };
+  });
 
-  if (hasPermission === null) {
+  if (!hasPermission) {
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>Requesting camera permission...</Text>
+        <Text style={styles.text}>No access to camera</Text>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.buttonText}>Go Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
-  if (hasPermission === false) {
+  if (!device) {
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>No access to camera</Text>
+        <Text style={styles.text}>No camera device found</Text>
         <TouchableOpacity
           style={styles.button}
           onPress={() => router.back()}
@@ -64,9 +70,11 @@ export default function ScanQRScreen() {
         <Ionicons name="close" size={24} color={COLORS.white} />
       </TouchableOpacity>
 
-      <BarCodeScanner
-        onBarCodeScanned={scanned ? undefined : handleBarCodeScanned}
-        style={styles.scanner}
+      <Camera
+        style={StyleSheet.absoluteFill}
+        device={device}
+        isActive={true}
+        codeScanner={codeScanner}
       />
 
       <View style={styles.overlay}>
@@ -75,15 +83,6 @@ export default function ScanQRScreen() {
           Scan a QR code containing an Ethereum address
         </Text>
       </View>
-
-      {scanned && (
-        <TouchableOpacity
-          style={styles.rescanButton}
-          onPress={() => setScanned(false)}
-        >
-          <Text style={styles.buttonText}>Tap to Scan Again</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 }
@@ -93,11 +92,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  scanner: {
-    ...StyleSheet.absoluteFillObject,
-  },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -140,16 +136,6 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     borderRadius: 8,
     marginTop: SPACING.md,
-  },
-  rescanButton: {
-    position: 'absolute',
-    bottom: SPACING.xl * 2,
-    left: SPACING.lg,
-    right: SPACING.lg,
-    backgroundColor: COLORS.primary,
-    padding: SPACING.md,
-    borderRadius: 8,
-    alignItems: 'center',
   },
   buttonText: {
     color: COLORS.white,

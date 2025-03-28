@@ -2,7 +2,7 @@ module.exports = {
   expo: {
     name: "ConnectWallet",
     slug: "connectwallet",
-    version: "1.0.2",
+    version: "1.0.3",
     runtimeVersion: {
       policy: "sdkVersion"
     },
@@ -83,7 +83,13 @@ module.exports = {
     owner: "connectwallet",
     plugins: [
       ["expo-dev-client"],
-      ["expo-barcode-scanner"],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "ConnectWallet needs access to your camera to scan QR codes.",
+          "enableMicrophonePermission": false
+        }
+      ],
       [
         "expo-build-properties",
         {
