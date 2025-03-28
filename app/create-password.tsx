@@ -257,10 +257,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#facc1510",
-    padding: SPACING.md,
+    padding: SPACING.sm,
     borderRadius: 12,
-    marginBottom: SPACING.xl,
-    marginTop: SPACING.lg,
+    marginBottom: SPACING.md,
+    marginTop: SPACING.sm,
     gap: SPACING.xs,
   },
   warningText: {
@@ -273,6 +273,7 @@ const styles = StyleSheet.create({
   },
   passwordInputContainer: {
     position: "relative",
+    width: "100%",
   },
   input: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
@@ -282,15 +283,18 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     color: COLORS.white,
     fontSize: 16,
+    width: "100%",
   },
   eyeIcon: {
     position: "absolute",
     right: SPACING.md,
     top: "50%",
     transform: [{ translateY: -10 }],
+    padding: SPACING.xs,
   },
   strengthContainer: {
     gap: SPACING.xs,
+    marginBottom: SPACING.sm,
   },
   strengthBars: {
     flexDirection: "row",
@@ -308,13 +312,14 @@ const styles = StyleSheet.create({
   requirementsContainer: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: SPACING.md,
-    gap: SPACING.md,
+    padding: SPACING.sm,
+    marginTop: SPACING.sm,
   },
   requirementsTitle: {
     color: COLORS.white,
     fontSize: 16,
     fontWeight: "500",
+    marginBottom: SPACING.xs,
   },
   requirementsList: {
     gap: SPACING.xs,
@@ -335,6 +340,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(239, 68, 68, 0.1)",
     padding: SPACING.md,
     borderRadius: 12,
+    marginTop: SPACING.md,
   },
   errorText: {
     color: COLORS.error,
@@ -345,6 +351,7 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     borderRadius: 12,
     alignItems: "center",
+    marginTop: SPACING.md,
   },
   buttonDisabled: {
     opacity: 0.5,

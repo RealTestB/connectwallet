@@ -137,8 +137,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: SPACING.sm,
-    marginBottom: SPACING.xl,
+    gap: SPACING.xs,
+    marginBottom: SPACING.md,
   },
   wordSlot: {
     width: '48%',
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
     padding: SPACING.md,
     borderRadius: 12,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   errorText: {
     color: COLORS.error,
@@ -181,8 +181,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: SPACING.sm,
-    marginBottom: SPACING.xl,
+    gap: SPACING.xs,
+    marginBottom: SPACING.md,
   },
   wordButton: {
     width: '31%',
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: SPACING.sm,
     alignItems: 'center',
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   wordButtonSelected: {
     opacity: 0.5,

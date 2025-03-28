@@ -16,7 +16,8 @@
       "cache": {
         "key": "development-1"
       },
-      "node": "20.18.1"
+      "node": "20.18.1",
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
@@ -29,7 +30,8 @@
       "cache": {
         "key": "preview-1"
       },
-      "node": "20.18.1"
+      "node": "20.18.1",
+      "channel": "preview"
     },
     "production": {
       "distribution": "store",
@@ -42,7 +44,27 @@
       "cache": {
         "key": "production-1"
       },
-      "node": "20.18.1"
+      "node": "20.18.1",
+      "channel": "production"
+    },
+    "production-internal": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fymuwcftwkzuomgphqjx.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5bXV3Y2Z0d2t6dW9tZ3BocWp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA2MTU3NzQsImV4cCI6MjA1NjE5MTc3NH0.wS-1aj-wYvR0RoopHPv9JVjGPfqRjBLon9fXnrCXGkU",
+        "EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5bXV3Y2Z0d2t6dW9tZ3BocWp4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MDYxNTc3NCwiZXhwIjoyMDU2MTkxNzc0fQ.phtHxE_6r-nUANxOSO-iHA9i5OziJx6SQCY4TmIorTY"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "cache": {
+        "key": "production-internal-1"
+      },
+      "node": "20.18.1",
+      "channel": "production-internal"
     }
   },
   "submit": {

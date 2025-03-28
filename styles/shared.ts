@@ -52,6 +52,7 @@ export const sharedStyles = StyleSheet.create({
   contentContainer: {
     flex: 1,
     padding: SPACING.lg,
+    paddingTop: SPACING.xl * 2,
   },
   progressBar: {
     height: 4,
@@ -80,6 +81,6 @@ export const sharedStyles = StyleSheet.create({
     fontWeight: '600',
   },
   iconSpacing: {
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.lg,
   },
 }); 

@@ -9,6 +9,7 @@ interface OnboardingLayoutProps {
   subtitle: string;
   icon?: keyof typeof MaterialIcons.glyphMap;
   children: React.ReactNode;
+  bottomContent?: React.ReactNode;
 }
 
 export default function OnboardingLayout({
@@ -16,7 +17,8 @@ export default function OnboardingLayout({
   title,
   subtitle,
   icon,
-  children
+  children,
+  bottomContent
 }: OnboardingLayoutProps): JSX.Element {
   return (
     <View style={sharedStyles.container}>
@@ -27,21 +29,39 @@ export default function OnboardingLayout({
         <View style={[sharedStyles.progressBar, { width: `${progress * 100}%` }]} />
       )}
       
-      <ScrollView style={sharedStyles.contentContainer} showsVerticalScrollIndicator={false}>
-        {icon && (
-          <MaterialIcons 
-            name={icon}
-            size={32}
-            color={COLORS.primary}
-            style={sharedStyles.iconSpacing}
-          />
+      <View style={{ flex: 1 }}>
+        <ScrollView 
+          style={sharedStyles.contentContainer} 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: SPACING.xl }}
+        >
+          {icon && (
+            <MaterialIcons 
+              name={icon}
+              size={32}
+              color={COLORS.primary}
+              style={sharedStyles.iconSpacing}
+            />
+          )}
+          
+          <Text style={sharedStyles.title}>{title}</Text>
+          <Text style={sharedStyles.subtitle}>{subtitle}</Text>
+          
+          {children}
+        </ScrollView>
+
+        {/* Fixed bottom content area */}
+        {bottomContent && (
+          <View style={{ 
+            paddingHorizontal: SPACING.lg,
+            paddingBottom: SPACING.lg,
+            paddingTop: SPACING.md,
+            backgroundColor: COLORS.background
+          }}>
+            {bottomContent}
+          </View>
         )}
-        
-        <Text style={sharedStyles.title}>{title}</Text>
-        <Text style={sharedStyles.subtitle}>{subtitle}</Text>
-        
-        {children}
-      </ScrollView>
+      </View>
     </View>
   );
 } 

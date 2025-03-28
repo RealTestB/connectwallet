@@ -35,5 +35,7 @@ export const STORAGE_KEYS = {
     SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
     WALLET_SECURED: 'wallet_secured',
     COMPLETE: 'complete'
-  }
+  },
+
+  PORTFOLIO_DATA: 'portfolio_data',
 } as const; 

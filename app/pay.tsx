@@ -1,11 +1,11 @@
-import { getTokenBalances, Token } from "../api/tokensApi";
+import { getTokenBalances, Token, getStoredTokenBalances, TokenBalanceResult } from "../api/tokensApi";
 import { sendTransaction, TransactionRequest, estimateGas } from "../api/transactionsApi";
 import BottomNav from "../components/ui/BottomNav";
 import WalletHeader from "../components/ui/WalletHeader";
 import { validateEthereumAddress } from "../utils/validators";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, ImageBackground, Image } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import config from "../api/config";
 import { Alchemy, Network } from "alchemy-sdk";
@@ -14,9 +14,9 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import { RootStackParamList } from "../navigation/types";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ethers } from "ethers";
+import { COLORS, SPACING } from '../styles/shared';
 import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface Account {
@@ -41,8 +41,8 @@ interface TransactionParams {
 }
 
 export interface ExtendedTransactionRequest extends TransactionRequest {
-  from?: string;
   chainId?: number;
+  from: string;
 }
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'pay'>;
@@ -63,6 +63,11 @@ export default function PayScreen(): JSX.Element {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [alchemy, setAlchemy] = useState<Alchemy | null>(null);
   const [showTokenPicker, setShowTokenPicker] = useState(false);
+  const [isFiatInput, setIsFiatInput] = useState<boolean>(false);
+  const [fiatAmount, setFiatAmount] = useState<string>("");
+  const [tokenAmount, setTokenAmount] = useState<string>("");
+  const [tokenPrice, setTokenPrice] = useState<number>(0);
+  const [gasUsd, setGasUsd] = useState('0.00');
 
   useEffect(() => {
     loadWalletData();
@@ -79,16 +84,55 @@ export default function PayScreen(): JSX.Element {
       }
     };
     initAlchemy();
+
+    // Refresh portfolio data when screen loads
+    const refreshPortfolio = async () => {
+      try {
+        const storedPortfolio = await SecureStore.getItemAsync(STORAGE_KEYS.PORTFOLIO_DATA);
+        if (storedPortfolio) {
+          const portfolioData = JSON.parse(storedPortfolio);
+          console.log('[Pay] Refreshed portfolio data:', {
+            tokenCount: portfolioData.tokens.length,
+            tokens: portfolioData.tokens.map((t: Token) => ({
+              symbol: t.symbol,
+              price: t.price
+            }))
+          });
+          setTokens(portfolioData.tokens);
+          
+          // Update price for currently selected token
+          const selectedTokenData = portfolioData.tokens.find((t: Token) => t.symbol === selectedToken);
+          if (selectedTokenData?.price) {
+            console.log('[Pay] Updating price from refresh:', selectedTokenData.price);
+            setTokenPrice(selectedTokenData.price);
+          }
+        }
+      } catch (error) {
+        console.error('[Pay] Error refreshing portfolio:', error);
+      }
+    };
+
+    // Refresh immediately and then every 30 seconds
+    refreshPortfolio();
+    const refreshInterval = setInterval(refreshPortfolio, 30000);
+
+    return () => clearInterval(refreshInterval);
   }, []);
 
   const loadWalletData = async (): Promise<void> => {
     try {
       const storedWallet = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
       const storedNetwork = await SecureStore.getItemAsync(STORAGE_KEYS.NETWORK.ID);
+      const storedPortfolio = await SecureStore.getItemAsync(STORAGE_KEYS.PORTFOLIO_DATA);
+
+      console.log('[Pay] Loading wallet data:', { 
+        hasWallet: !!storedWallet,
+        hasNetwork: !!storedNetwork,
+        hasPortfolio: !!storedPortfolio 
+      });
 
       if (storedWallet) setWalletAddress(storedWallet);
       if (storedNetwork) {
-        // Convert network ID to Alchemy Network enum
         const networkMap: { [key: string]: Network } = {
           "1": Network.ETH_MAINNET,
           "5": Network.ETH_GOERLI,
@@ -98,26 +142,159 @@ export default function PayScreen(): JSX.Element {
         setNetworkId(networkMap[storedNetwork] || Network.ETH_MAINNET);
       }
 
-      if (storedWallet) {
-        const balances = await getTokenBalances(storedWallet);
-        if (!balances || 'error' in balances) {
-          throw new Error(balances?.error?.toString() || "Failed to fetch token balances");
+      if (storedWallet && storedPortfolio) {
+        const portfolioData = JSON.parse(storedPortfolio);
+        console.log('[Pay] Portfolio data loaded:', {
+          tokenCount: portfolioData.tokens.length,
+          tokens: portfolioData.tokens.map((t: Token) => ({
+            symbol: t.symbol,
+            price: t.price
+          }))
+        });
+
+        setTokens(portfolioData.tokens);
+
+        // Set initial token price if we have a selected token
+        const selectedTokenData = portfolioData.tokens.find((t: Token) => t.symbol === selectedToken);
+        console.log('[Pay] Selected token data:', {
+          symbol: selectedToken,
+          price: selectedTokenData?.price,
+          found: !!selectedTokenData
+        });
+
+        if (selectedTokenData?.price) {
+          setTokenPrice(selectedTokenData.price);
+          console.log('[Pay] Setting initial token price:', selectedTokenData.price);
         }
-        setTokens(balances);
       }
     } catch (err) {
-      console.error("Failed to load wallet data:", err);
+      console.error("[Pay] Failed to load wallet data:", err);
       setError("Failed to load wallet data.");
     }
   };
 
-  const handleAmountChange = (value: string) => {
-    setAmount(value);
-    const token = tokens.find((t) => t.symbol === selectedToken);
-    if (token?.price && !isNaN(Number(value))) {
-      setUsdValue((Number(value) * token.price).toFixed(2));
+  // Add effect to update token price when selected token changes
+  useEffect(() => {
+    const selectedTokenData = tokens.find(t => t.symbol === selectedToken);
+    console.log('[Pay] Token selection changed:', {
+      symbol: selectedToken,
+      price: selectedTokenData?.price,
+      allTokens: tokens.map(t => ({ symbol: t.symbol, price: t.price }))
+    });
+
+    if (selectedTokenData?.price) {
+      console.log('[Pay] Updating token price:', selectedTokenData.price);
+      setTokenPrice(selectedTokenData.price);
+      
+      // Recalculate the conversion based on current input
+      if (isFiatInput) {
+        // If user was entering USD, keep USD the same and recalculate token amount
+        const numValue = parseFloat(fiatAmount) || 0;
+        const calculatedTokens = selectedTokenData.price > 0 ? numValue / selectedTokenData.price : 0;
+        setTokenAmount(calculatedTokens.toFixed(6));
+        setAmount(calculatedTokens.toFixed(6));
+      } else {
+        // If user was entering tokens, keep token amount the same and recalculate USD
+        const numValue = parseFloat(tokenAmount) || 0;
+        const calculatedUsd = numValue * selectedTokenData.price;
+        setFiatAmount(calculatedUsd.toFixed(2));
+      }
+    }
+  }, [selectedToken, tokens]);
+
+  const updateGasEstimate = async () => {
+    if (!recipient || !amount || !walletAddress) return;
+
+    try {
+      // Only estimate if we have valid values
+      if (parseFloat(amount) <= 0) {
+        setGasEstimate('0.00');
+        setError(null);
+        return;
+      }
+
+      // Create transaction request
+      const transactionRequest: ExtendedTransactionRequest = {
+        to: recipient,
+        value: amount,
+        chainId: networkId as unknown as number,
+        from: walletAddress
+      };
+
+      // Get gas estimate with timeout handling
+      const estimate = await Promise.race([
+        estimateGas(transactionRequest),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Gas estimation timed out')), 15000)
+        )
+      ]) as { gasLimit: bigint; gasPrice: bigint };
+
+      const totalGasCost = (estimate.gasLimit * estimate.gasPrice);
+      const formattedGas = ethers.formatEther(totalGasCost);
+      setGasEstimate(formattedGas);
+
+      // Get USD value of gas
+      const ethPrice = tokens.find(t => t.symbol === 'ETH')?.price || 0;
+      const gasUsd = parseFloat(formattedGas) * ethPrice;
+      setGasUsd(gasUsd.toFixed(2));
+      setError(null);
+    } catch (error) {
+      console.error('[Pay] Gas estimation error:', error);
+      setGasEstimate('0.00');
+      setGasUsd('0.00');
+      
+      // Handle different types of errors
+      if (error instanceof Error) {
+        if (error.name === 'InsufficientFundsError') {
+          const ethPrice = tokens.find(t => t.symbol === 'ETH')?.price || 0;
+          const gasUsd = parseFloat(gasEstimate) * ethPrice;
+          setError(`Insufficient funds for gas fee (${gasEstimate} ETH ≈ $${gasUsd.toFixed(2)})`);
+        } else if (error.message.includes('timeout')) {
+          setError('Gas estimation timed out. Please check your connection and try again.');
+        } else if (error.message.includes('network') || error.message.includes('connection')) {
+          setError('Network error. Please check your connection and try again.');
+        } else {
+          setError('Failed to estimate gas. Please try again.');
+        }
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
+    }
+  };
+
+  // Update gas estimate when amount or recipient changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      updateGasEstimate();
+    }, 500); // Debounce gas estimation
+
+    return () => clearTimeout(timer);
+  }, [amount, recipient, walletAddress, networkId]);
+
+  const handleAmountChange = (value: string, isFromFiat: boolean = false) => {
+    const cleanValue = value.replace(/[^0-9.]/g, '');
+    const numValue = parseFloat(cleanValue) || 0;
+
+    console.log('[Pay] Amount change:', { 
+      isFromFiat, 
+      value: numValue, 
+      tokenPrice,
+      selectedToken,
+      tokens: tokens.map(t => ({ symbol: t.symbol, price: t.price }))
+    });
+
+    if (isFromFiat) {
+      // User is entering USD amount
+      const calculatedTokens = tokenPrice > 0 ? numValue / tokenPrice : 0;
+      setFiatAmount(cleanValue);
+      setTokenAmount(calculatedTokens.toFixed(6));
+      setAmount(calculatedTokens.toFixed(6));
     } else {
-      setUsdValue("0.00");
+      // User is entering token amount
+      const calculatedUsd = numValue * tokenPrice;
+      setTokenAmount(cleanValue);
+      setFiatAmount(calculatedUsd.toFixed(2));
+      setAmount(cleanValue);
     }
   };
 
@@ -197,158 +374,237 @@ export default function PayScreen(): JSX.Element {
   const selectedTokenData = tokens.find(t => t.symbol === selectedToken);
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
-      <WalletHeader 
-        pageName="Send Token"
-        onAccountChange={handleAccountChange}
-      />
-
-      <ScrollView 
-        style={[
-          styles.content,
-          {
-            paddingBottom: 64 + insets.bottom,
-          }
-        ]}
+    <View style={styles.container}>
+      <ImageBackground 
+        source={require('../assets/background.png')} 
+        style={styles.backgroundImage}
+        resizeMode="cover"
       >
-        <View style={styles.card}>
-          {/* Token Selector */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Select Token</Text>
-            <TouchableOpacity
-              style={styles.select}
-              onPress={() => setShowTokenPicker(!showTokenPicker)}
-            >
-              <Text style={styles.selectText}>
-                {selectedToken} - Balance: {selectedTokenData?.balance}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color="#93c5fd" />
-            </TouchableOpacity>
-            {showTokenPicker && (
-              <View style={styles.tokenList}>
-                {tokens.map((token) => (
+        <View style={styles.content}>
+          <WalletHeader 
+            onAccountChange={handleAccountChange}
+          />
+
+          <ScrollView 
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.card}>
+              {/* Token Selector */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Select Token</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.select,
+                    showTokenPicker && { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }
+                  ]}
+                  onPress={() => setShowTokenPicker(!showTokenPicker)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {selectedTokenData?.logo && (
+                      <Image
+                        source={{ uri: selectedTokenData.logo }}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 12,
+                          marginRight: SPACING.sm
+                        }}
+                      />
+                    )}
+                    <Text style={styles.selectText}>
+                      {selectedToken}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={[styles.selectText, { opacity: 0.7, marginRight: SPACING.sm }]}>
+                      {selectedTokenData?.balance || '0.00'}
+                    </Text>
+                    <Ionicons 
+                      name={showTokenPicker ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color={COLORS.white} 
+                    />
+                  </View>
+                </TouchableOpacity>
+                {showTokenPicker && (
+                  <ScrollView style={styles.tokenList} nestedScrollEnabled>
+                    {tokens.map((token) => (
+                      <TouchableOpacity
+                        key={token.symbol}
+                        style={[
+                          styles.tokenOption,
+                          token.symbol === selectedToken && styles.tokenOptionActive
+                        ]}
+                        onPress={() => {
+                          setSelectedToken(token.symbol);
+                          setShowTokenPicker(false);
+                        }}
+                      >
+                        <View style={styles.tokenInfo}>
+                          {token.logo && (
+                            <Image
+                              source={{ uri: token.logo }}
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 14,
+                                marginRight: SPACING.sm
+                              }}
+                            />
+                          )}
+                          <Text style={styles.tokenSymbol}>
+                            {token.symbol}
+                          </Text>
+                        </View>
+                        <Text style={styles.tokenBalance}>
+                          {parseFloat(token.balance || '0').toFixed(4)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+
+              {/* Recipient Address */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Recipient Address</Text>
+                <TextInput
+                  style={styles.input}
+                  value={recipient}
+                  onChangeText={setRecipient}
+                  placeholder="Enter wallet address"
+                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                />
+              </View>
+
+              {/* Amount */}
+              <View style={styles.inputGroup}>
+                <View style={styles.amountHeader}>
+                  <Text style={styles.label}>Amount</Text>
                   <TouchableOpacity
-                    key={token.symbol}
-                    style={styles.tokenOption}
+                    style={styles.currencyToggle}
                     onPress={() => {
-                      setSelectedToken(token.symbol);
-                      setShowTokenPicker(false);
+                      setIsFiatInput(!isFiatInput);
+                      // When switching, use the current visible amount for conversion
+                      const currentValue = isFiatInput ? fiatAmount : tokenAmount;
+                      handleAmountChange(currentValue || '0', !isFiatInput);
                     }}
                   >
-                    <Text style={styles.tokenOptionText}>
-                      {token.symbol} - Balance: {token.balance}
+                    <Text style={styles.currencyToggleText}>
+                      {isFiatInput ? 'USD' : selectedToken}
                     </Text>
+                    <Ionicons 
+                      name="swap-horizontal" 
+                      size={16} 
+                      color={COLORS.white} 
+                      style={{ marginLeft: 4 }}
+                    />
                   </TouchableOpacity>
-                ))}
+                </View>
+                <View style={styles.amountContainer}>
+                  <TextInput
+                    style={styles.input}
+                    value={isFiatInput ? fiatAmount : tokenAmount}
+                    onChangeText={(value) => handleAmountChange(value, isFiatInput)}
+                    placeholder="0.00"
+                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                    keyboardType="decimal-pad"
+                  />
+                  <Text style={styles.conversionValue}>
+                    ≈ {isFiatInput 
+                      ? `${parseFloat(tokenAmount || '0').toFixed(6)} ${selectedToken}`
+                      : `$${parseFloat(fiatAmount || '0').toFixed(2)}`}
+                  </Text>
+                </View>
               </View>
-            )}
-          </View>
 
-          {/* Recipient Address */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Recipient Address</Text>
-            <TextInput
-              style={styles.input}
-              value={recipient}
-              onChangeText={setRecipient}
-              placeholder="Enter wallet address"
-              placeholderTextColor="#93c5fd"
-            />
-          </View>
+              {/* Gas Estimate */}
+              <View style={styles.gasContainer}>
+                <Text style={styles.gasLabel}>Estimated Gas Fee</Text>
+                <View style={styles.gasValue}>
+                  <Text style={styles.gasAmount}>{gasEstimate} ETH</Text>
+                  <Text style={styles.gasUsd}>(≈ ${gasUsd})</Text>
+                </View>
+              </View>
 
-          {/* Amount */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Amount</Text>
-            <View style={styles.amountContainer}>
-              <TextInput
-                style={styles.input}
-                value={amount}
-                onChangeText={handleAmountChange}
-                placeholder="0.00"
-                placeholderTextColor="#93c5fd"
-                keyboardType="decimal-pad"
-              />
-              <Text style={styles.usdValue}>≈ ${usdValue}</Text>
+              {error && (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              )}
             </View>
-          </View>
 
-          {/* Gas Estimate */}
-          <View style={styles.gasContainer}>
-            <Text style={styles.gasLabel}>Estimated Gas Fee</Text>
-            <View style={styles.gasValue}>
-              <Text style={styles.gasAmount}>{gasEstimate} ETH</Text>
-              <Text style={styles.gasUsd}>(≈ $15.00)</Text>
-            </View>
-          </View>
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                (!amount || !recipient || isLoading) && styles.sendButtonDisabled
+              ]}
+              onPress={handleSend}
+              disabled={!amount || !recipient || isLoading}
+            >
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="white" />
+                  <Text style={styles.buttonText}>Sending...</Text>
+                </View>
+              ) : (
+                <Text style={styles.buttonText}>Send Token</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
 
-          {error && (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
+          <BottomNav activeTab="pay" />
         </View>
-
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            (!amount || !recipient || isLoading) && styles.sendButtonDisabled
-          ]}
-          onPress={handleSend}
-          disabled={!amount || !recipient || isLoading}
-        >
-          {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator color="white" />
-              <Text style={styles.buttonText}>Sending...</Text>
-            </View>
-          ) : (
-            <Text style={styles.buttonText}>Send Token</Text>
-          )}
-        </TouchableOpacity>
-      </ScrollView>
-
-      <BottomNav activeTab="pay" />
-    </LinearGradient>
+      </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
+  },
+  backgroundImage: {
+    flex: 1,
+    width: '100%',
   },
   content: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 100, // Adjust based on WalletHeader height
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: SPACING.lg,
   },
   card: {
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderRadius: 12,
-    padding: 24,
-    gap: 24,
+    backgroundColor: 'rgba(20, 24, 40, 0.15)',
+    borderRadius: 16,
+    padding: SPACING.lg,
+    gap: SPACING.md,
   },
   inputGroup: {
-    gap: 8,
+    gap: SPACING.xs,
   },
   label: {
     fontSize: 14,
-    color: "#93c5fd",
+    color: COLORS.white,
+    opacity: 0.7,
+    marginBottom: 4,
   },
   select: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: 12,
+    padding: SPACING.sm,
   },
   selectText: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 16,
   },
   tokenList: {
@@ -356,27 +612,53 @@ const styles = StyleSheet.create({
     top: "100%",
     left: 0,
     right: 0,
-    backgroundColor: "rgba(30, 58, 138, 0.95)",
+    backgroundColor: "#3a5983",
     borderRadius: 12,
     marginTop: 4,
     zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    maxHeight: 300,
   },
   tokenOption: {
-    padding: 12,
+    padding: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255, 255, 255, 0.1)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  tokenOptionText: {
-    color: "white",
+  tokenOptionActive: {
+    backgroundColor: "#3a5983",
+  },
+  tokenInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  tokenSymbol: {
+    color: COLORS.white,
     fontSize: 16,
+    fontWeight: "600",
+  },
+  tokenBalance: {
+    color: COLORS.white,
+    opacity: 0.7,
+    fontSize: 14,
+    marginLeft: SPACING.sm,
   },
   input: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: 12,
-    color: "white",
+    padding: SPACING.sm,
+    color: COLORS.white,
     fontSize: 16,
   },
   amountContainer: {
@@ -384,66 +666,96 @@ const styles = StyleSheet.create({
   },
   usdValue: {
     position: "absolute",
-    right: 16,
+    right: SPACING.md,
     top: "50%",
     transform: [{ translateY: -10 }],
-    color: "#93c5fd",
+    color: COLORS.white,
+    opacity: 0.7,
     fontSize: 14,
   },
   gasContainer: {
     backgroundColor: "rgba(255, 255, 255, 0.05)",
     borderRadius: 12,
-    padding: 16,
+    padding: SPACING.md,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
   gasLabel: {
-    color: "#93c5fd",
+    color: COLORS.white,
+    opacity: 0.7,
     fontSize: 14,
   },
   gasValue: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: SPACING.xs,
   },
   gasAmount: {
-    color: "white",
+    color: COLORS.white,
     fontSize: 14,
+    fontWeight: "500",
   },
   gasUsd: {
-    color: "#93c5fd",
+    color: COLORS.white,
+    opacity: 0.7,
     fontSize: 14,
   },
   errorContainer: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    borderWidth: 1,
-    borderColor: "#ef4444",
+    backgroundColor: "rgba(255, 59, 48, 0.1)",
     borderRadius: 12,
-    padding: 16,
+    padding: SPACING.sm,
   },
   errorText: {
-    color: "#ef4444",
+    color: COLORS.error,
     fontSize: 14,
   },
   sendButton: {
-    backgroundColor: "#3b82f6",
+    backgroundColor: COLORS.primary,
     borderRadius: 12,
-    padding: 16,
+    padding: SPACING.md,
     alignItems: "center",
-    marginTop: 24,
+    marginTop: SPACING.lg,
   },
   sendButtonDisabled: {
-    backgroundColor: "rgba(59, 130, 246, 0.5)",
+    opacity: 0.5,
+  },
+  buttonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "600",
   },
   loadingContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: SPACING.xs,
   },
-  buttonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
+  amountHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  currencyToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+  },
+  currencyToggleText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  conversionValue: {
+    position: "absolute",
+    right: SPACING.md,
+    top: "50%",
+    transform: [{ translateY: -10 }],
+    color: COLORS.white,
+    opacity: 0.7,
+    fontSize: 14,
   },
 }); 

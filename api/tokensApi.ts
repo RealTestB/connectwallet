@@ -107,15 +107,15 @@ export function initializeAlchemy(networkKey: NetworkKey | string = 'ethereum'):
     console.log('[TokensApi] Initializing Alchemy with settings:', {
       network,
       hasApiKey: !!config.alchemy.mainnetKey,
-      timeout: 30000,
-      maxRetries: 3
+      timeout: 5000,
+      maxRetries: 5
     });
 
     const settings = {
       apiKey: config.alchemy.mainnetKey,
       network,
-      maxRetries: 3,
-      requestTimeout: 30000,
+      maxRetries: 5,
+      requestTimeout: 5000,
       batchRequests: false
     };
 
@@ -271,148 +271,32 @@ export const getTokenMetadata = async (contractAddress: string): Promise<any> =>
   }
 };
 
-// Replace CMC interfaces with CoinGecko interfaces
-interface CoinGeckoSimplePrice {
-  ethereum: {
-    usd: number;
-    usd_24h_change: number;
-    usd_24h_vol: number;
-    usd_market_cap: number;
-  };
-}
-
-interface CoinGeckoTokenData {
-  market_data: {
-    current_price: {
-      usd: number;
-    };
-    price_change_percentage_24h: number;
-    market_cap: {
-      usd: number;
-    };
-    total_volume: {
-      usd: number;
-    };
-  };
-}
-
-interface CoinGeckoMarketChart {
-  prices: [number, number][];
-  market_caps: [number, number][];
-  total_volumes: [number, number][];
-}
-
 const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
 const COINGECKO_API_KEY = 'CG-VCXZAmb9rowc8iR9nmbeMvkE';
 
-/**
- * Get token price from CoinGecko
- */
-export const getTokenPrice = async (address: string): Promise<TokenPrice | null> => {
-  console.log('[TokensApi] Entering getTokenPrice for address:', address);
-  
+// Add retry logic for API calls
+const fetchWithRetry = async (url: string, retries = 3): Promise<Response> => {
   try {
-    console.log('\n==================================');
-    console.log('🔍 FETCHING TOKEN PRICE');
-    console.log('==================================');
+    // Add API key as query parameter
+    const urlWithKey = `${url}${url.includes('?') ? '&' : '?'}x_cg_demo_api_key=${COINGECKO_API_KEY}`;
+    const response = await fetch(urlWithKey);
     
-    // Handle native ETH differently
-    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
-    console.log('Is Native ETH:', isNativeEth);
-    
-    let url: string;
-    if (isNativeEth) {
-      url = `${COINGECKO_BASE_URL}/simple/price?ids=ethereum&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
-    } else {
-      url = `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}`;
-    }
-    
-    console.log('\n📡 API Request URL:', url);
-    console.log('\n⏳ Sending Request with headers:', {
-      'accept': 'application/json',
-      'x-cg-demo-api-key': COINGECKO_API_KEY
-    });
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'accept': 'application/json',
-        'x-cg-demo-api-key': COINGECKO_API_KEY
+    // Handle rate limiting
+    if (response.status === 429) {
+      if (retries > 0) {
+        const retryAfter = parseInt(response.headers.get('retry-after') || '60');
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        return fetchWithRetry(url, retries - 1);
       }
-    });
-
-    console.log('\n📥 Response received:', {
-      status: response.status,
-      ok: response.ok,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries())
-    });
-
-    // Clone response before consuming
-    const responseClone = response.clone();
+    }
     
-    try {
-      const rawBody = await responseClone.text();
-      console.log('\n📄 Raw Response Body:', rawBody);
-    } catch (cloneError) {
-      console.warn('\n⚠️ Could not log raw response:', cloneError);
-    }
-
-    if (!response.ok) {
-      console.error('\n❌ Request failed:', {
-        status: response.status,
-        statusText: response.statusText
-      });
-      return null;
-    }
-
-    console.log('\n🔄 Parsing response as JSON...');
-    const data = await response.json();
-    console.log('\n📦 Parsed JSON Data:', JSON.stringify(data, null, 2));
-
-    if (isNativeEth) {
-      // Format data from simple/price endpoint
-      if (!data?.ethereum?.usd) {
-        console.warn('\n⚠️ No ETH price data found in response:', JSON.stringify(data, null, 2));
-        return null;
-      }
-      
-      const result = {
-        price: data.ethereum.usd,
-        change24h: data.ethereum.usd_24h_change,
-        marketCap: data.ethereum.usd_market_cap,
-        volume24h: data.ethereum.usd_24h_vol
-      };
-      
-      console.log('\n✅ Formatted ETH Price Data:', result);
-      console.log('==================================\n');
-      return result;
-    } else {
-      // Format data from contract endpoint
-      if (!data?.market_data?.current_price?.usd) {
-        console.warn('\n⚠️ No token price data found:', address);
-        return null;
-      }
-      
-      const result = {
-        price: data.market_data.current_price.usd,
-        change24h: data.market_data.price_change_percentage_24h,
-        marketCap: data.market_data.market_cap.usd,
-        volume24h: data.market_data.total_volume.usd
-      };
-      
-      console.log('\n✅ Formatted Token Price Data:', result);
-      console.log('==================================\n');
-      return result;
-    }
+    return response;
   } catch (error) {
-    console.error('\n❌ Failed to fetch token price:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined,
-      address,
-      isNativeEth: address === '0x0000000000000000000000000000000000000000'
-    });
-    return null;
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return fetchWithRetry(url, retries - 1);
+    }
+    throw error;
   }
 };
 
@@ -422,106 +306,86 @@ export const getTokenPrice = async (address: string): Promise<TokenPrice | null>
  * @param days Number of days of history to fetch
  * @returns Array of [timestamp, price] tuples
  */
-export const getTokenPriceHistory = async (
-  address: string,
-  days: number = 7
-): Promise<[number, number][]> => {
-  try {
-    console.log('[TokensApi] Fetching price history from CoinGecko API for token:', address);
-    
-    // Handle native ETH differently
-    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
-    
-    let url: string;
-    if (isNativeEth) {
-      url = `${COINGECKO_BASE_URL}/coins/ethereum/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-    } else {
-      url = `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-    }
-    
-    console.log('[TokensApi] Making CoinGecko historical API request to:', url);
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'accept': 'application/json',
-        'x-cg-demo-api-key': COINGECKO_API_KEY
-      }
+
+const makeAlchemyRequest = (method: string, params: any[]): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.timeout = 5000; // 5 second timeout
+
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: Math.floor(Math.random() * 1000),
+      method,
+      params
     });
-    
-    if (!response.ok) {
-      console.error('[TokensApi] CoinGecko API error:', {
-        status: response.status,
-        statusText: response.statusText,
-        url,
-        isNativeEth,
-        address
+
+    console.log('[TokensApi] Making Alchemy request:', { method, params });
+
+    xhr.addEventListener('readystatechange', () => {
+      if (xhr.readyState !== 4) return;
+      
+      console.log('[TokensApi] Response received:', {
+        status: xhr.status,
+        statusText: xhr.statusText,
+        hasResponse: !!xhr.responseText
       });
       
-      // Check for rate limiting
-      if (response.status === 429) {
-        console.error('[TokensApi] CoinGecko API rate limit exceeded');
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          console.log('[TokensApi] Parsed response:', response);
+          if (response.error) {
+            console.error('[TokensApi] JSON-RPC error:', response.error);
+            reject(new Error(response.error.message));
+            return;
+          }
+          resolve(response.result);
+        } catch (error) {
+          console.error('[TokensApi] Failed to parse response:', error);
+          reject(new Error('Failed to parse response'));
+        }
+      } else {
+        const errorMsg = `Request failed with status ${xhr.status}`;
+        console.error('[TokensApi]', errorMsg, {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          responseText: xhr.responseText
+        });
+        reject(new Error(errorMsg));
       }
-      
-      return [];
-    }
-    
-    const data = await response.json() as CoinGeckoMarketChart;
-    console.log('[TokensApi] CoinGecko historical API response:', {
-      dataPoints: data.prices?.length || 0
     });
-    
-    if (!data.prices?.length) {
-      console.warn('[TokensApi] No historical data found for token:', {
-        token: isNativeEth ? 'ETH' : address
-      });
-      return [];
-    }
-    
-    // CoinGecko returns prices as [timestamp, price] pairs
-    return data.prices;
-  } catch (error) {
-    console.error('[TokensApi] Failed to fetch token price history from CoinGecko:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined,
-      address,
-      isNativeEth: address === '0x0000000000000000000000000000000000000000'
+
+    xhr.addEventListener('error', () => {
+      console.error('[TokensApi] Network request failed');
+      reject(new Error('Network request failed'));
     });
-    return [];
-  }
+
+    xhr.addEventListener('timeout', () => {
+      console.error('[TokensApi] Request timed out');
+      reject(new Error('Request timed out'));
+    });
+
+    try {
+      xhr.open('POST', `https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(body);
+    } catch (error) {
+      console.error('[TokensApi] Failed to send request:', error);
+      reject(new Error('Failed to send request'));
+    }
+  });
 };
 
-/**
- * Get native token (ETH/MATIC) balance
- */
-export const getNativeBalance = async (
-  address: string,
-  network: Network = Network.ETH_MAINNET
-): Promise<Token> => {
+export const getNativeBalance = async (address: string): Promise<string> => {
   try {
-    const alchemy = initializeAlchemy(network);
-    const balance = await alchemy.core.getBalance(address);
-    const formattedBalance = ethers.formatEther(balance);
-
-    const nativeToken: Token = {
-      address: '0x0000000000000000000000000000000000000000',
-      name: network === Network.ETH_MAINNET ? 'Ethereum' : 'Polygon',
-      symbol: network === Network.ETH_MAINNET ? 'ETH' : 'MATIC',
-      decimals: 18,
-      balance: formattedBalance
-    };
-
-    // Get price data
-    const price = await getTokenPrice(nativeToken.address);
-    if (price) {
-      nativeToken.price = price.price;
-      nativeToken.priceChange24h = price.change24h;
-      nativeToken.balanceUSD = parseFloat(formattedBalance) * price.price;
-    }
-
-    return nativeToken;
+    console.log('[TokensApi] Fetching native balance for address:', address);
+    
+    const balance = await makeAlchemyRequest('eth_getBalance', [address, 'latest']);
+    console.log('[TokensApi] Received balance:', balance);
+    
+    return balance;
   } catch (error) {
-    console.error('Failed to fetch native balance:', error);
+    console.error('[TokensApi] Failed to fetch native balance:', error);
     throw error;
   }
 };
@@ -644,17 +508,45 @@ export const transferToken = async (params: TokenTransferParams): Promise<string
  */
 export const getTokenBalance = async (contractAddress: string, ownerAddress: string): Promise<string> => {
   console.log('[TokensApi] Getting token balance:', { contractAddress, ownerAddress });
-  const provider = getProvider();
-  
   try {
-    const contract = new ethers.Contract(contractAddress, ERC20_ABI, provider);
-    const [balance, decimals] = await Promise.all([
-      contract.balanceOf(ownerAddress),
-      contract.decimals()
+    // Make both requests concurrently
+    const [metadata, data] = await Promise.all([
+      makeAlchemyRequest('alchemy_getTokenMetadata', [contractAddress])
+        .catch(error => {
+          console.error('[TokensApi] Error getting token metadata:', {
+            contractAddress,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          // Return default decimals of 18 if metadata fetch fails
+          return { decimals: 18 };
+        }),
+      makeAlchemyRequest('alchemy_getTokenBalances', [ownerAddress, [contractAddress]])
+        .catch(error => {
+          console.error('[TokensApi] Error getting token balance:', {
+            contractAddress,
+            ownerAddress,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          // Return empty balance if balance fetch fails
+          return { tokenBalances: [{ tokenBalance: '0x0' }] };
+        })
     ]);
     
-    const formattedBalance = ethers.formatUnits(balance, decimals);
-    console.log('[TokensApi] Token balance:', formattedBalance);
+    if (!data.tokenBalances[0] || !data.tokenBalances[0].tokenBalance) {
+      console.log('[TokensApi] No balance found, returning 0');
+      return '0';
+    }
+    
+    const rawBalance = data.tokenBalances[0].tokenBalance;
+    const formattedBalance = ethers.formatUnits(rawBalance, metadata.decimals);
+    
+    console.log('[TokensApi] Token balance:', {
+      contractAddress,
+      ownerAddress,
+      rawBalance,
+      formattedBalance,
+      decimals: metadata.decimals
+    });
     return formattedBalance;
   } catch (error) {
     console.error('[TokensApi] Error getting token balance:', {
@@ -663,7 +555,8 @@ export const getTokenBalance = async (contractAddress: string, ownerAddress: str
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    throw new Error('Failed to get token balance');
+    // Return 0 for any errors to avoid breaking the UI
+    return '0';
   }
 };
 

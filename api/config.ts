@@ -310,7 +310,12 @@ const config = {
   chain: CHAIN_CONFIG,
 
   // Wallet configuration
-  wallet: WALLET_CONFIG
+  wallet: WALLET_CONFIG,
+
+  coingecko: {
+    apiKey: 'CG-VCXZAmb9rowc8iR9nmbeMvkE',
+    baseUrl: 'https://api.coingecko.com/api/v3'
+  }
 };
 
 export default config;

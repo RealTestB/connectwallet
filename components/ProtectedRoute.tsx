@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSegments, useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 // Define public routes that don't require authentication
 const publicRoutes = ['welcome', 'signin', 'create-password'];
@@ -20,12 +21,28 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const { isAuthenticated, hasWallet } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [isInSetup, setIsInSetup] = useState(false);
+
+  useEffect(() => {
+    const checkSetupState = async () => {
+      try {
+        const setupState = await SecureStore.getItemAsync(STORAGE_KEYS.SETUP_STATE);
+        setIsInSetup(setupState !== STORAGE_KEYS.SETUP_STEPS.COMPLETE);
+      } catch (error) {
+        console.error('[ProtectedRoute] Error checking setup state:', error);
+        setIsInSetup(false);
+      }
+    };
+
+    checkSetupState();
+  }, []);
 
   useEffect(() => {
     console.log("[ProtectedRoute] Route check triggered with:", {
       segments,
       isAuthenticated,
       hasWallet,
+      isInSetup,
       currentPath: segments.join('/')
     });
 
@@ -36,12 +53,19 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     console.log("[ProtectedRoute] Route analysis:", {
       currentRoute,
       inPublicGroup,
-      inSetupGroup
+      inSetupGroup,
+      isInSetup
     });
 
-    // If no wallet, redirect to welcome (except for public routes)
-    if (!hasWallet && !inPublicGroup) {
-      console.log("[ProtectedRoute] No wallet found, redirecting to welcome");
+    // If in setup flow, allow access to setup routes
+    if (isInSetup && inSetupGroup) {
+      console.log("[ProtectedRoute] In setup flow, allowing access to setup route");
+      return;
+    }
+
+    // If no wallet and not in setup, redirect to welcome (except for public routes)
+    if (!hasWallet && !inPublicGroup && !isInSetup) {
+      console.log("[ProtectedRoute] No wallet found and not in setup, redirecting to welcome");
       router.replace('/welcome');
       return;
     }
@@ -62,7 +86,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     }
 
     console.log("[ProtectedRoute] Access granted to current route");
-  }, [segments, isAuthenticated, hasWallet]);
+  }, [segments, isAuthenticated, hasWallet, isInSetup]);
 
   return <>{children}</>;
 } 

@@ -66,6 +66,7 @@ export interface TransactionRequest {
   to: string;
   value: string;
   data?: string;
+  from?: string;
 }
 
 export interface GasEstimate {
@@ -170,19 +171,13 @@ export const estimateGas = async (request: TransactionRequest): Promise<GasEstim
   const provider = getProvider();
   
   try {
-    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
-    if (!privateKey) {
-      console.error('[TransactionsApi] Private key not found in secure storage');
-      throw new Error('Private key not found');
-    }
-
-    const wallet = new ethers.Wallet(privateKey, provider);
-    console.log('[TransactionsApi] Created wallet instance for address:', wallet.address);
-
+    // For gas estimation, we don't need a signer/wallet
+    // Just create the transaction object
     const txObject = {
       to: request.to,
-      value: ethers.parseEther(request.value),
-      data: request.data || '0x'
+      value: ethers.parseEther(request.value || '0'),
+      data: request.data || '0x',
+      from: request.from // Include from address for more accurate estimation
     };
     console.log('[TransactionsApi] Created transaction object for gas estimation:', txObject);
 

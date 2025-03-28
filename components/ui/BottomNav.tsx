@@ -28,7 +28,6 @@ export default function BottomNav({ activeTab = "portfolio" }: BottomNavProps): 
   ];
 
   const handleTabPress = (route: string) => {
-    // Simple navigation without state check
     router.push(route);
   };
 
@@ -64,11 +63,10 @@ export default function BottomNav({ activeTab = "portfolio" }: BottomNavProps): 
 
 const styles = StyleSheet.create({
   container: {
-    position: "absolute",
+    position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    zIndex: 1000,
   },
   blurContainer: {
     overflow: 'hidden',
@@ -76,15 +74,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
   },
   navContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: "rgba(26, 47, 108, 0.95)",
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
     paddingVertical: 12,
-    paddingBottom: 24,
+    paddingBottom: 28,
   },
   tabButton: {
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     flex: 1,
   },
   icon: {
@@ -93,10 +91,8 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 12,
     color: "#6A9EFF",
-    marginTop: 2,
   },
   activeLabel: {
     color: "#FFFFFF",
-    fontWeight: "500",
   },
 }); 

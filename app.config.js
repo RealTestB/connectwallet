@@ -33,14 +33,10 @@ module.exports = {
         NSCameraUsageDescription: "This app uses the camera for scanning QR codes.",
         NSLocationWhenInUseUsageDescription: "This app uses your location for finding nearby services.",
         UIBackgroundModes: ["remote-notification"],
-        // Add timeout and network settings for iOS
         NSAppTransportSecurity: {
           NSAllowsArbitraryLoads: true,
-          NSExceptionDomains: {
-            "localhost": {
-              NSExceptionAllowsInsecureHTTPLoads: true
-            }
-          }
+          NSAllowsArbitraryLoadsForMedia: true,
+          NSAllowsArbitraryLoadsInWebContent: true
         }
       }
     },
@@ -56,7 +52,7 @@ module.exports = {
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE" // Add network state permission for better network handling
+        "android.permission.ACCESS_NETWORK_STATE"
       ],
       intentFilters: [
         {
@@ -77,8 +73,9 @@ module.exports = {
           ]
         }
       ],
-      // Add network security config for Android
-      networkSecurityConfig: "./android/app/src/main/res/xml/network_security_config.xml"
+      networkSecurityConfig: {
+        cleartextTrafficPermitted: true
+      }
     },
     web: {
       favicon: "./assets/images/icon.png"
@@ -102,7 +99,6 @@ module.exports = {
               "android.useAndroidX": true,
               "android.enableJetifier": true,
               "kotlinCompilerExtensionVersion": "1.5.15",
-              // Add connection/socket timeout settings for OkHttp
               "android.okhttp.timeout.connect": "30000",
               "android.okhttp.timeout.read": "30000",
               "android.okhttp.timeout.write": "30000"
@@ -119,7 +115,6 @@ module.exports = {
       [
         "expo-secure-store",
         {
-          // Configure secure store with more resilient parameters
           faceIDPermission: "ConnectWallet needs to access your Face ID for secure authentication."
         }
       ],
@@ -141,13 +136,11 @@ module.exports = {
           }
         }
       ]
-      // REMOVED: NetInfo plugin
     ],
     extra: {
       eas: {
         projectId: "1083be59-e11a-48f1-844c-f8bebeb2b4d0"
       },
-      // Configure fallback RPC URLs for all chains
       ETHEREUM_MAINNET_URL: process.env.ETHEREUM_MAINNET_URL,
       ETHEREUM_MAINNET_FALLBACK_URLS: [
         "https://eth.llamarpc.com",
@@ -239,13 +232,12 @@ module.exports = {
       LIFI_API_KEY: process.env.LIFI_API_KEY,
       REOWN_PROJECT_ID: process.env.REOWN_PROJECT_ID || '',
       WALLETCONNECT_PROJECT_ID: process.env.WALLETCONNECT_PROJECT_ID,
-      // Network settings for resiliency
       NETWORK_SETTINGS: {
-        timeoutMs: 15000,         // 15 seconds default timeout
-        maxRetries: 3,            // Maximum retries for network requests
-        retryDelayMs: 1000,       // Base delay between retries
-        maxRetryDelayMs: 10000,   // Maximum delay between retries
-        pollingIntervalMs: 8000   // Polling interval for network status
+        timeoutMs: 15000,
+        maxRetries: 3,
+        retryDelayMs: 1000,
+        maxRetryDelayMs: 10000,
+        pollingIntervalMs: 8000
       }
     },
     experiments: {
