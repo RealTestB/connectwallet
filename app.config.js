@@ -82,7 +82,9 @@ module.exports = {
     },
     owner: "connectwallet",
     plugins: [
-      ["expo-dev-client"],
+      ["expo-dev-client", {
+        "developerMode": true
+      }],
       [
         "react-native-vision-camera",
         {
@@ -249,6 +251,9 @@ module.exports = {
     },
     experiments: {
       tsconfigPaths: true
+    },
+    developmentClient: {
+      silentLaunch: false
     }
   }
 };
