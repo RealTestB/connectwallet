@@ -9,6 +9,7 @@ module.exports = {
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     userInterfaceStyle: "light",
+    newArchEnabled: true,
     splash: {
       image: "./assets/images/splash-icon.png",
       resizeMode: "native",
@@ -96,7 +97,6 @@ module.exports = {
         "expo-build-properties",
         {
           android: {
-            newArchEnabled: true,
             compileSdkVersion: 35,
             targetSdkVersion: 35,
             minSdkVersion: 24,
