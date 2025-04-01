@@ -1,5 +1,4 @@
 import BottomNav from "../components/ui/BottomNav";
-import WalletHeader from "../components/ui/WalletHeader";
 import React from "react";
 import {
   Linking,
@@ -8,32 +7,61 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Image,
 } from "react-native";
-import type { StackNavigationProp } from "@react-navigation/stack";
-import type { RouteProp } from "@react-navigation/native";
-import { RootStackParamList } from "../navigation/types";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { COLORS, SPACING, sharedStyles } from '../styles/shared';
+import { Ionicons } from '@expo/vector-icons';
 
-type TransactionDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'transaction-details'>;
-type TransactionDetailsScreenRouteProp = RouteProp<RootStackParamList, 'transaction-details'>;
-
-interface Props {
-  route: TransactionDetailsScreenRouteProp;
-  navigation: TransactionDetailsScreenNavigationProp;
+interface TransactionDetailsParams {
+  transaction: string;
 }
 
-const TransactionDetailsScreen: React.FC<Props> = ({ route, navigation }) => {
-  const { transaction } = route.params;
+interface TransactionDetails {
+  hash: string;
+  type: string;
+  status: string;
+  amount: string;
+  from: string;
+  to: string;
+  date: string;
+  network: string;
+  fee: string;
+  explorer: string;
+}
 
-  const getStatusColor = (status?: string): string => {
-    switch (status?.toLowerCase()) {
-      case "success":
-        return "green";
-      case "pending":
-        return "orange";
-      case "failed":
-        return "red";
+const TransactionDetailsScreen = () => {
+  const { transaction } = useLocalSearchParams();
+  const router = useRouter();
+  const transactionDetails: TransactionDetails = JSON.parse(transaction as string);
+
+  const handleBack = () => {
+    router.back();
+  };
+
+  const getStatusColor = (status: string): string => {
+    switch (status.toUpperCase()) {
+      case "COMPLETED":
+        return "#4CAF50";
+      case "PENDING":
+        return "#FFA726";
+      case "FAILED":
+        return "#F44336";
       default:
-        return "gray";
+        return "#757575";
+    }
+  };
+
+  const getStatusIcon = (status: string): string => {
+    switch (status.toUpperCase()) {
+      case "COMPLETED":
+        return "✅";
+      case "PENDING":
+        return "⏳";
+      case "FAILED":
+        return "❌";
+      default:
+        return "❓";
     }
   };
 
@@ -51,130 +79,161 @@ const TransactionDetailsScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
-      <WalletHeader 
-        pageName="Transaction Details"
-        onAccountChange={() => {
-          // Transaction details screen doesn't need to handle account changes
-        }}
+    <View style={sharedStyles.container}>
+      <Image 
+        source={require('../assets/background.png')} 
+        style={sharedStyles.backgroundImage}
       />
-      <ScrollView>
-        {/* Transaction Type & Amount */}
-        <Text style={styles.title}>{transaction.type || "Transaction"}</Text>
-        <Text
-          style={[
-            styles.amount,
-            { color: transaction.amount?.startsWith("+") ? "green" : "red" },
-          ]}
+      
+      <View style={styles.header}>
+        <TouchableOpacity 
+          onPress={handleBack}
+          style={styles.backButton}
         >
-          {transaction.amount || "N/A"}
-        </Text>
-
-        {/* Transaction Details */}
-        <View style={styles.detailsContainer}>
-          <Text style={styles.detailText}>
-            📅 Date: {transaction.date || "N/A"}
-          </Text>
-          <Text style={styles.detailText}>
-            ✅ Status:{" "}
-            <Text
-              style={[
-                styles.statusText,
-                { color: getStatusColor(transaction.status) },
-              ]}
-            >
-              {transaction.status || "Unknown"}
+          <Ionicons name="chevron-back" size={24} color={COLORS.white} />
+        </TouchableOpacity>
+        <Text style={styles.title}>Transaction Details</Text>
+        <View style={styles.backButton} />
+      </View>
+      
+      <ScrollView style={styles.content}>
+        <View style={styles.card}>
+          {/* Transaction Type & Status */}
+          <View style={styles.header}>
+            <Text style={styles.title}>
+              {getStatusIcon(transactionDetails.status)} {transactionDetails.type.replace('_', ' ')}
             </Text>
-          </Text>
-          {transaction.to && (
-            <Text style={styles.detailText}>📩 To: {transaction.to}</Text>
-          )}
-          {transaction.from && (
-            <Text style={styles.detailText}>📤 From: {transaction.from}</Text>
-          )}
-          <Text style={styles.detailText}>
-            🌐 Network: {transaction.network || "Unknown"}
-          </Text>
-          <Text style={styles.detailText}>
-            💰 Network Fee: {transaction.fee || "N/A"}
-          </Text>
-        </View>
-
-        {/* Provider Details (For Swaps) */}
-        {transaction.provider && (
-          <View style={styles.providerContainer}>
-            <Text style={styles.detailText}>
-              🔄 Provider: {transaction.provider}
-            </Text>
-            <Text style={styles.detailText}>
-              💳 You Paid: {transaction.paid}
-            </Text>
-            <Text style={styles.detailText}>
-              🎁 You Received: {transaction.received}
+            <Text style={[styles.statusText, { color: getStatusColor(transactionDetails.status) }]}>
+              {transactionDetails.status}
             </Text>
           </View>
-        )}
 
-        {/* View on Blockchain Explorer */}
-        {transaction.explorer && (
+          {/* Amount */}
+          <View style={styles.amountContainer}>
+            <Text style={styles.amount}>{transactionDetails.amount}</Text>
+          </View>
+
+          {/* Transaction Details */}
+          <View style={styles.detailsContainer}>
+            <View style={styles.row}>
+              <Text style={styles.label}>Date</Text>
+              <Text style={styles.value}>{transactionDetails.date}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>From</Text>
+              <Text style={styles.value}>{transactionDetails.from}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>To</Text>
+              <Text style={styles.value}>{transactionDetails.to}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>Network</Text>
+              <Text style={styles.value}>{transactionDetails.network}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>Network Fee</Text>
+              <Text style={styles.value}>{transactionDetails.fee}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>Transaction Hash</Text>
+              <Text style={styles.value} numberOfLines={1}>{transactionDetails.hash}</Text>
+            </View>
+          </View>
+
+          {/* View on Explorer Button */}
           <TouchableOpacity
-            onPress={() => void handleOpenExplorer(transaction.explorer!)}
             style={styles.explorerButton}
+            onPress={() => handleOpenExplorer(transactionDetails.explorer)}
           >
             <Text style={styles.explorerButtonText}>🔍 View on Explorer</Text>
           </TouchableOpacity>
-        )}
+        </View>
       </ScrollView>
+
       <BottomNav activeTab="portfolio" />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  content: {
     flex: 1,
-    backgroundColor: "#1A2F6C",
-    padding: 16,
+    padding: SPACING.lg,
+  },
+  card: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 10,
-  },
-  amount: {
-    fontSize: 20,
-    textAlign: "center",
-  },
-  detailsContainer: {
-    backgroundColor: "#111",
-    padding: 15,
-    borderRadius: 10,
-    marginVertical: 10,
-  },
-  providerContainer: {
-    backgroundColor: "#222",
-    padding: 15,
-    borderRadius: 10,
-    marginVertical: 10,
-  },
-  detailText: {
-    color: "white",
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.white,
   },
   statusText: {
-    fontWeight: "bold",
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  amountContainer: {
+    alignItems: 'center',
+    paddingVertical: SPACING.xl,
+  },
+  amount: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: COLORS.white,
+  },
+  detailsContainer: {
+    padding: SPACING.lg,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  label: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+  },
+  value: {
+    fontSize: 16,
+    color: COLORS.white,
+    fontWeight: '500',
+    maxWidth: '60%',
+    textAlign: 'right',
   },
   explorerButton: {
-    backgroundColor: "#007bff",
-    padding: 15,
-    borderRadius: 5,
-    marginTop: 10,
+    backgroundColor: COLORS.primary,
+    margin: SPACING.lg,
+    padding: SPACING.md,
+    borderRadius: 12,
+    alignItems: 'center',
   },
   explorerButtonText: {
-    color: "white",
-    textAlign: "center",
-    fontWeight: "bold",
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

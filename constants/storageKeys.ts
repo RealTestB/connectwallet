@@ -13,6 +13,7 @@ export const STORAGE_KEYS = {
   WALLET_LAST_ACTIVE: 'wallet_last_active',
   ACTIVITY_LOGS: 'activity_logs',
   TOKEN_BALANCES: 'token_balances',
+  WALLET_NFTS: 'wallet_nfts',
 
   // Settings
   SETTINGS: {
@@ -38,4 +39,6 @@ export const STORAGE_KEYS = {
   },
 
   PORTFOLIO_DATA: 'portfolio_data',
+
+  TRANSACTIONS: 'transactions',
 } as const; 

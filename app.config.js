@@ -150,6 +150,7 @@ module.exports = {
       eas: {
         projectId: "1083be59-e11a-48f1-844c-f8bebeb2b4d0"
       },
+      ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY,
       ETHEREUM_MAINNET_URL: process.env.ETHEREUM_MAINNET_URL,
       ETHEREUM_MAINNET_FALLBACK_URLS: [
         "https://eth.llamarpc.com",

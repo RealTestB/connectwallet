@@ -1,9 +1,8 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ImageBackground } from "react-native";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
+import { sharedStyles, COLORS, SPACING, FONTS } from '../styles/shared';
 
 interface Account {
   address: string;
@@ -20,13 +19,14 @@ export default function ImportWalletScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.warningBox}>
-          <Ionicons name="warning" size={20} color="#f87171" />
+    <View style={sharedStyles.container}>
+      <ImageBackground 
+        source={require('../assets/images/background.png')}
+        style={sharedStyles.backgroundImage}
+      />
+      <ScrollView style={sharedStyles.contentContainer}>
+        <View style={styles.warningContainer}>
+          <Ionicons name="warning" size={24} color={COLORS.error} style={sharedStyles.iconSpacing} />
           <Text style={styles.warningText}>
             Never share your private keys or seed phrase. Anyone with access to them can control your wallet.
           </Text>
@@ -34,44 +34,39 @@ export default function ImportWalletScreen() {
 
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => router.push("/create-password?mode=new&type=import-seed")}
+            style={styles.button}
+            onPress={() => router.push("/create-password-import?mode=import&type=seed")}
           >
             <View style={styles.buttonContent}>
-              <Ionicons name="leaf" size={20} color="white" />
+              <Ionicons name="leaf" size={24} color={COLORS.white} style={styles.buttonIcon} />
               <Text style={styles.buttonText}>Import with Seed Phrase</Text>
             </View>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => router.push("/create-password?mode=new&type=import-key")}
+            style={[styles.button, styles.secondaryButton]}
+            onPress={() => router.push("/create-password-import?mode=import&type=key")}
           >
             <View style={styles.buttonContent}>
-              <Ionicons name="key" size={20} color="white" />
+              <Ionicons name="key" size={24} color={COLORS.white} style={styles.buttonIcon} />
               <Text style={styles.buttonText}>Import with Private Key</Text>
             </View>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.securityBox}>
-          <View style={styles.securityHeader}>
-            <Ionicons name="shield-checkmark" size={20} color="#facc15" />
-            <Text style={styles.securityTitle}>Important Security Tips:</Text>
+        <View style={styles.securityTipsContainer}>
+          <Text style={styles.securityTipsTitle}>Important Security Tips:</Text>
+          <View style={styles.tipItem}>
+            <Ionicons name="shield-checkmark" size={20} color={COLORS.primary} />
+            <Text style={styles.tipText}>Make sure no one is watching your screen</Text>
           </View>
-          <View style={styles.securityList}>
-            <View style={styles.securityItem}>
-              <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.securityText}>Make sure no one is watching your screen</Text>
-            </View>
-            <View style={styles.securityItem}>
-              <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.securityText}>Never enter your details on untrusted websites</Text>
-            </View>
-            <View style={styles.securityItem}>
-              <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.securityText}>Store your backup phrase in a secure location</Text>
-            </View>
+          <View style={styles.tipItem}>
+            <Ionicons name="warning" size={20} color={COLORS.primary} />
+            <Text style={styles.tipText}>Never enter your details on untrusted websites</Text>
+          </View>
+          <View style={styles.tipItem}>
+            <Ionicons name="lock-closed" size={20} color={COLORS.primary} />
+            <Text style={styles.tipText}>Store your backup phrase in a secure location</Text>
           </View>
         </View>
 
@@ -81,94 +76,70 @@ export default function ImportWalletScreen() {
           </View>
         )}
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-    padding: 16,
-  },
-  warningBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#ef44441a",
-    borderWidth: 1,
-    borderColor: "#ef444433",
+  warningContainer: {
+    backgroundColor: `${COLORS.error}20`,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   warningText: {
+    ...FONTS.body,
+    color: COLORS.error,
     flex: 1,
-    color: "#f87171",
-    fontSize: 14,
+    marginLeft: SPACING.sm,
   },
   buttonContainer: {
-    gap: 16,
-    marginBottom: 24,
+    gap: SPACING.md,
+    marginBottom: SPACING.xl,
   },
-  buttonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  primaryButton: {
-    backgroundColor: "#2563eb",
-    padding: 16,
+  button: {
+    backgroundColor: COLORS.primary,
     borderRadius: 12,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
   },
   secondaryButton: {
-    backgroundColor: "#ffffff1a",
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: `${COLORS.primary}20`,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonIcon: {
+    marginRight: SPACING.sm,
   },
   buttonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
+    ...FONTS.body,
+    color: COLORS.white,
+    fontWeight: '600',
   },
-  securityBox: {
-    backgroundColor: "#facc151a",
-    borderWidth: 1,
-    borderColor: "#facc1533",
+  securityTipsContainer: {
+    backgroundColor: `${COLORS.primary}10`,
     borderRadius: 12,
-    padding: 16,
+    padding: SPACING.md,
   },
-  securityHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
+  securityTipsTitle: {
+    ...FONTS.h2,
+    color: COLORS.primary,
+    marginBottom: SPACING.md,
   },
-  securityTitle: {
-    color: "#facc15",
-    fontSize: 14,
-    fontWeight: "500",
+  tipItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
   },
-  securityList: {
-    gap: 4,
-  },
-  securityItem: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 4,
-  },
-  bulletPoint: {
-    color: "#facc15",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  securityText: {
-    flex: 1,
-    color: "#facc15",
-    fontSize: 14,
+  tipText: {
+    ...FONTS.body,
+    color: COLORS.textSecondary,
+    marginLeft: SPACING.sm,
   },
   errorContainer: {
     backgroundColor: "#ef44441a",

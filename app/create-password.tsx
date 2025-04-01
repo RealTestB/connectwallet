@@ -20,7 +20,7 @@ interface Account {
 
 export default function Page() {
   const router = useRouter();
-  const { mode } = useLocalSearchParams();
+  const { mode, type } = useLocalSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,10 +28,10 @@ export default function Page() {
   const [isCreating, setIsCreating] = useState(false);
   const [progress, setProgress] = useState(0.25); // 25% progress in onboarding
 
-  // Add debug logging for isCreating state changes
+  // Add debug logging for mode and type
   React.useEffect(() => {
-    console.log('isCreating state changed to:', isCreating);
-  }, [isCreating]);
+    console.log('[CreatePassword] Flow:', { mode, type });
+  }, [mode, type]);
 
   const validatePassword = (pass: string) => {
     if (!pass) return "Password is required";
@@ -72,33 +72,67 @@ export default function Page() {
 
   const handleCreatePassword = async () => {
     try {
+      setIsCreating(true);
+      setError("");
+
+      // Validate passwords
       if (!password || !confirmPassword) {
-        Alert.alert('Error', 'Please fill in all fields');
+        setError('Please fill in all fields');
         return;
       }
 
       if (password !== confirmPassword) {
-        Alert.alert('Error', 'Passwords do not match');
+        setError('Passwords do not match');
         return;
       }
 
+      const passwordValidation = validatePassword(password);
+      if (passwordValidation) {
+        setError(passwordValidation);
+        return;
+      }
+
+      // Hash and store password
       const hashedPasswordStr = await hashPassword(password);
       const hashedPasswordObj = JSON.parse(hashedPasswordStr);
-      
-      // Store the hashed password
       await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, hashedPasswordStr);
 
       // Create anonymous user in Supabase
-      const tempUserId = createAnonymousUser(hashedPasswordObj);
-      await SecureStore.setItemAsync(STORAGE_KEYS.TEMP_USER_ID, tempUserId);
+      try {
+        const tempUserId = await createAnonymousUser(hashedPasswordObj);
+        await SecureStore.setItemAsync(STORAGE_KEYS.TEMP_USER_ID, tempUserId);
 
-      // Update setup state
-      await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.PASSWORD_CREATED);
+        // Update setup state
+        await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.PASSWORD_CREATED);
 
-      router.push('/seed-phrase');
+        // Navigate based on flow type
+        if (mode === 'new') {
+          // New wallet creation flow
+          router.push('/seed-phrase');
+        } else if (mode === 'import') {
+          if (type === 'seed') {
+            // Import with seed phrase flow
+            router.push({
+              pathname: '/import-seed-phrase',
+              params: { password: hashedPasswordStr }
+            });
+          } else if (type === 'key') {
+            // Import with private key flow
+            router.push({
+              pathname: '/import-private-key',
+              params: { password: hashedPasswordStr }
+            });
+          }
+        }
+      } catch (error) {
+        console.error('[CreatePassword] Error creating anonymous user:', error);
+        setError('Failed to create user account. Please try again.');
+      }
     } catch (error) {
-      console.error('Error creating password:', error);
-      Alert.alert('Error', 'Failed to create password');
+      console.error('[CreatePassword] Error:', error);
+      setError('Failed to create password');
+    } finally {
+      setIsCreating(false);
     }
   };
 

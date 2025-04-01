@@ -12,6 +12,7 @@ const setupRoutes = [
   'secure-wallet',
   'wallet-created',
   'import-wallet',
+  'create-password-import',
   'import-seed-phrase',
   'import-private-key',
   'import-success'
@@ -22,12 +23,21 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const segments = useSegments();
   const router = useRouter();
   const [isInSetup, setIsInSetup] = useState(false);
+  const currentRoute = segments[0] || '';
 
+  // Only check setup state for setup-related routes
   useEffect(() => {
     const checkSetupState = async () => {
+      // Only check setup state if we're on a setup route
+      if (!setupRoutes.includes(currentRoute)) {
+        setIsInSetup(false);
+        return;
+      }
+
       try {
         const setupState = await SecureStore.getItemAsync(STORAGE_KEYS.SETUP_STATE);
-        setIsInSetup(setupState !== STORAGE_KEYS.SETUP_STEPS.COMPLETE);
+        const isStillInSetup = setupState !== null && setupState !== STORAGE_KEYS.SETUP_STEPS.COMPLETE;
+        setIsInSetup(isStillInSetup);
       } catch (error) {
         console.error('[ProtectedRoute] Error checking setup state:', error);
         setIsInSetup(false);
@@ -35,57 +45,29 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     };
 
     checkSetupState();
-  }, []);
+  }, [currentRoute]);
 
   useEffect(() => {
-    console.log("[ProtectedRoute] Route check triggered with:", {
-      segments,
-      isAuthenticated,
-      hasWallet,
-      isInSetup,
-      currentPath: segments.join('/')
-    });
-
-    const currentRoute = segments[0] || '';
     const inPublicGroup = publicRoutes.includes(currentRoute);
     const inSetupGroup = setupRoutes.includes(currentRoute);
 
-    console.log("[ProtectedRoute] Route analysis:", {
-      currentRoute,
-      inPublicGroup,
-      inSetupGroup,
-      isInSetup
-    });
-
-    // If in setup flow, allow access to setup routes
-    if (isInSetup && inSetupGroup) {
-      console.log("[ProtectedRoute] In setup flow, allowing access to setup route");
-      return;
-    }
-
-    // If no wallet and not in setup, redirect to welcome (except for public routes)
-    if (!hasWallet && !inPublicGroup && !isInSetup) {
-      console.log("[ProtectedRoute] No wallet found and not in setup, redirecting to welcome");
+    // If no wallet and not in setup/public routes, redirect to welcome
+    if (!hasWallet && !inPublicGroup && !inSetupGroup) {
       router.replace('/welcome');
       return;
     }
 
-    // If has wallet but not authenticated, redirect to signin
-    // (except for public routes which includes signin)
+    // If has wallet but not authenticated and not in public routes, redirect to signin
     if (hasWallet && !isAuthenticated && !inPublicGroup) {
-      console.log("[ProtectedRoute] Has wallet but not authenticated, redirecting to signin");
       router.replace('/signin');
       return;
     }
 
     // If has wallet and authenticated, redirect to portfolio if trying to access setup or public routes
     if (hasWallet && isAuthenticated && (inSetupGroup || currentRoute === 'signin')) {
-      console.log("[ProtectedRoute] Authenticated with wallet, redirecting to portfolio");
       router.replace('/portfolio');
       return;
     }
-
-    console.log("[ProtectedRoute] Access granted to current route");
   }, [segments, isAuthenticated, hasWallet, isInSetup]);
 
   return <>{children}</>;

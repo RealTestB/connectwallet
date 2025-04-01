@@ -1,6 +1,7 @@
 import { Alchemy, Network, AlchemySettings } from 'alchemy-sdk';
 import { ethers } from 'ethers';
 import config from './config';
+import { TokenBalance, TokenMetadata } from '../types/tokens';
 
 interface AlchemyInstances {
   [key: string]: Alchemy;
@@ -8,82 +9,137 @@ interface AlchemyInstances {
 
 const TIMEOUT_MS = 5000; // 5 second timeout for better UX
 
-const makeAlchemyRequest = (method: string, params: any[] = []): Promise<any> => {
+const ALCHEMY_BASE_URL = 'https://eth-mainnet.g.alchemy.com/v2';
+const ALCHEMY_NFT_BASE_URL = 'https://eth-mainnet.g.alchemy.com/nft/v3';
+
+interface AlchemyResponse {
+  jsonrpc: string;
+  id: number;
+  result: any;
+}
+
+interface AlchemyError {
+  jsonrpc: string;
+  id: number;
+  error: {
+    code: number;
+    message: string;
+  };
+}
+
+/**
+ * Make a request to Alchemy API using XMLHttpRequest
+ */
+export function makeAlchemyRequest(method: string, params: any[]): Promise<any> {
   return new Promise((resolve, reject) => {
-    const url = `https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`;
-    console.log('[AlchemyAPI] Making request:', { method, url });
-    
     const xhr = new XMLHttpRequest();
-    xhr.timeout = TIMEOUT_MS;
-    
+    xhr.timeout = 30000; // 30 second timeout
+
     xhr.addEventListener('readystatechange', () => {
       if (xhr.readyState !== 4) return;
-      
-      console.log('[AlchemyAPI] Response received:', {
-        status: xhr.status,
-        statusText: xhr.statusText,
-        hasResponse: !!xhr.responseText,
-        method
-      });
-      
-      if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          if (response.error) {
-            console.error('[AlchemyAPI] JSON-RPC error:', { method, error: response.error });
-            reject(new Error(`${method} failed: ${response.error.message}`));
-            return;
-          }
-          console.log('[AlchemyAPI] Successfully parsed response for', method);
-          resolve(response.result);
-        } catch (error) {
-          const errorMsg = `Failed to parse response for ${method}`;
-          console.error('[AlchemyAPI]', errorMsg, error);
-          reject(new Error(errorMsg));
+
+      // Handle network errors
+      if (xhr.status === 0) {
+        reject(new Error('Network error occurred'));
+        return;
+      }
+
+      try {
+        const response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+
+        // Check for Alchemy API errors
+        if (response?.error) {
+          const alchemyError = response as AlchemyError;
+          reject(new Error(alchemyError.error.message));
+          return;
         }
-      } else {
-        const errorMsg = `${method} request failed with status ${xhr.status}`;
-        console.error('[AlchemyAPI]', errorMsg, {
-          status: xhr.status,
-          statusText: xhr.statusText,
-          responseText: xhr.responseText
-        });
-        reject(new Error(errorMsg));
+
+        // Handle successful response
+        if (xhr.status >= 200 && xhr.status < 300 && response) {
+          const alchemyResponse = response as AlchemyResponse;
+          resolve(alchemyResponse.result);
+        } else {
+          reject(new Error(`HTTP error! status: ${xhr.status}`));
+        }
+      } catch (error) {
+        reject(new Error('Failed to parse response'));
       }
     });
 
     xhr.addEventListener('error', () => {
-      const errorMsg = `Network request failed for ${method}`;
-      console.error('[AlchemyAPI]', errorMsg);
-      reject(new Error(errorMsg));
+      reject(new Error('Request failed'));
     });
 
     xhr.addEventListener('timeout', () => {
-      const errorMsg = `${method} request timed out after ${TIMEOUT_MS}ms`;
-      console.error('[AlchemyAPI]', errorMsg);
-      reject(new Error(errorMsg));
+      reject(new Error('Request timed out'));
     });
 
-    try {
-      xhr.open('POST', url);
-      xhr.setRequestHeader('Accept', 'application/json');
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      
-      const body = JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method,
-        params
-      });
-      
-      xhr.send(body);
-    } catch (error) {
-      const errorMsg = `Failed to send ${method} request`;
-      console.error('[AlchemyAPI]', errorMsg, error);
-      reject(new Error(errorMsg));
-    }
+    xhr.open('POST', `${ALCHEMY_BASE_URL}/${config.apiKeys.alchemyKey}`);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', 'application/json');
+
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method,
+      params
+    });
+
+    xhr.send(body);
   });
-};
+}
+
+/**
+ * Make a request to Alchemy NFT API v3 using XMLHttpRequest
+ */
+export function makeAlchemyNFTRequest(endpoint: string, queryParams: Record<string, any> = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.timeout = 30000; // 30 second timeout
+
+    xhr.addEventListener('readystatechange', () => {
+      if (xhr.readyState !== 4) return;
+
+      // Handle network errors
+      if (xhr.status === 0) {
+        reject(new Error('Network error occurred'));
+        return;
+      }
+
+      try {
+        const response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+
+        // Handle successful response
+        if (xhr.status >= 200 && xhr.status < 300 && response) {
+          resolve(response);
+        } else {
+          reject(new Error(response?.error || `HTTP error! status: ${xhr.status}`));
+        }
+      } catch (error) {
+        reject(new Error('Failed to parse response'));
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      reject(new Error('Request failed'));
+    });
+
+    xhr.addEventListener('timeout', () => {
+      reject(new Error('Request timed out'));
+    });
+
+    // Construct query string from params
+    const queryString = Object.entries(queryParams)
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .join('&');
+
+    const url = `${ALCHEMY_NFT_BASE_URL}/${config.apiKeys.alchemyKey}/${endpoint}${queryString ? `?${queryString}` : ''}`;
+    
+    xhr.open('GET', url);
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.send();
+  });
+}
 
 let alchemyInstances: AlchemyInstances = {};
 let provider: ethers.JsonRpcProvider | null = null;
@@ -91,22 +147,13 @@ let provider: ethers.JsonRpcProvider | null = null;
 /**
  * Get or create Alchemy instance
  */
-export const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alchemy => {
-  const networkKey = network.toString();
-  if (!alchemyInstances[networkKey]) {
-    try {
-      const settings: AlchemySettings = {
-        apiKey: config.alchemy.mainnetKey,
-        network: network
-      };
-      alchemyInstances[networkKey] = new Alchemy(settings);
-    } catch (error) {
-      console.error('Failed to create Alchemy instance:', error);
-      throw new Error('Failed to initialize Alchemy SDK');
-    }
-  }
-  return alchemyInstances[networkKey];
-};
+export function getAlchemyInstance(): Alchemy {
+  const settings: AlchemySettings = {
+    apiKey: config.apiKeys.alchemyKey,
+    network: Network.ETH_MAINNET
+  };
+  return new Alchemy(settings);
+}
 
 /**
  * Get or create ethers provider instance
@@ -114,7 +161,7 @@ export const getAlchemyInstance = (network: Network = Network.ETH_MAINNET): Alch
 export const getProvider = (): ethers.JsonRpcProvider => {
   if (!provider) {
     try {
-      provider = new ethers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${config.alchemy.mainnetKey}`);
+      provider = new ethers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${config.apiKeys.alchemyKey}`);
     } catch (error) {
       console.error('Failed to create provider:', error);
       throw new Error('Failed to initialize Ethereum provider');
@@ -194,65 +241,27 @@ export const getNFTMetadata = async (contractAddress: string, tokenId: string): 
 };
 
 /**
- * Get token balances for address
+ * Get ETH balance for an address
  */
-export const getTokenBalances = async (address: string): Promise<any[]> => {
-  try {
-    console.log('[AlchemyAPI] Getting token balances for:', address);
-    const balances = await makeAlchemyRequest('alchemy_getTokenBalances', [address]);
-    console.log('[AlchemyAPI] Token balances response:', {
-      address,
-      tokenCount: balances?.tokenBalances?.length ?? 0
-    });
-    return balances?.tokenBalances ?? [];
-  } catch (error) {
-    console.error('[AlchemyAPI] Error getting token balances:', {
-      address,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw error;
-  }
-};
+export async function getEthBalance(address: string): Promise<string> {
+  const balanceHex = await makeAlchemyRequest('eth_getBalance', [address, 'latest']);
+  // Convert hex balance to decimal string
+  return BigInt(balanceHex).toString();
+}
+
+/**
+ * Get token balances for an address
+ */
+export async function getTokenBalances(address: string): Promise<TokenBalance[]> {
+  return makeAlchemyRequest('alchemy_getTokenBalances', [address]);
+}
 
 /**
  * Get token metadata
  */
-export const getTokenMetadata = async (contractAddress: string): Promise<any> => {
-  try {
-    console.log('[AlchemyAPI] Getting token metadata for:', contractAddress);
-    const metadata = await makeAlchemyRequest('alchemy_getTokenMetadata', [contractAddress]);
-    console.log('[AlchemyAPI] Token metadata response:', {
-      contractAddress,
-      hasMetadata: !!metadata
-    });
-    return metadata;
-  } catch (error) {
-    console.error('[AlchemyAPI] Error getting token metadata:', {
-      contractAddress,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw error;
-  }
-};
-
-/**
- * Get ETH balance for address
- */
-export const getEthBalance = async (address: string) => {
-  try {
-    const alchemy = getAlchemyInstance();
-    return await alchemy.core.getBalance(address);
-  } catch (error) {
-    console.error('Error getting ETH balance:', {
-      address,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw error;
-  }
-};
+export async function getTokenMetadata(contractAddress: string): Promise<TokenMetadata> {
+  return makeAlchemyRequest('alchemy_getTokenMetadata', [contractAddress]);
+}
 
 /**
  * Get native balance for address
@@ -277,4 +286,41 @@ export const getNativeBalance = async (address: string): Promise<string> => {
 export const resetInstances = () => {
   alchemyInstances = {};
   provider = null;
-}; 
+};
+
+/**
+ * Fetch all token balances and metadata for a wallet
+ */
+export async function fetchWalletTokens(address: string): Promise<{
+  ethBalance: string;
+  tokens: (TokenBalance & TokenMetadata)[];
+}> {
+  try {
+    // Get ETH balance and token balances in parallel
+    const [ethBalance, tokenBalances] = await Promise.all([
+      getEthBalance(address),
+      getTokenBalances(address)
+    ]);
+
+    // Get metadata for all tokens with non-zero balance
+    const tokensWithMetadata = await Promise.all(
+      tokenBalances
+        .filter(token => token.tokenBalance !== '0x0')
+        .map(async token => {
+          const metadata = await getTokenMetadata(token.contractAddress);
+          return {
+            ...token,
+            ...metadata
+          };
+        })
+    );
+
+    return {
+      ethBalance,
+      tokens: tokensWithMetadata
+    };
+  } catch (error) {
+    console.error('[AlchemyApi] Error fetching wallet tokens:', error);
+    throw error;
+  }
+} 

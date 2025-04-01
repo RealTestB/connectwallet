@@ -1,25 +1,31 @@
 import React, { useState } from "react";
-import {View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,} from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
+  ImageBackground,
+} from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
-
-interface Account {
-  address: string;
-  name?: string;
-  chainId?: number;
-}
+import * as Clipboard from 'expo-clipboard';
+import { sharedStyles, COLORS, SPACING, FONTS } from '../styles/shared';
+import { importClassicWalletFromSeedPhrase } from '../api/walletApi';
+import { validateSeedPhrase } from '../utils/validators';
+import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export default function ImportSeedPhraseScreen() {
   const router = useRouter();
-  const { password } = useLocalSearchParams();
+  const { password } = useLocalSearchParams<{ password: string }>();
   const [wordCount, setWordCount] = useState(12);
   const [words, setWords] = useState(Array(12).fill(""));
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [securityScore, setSecurityScore] = useState(0);
-  const [isSecure, setIsSecure] = useState(true);
 
   const handleWordCountToggle = (count: number) => {
     setWordCount(count);
@@ -43,41 +49,85 @@ export default function ImportSeedPhraseScreen() {
     setError(null);
 
     try {
-      if (!password) {
-        throw new Error("Password is required");
+      const seedPhrase = words.join(" ");
+      const validation = validateSeedPhrase(seedPhrase);
+      
+      if (!validation.isValid) {
+        throw new Error(validation.error || "Invalid seed phrase");
       }
 
-      // Here you would make your API calls
-      // For now, we'll just simulate success
-      router.push("/import-success?type=creation");
+      // Import the wallet using the seed phrase
+      const { address } = await importClassicWalletFromSeedPhrase(seedPhrase);
+      
+      // Navigate to success page with the address
+      router.push({
+        pathname: "/import-success",
+        params: { 
+          type: "import",
+          address 
+        }
+      });
     } catch (err) {
+      console.error('[ImportSeedPhrase] Import error:', err);
       setError(err instanceof Error ? err.message : "Failed to import wallet");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.stepsContainer}>
-          <View style={styles.steps}>
-            {[1, 2, 3, 4].map((step) => (
-              <View
-                key={step}
-                style={[
-                  styles.stepDot,
-                  step === 4 ? styles.activeStep : styles.inactiveStep,
-                ]}
-              />
-            ))}
-          </View>
-        </View>
+  const handlePaste = async () => {
+    try {
+      const clipboardText = await Clipboard.getStringAsync();
+      if (!clipboardText) {
+        setError('No text found in clipboard');
+        return;
+      }
 
-        <Text style={styles.title}>Import {wordCount}-Word Seed Phrase</Text>
+      // Split by whitespace and clean up words
+      const pastedWords = clipboardText.trim().toLowerCase().split(/\s+/);
+      
+      // Validate word count
+      if (pastedWords.length !== wordCount) {
+        setError(`Please paste a ${wordCount}-word seed phrase`);
+        return;
+      }
+
+      // Update all words at once
+      setWords(pastedWords);
+      setError(null);
+
+      // Update security score
+      setSecurityScore(100);
+    } catch (err) {
+      console.error('[ImportSeedPhrase] Paste error:', err);
+      setError('Failed to paste from clipboard');
+    }
+  };
+
+  return (
+    <View style={sharedStyles.container}>
+      <ImageBackground 
+        source={require('../assets/images/background.png')}
+        style={sharedStyles.backgroundImage}
+      />
+      <ScrollView 
+        style={sharedStyles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingBottom: SPACING.xl * 4
+        }}
+      >
+        <Text style={sharedStyles.title}>Import Seed Phrase</Text>
+        <Text style={sharedStyles.subtitle}>
+          Enter your seed phrase to import your wallet
+        </Text>
+
+        <View style={styles.warningContainer}>
+          <Ionicons name="warning" size={24} color={COLORS.error} style={sharedStyles.iconSpacing} />
+          <Text style={styles.warningText}>
+            Never share your seed phrase with anyone. We will never ask for it outside of this import process.
+          </Text>
+        </View>
 
         <View style={styles.toggleContainer}>
           <TouchableOpacity
@@ -87,12 +137,10 @@ export default function ImportSeedPhraseScreen() {
             ]}
             onPress={() => handleWordCountToggle(12)}
           >
-            <Text
-              style={[
-                styles.toggleButtonText,
-                wordCount === 12 ? styles.toggleButtonTextActive : styles.toggleButtonTextInactive,
-              ]}
-            >
+            <Text style={[
+              styles.toggleButtonText,
+              wordCount === 12 ? styles.toggleButtonTextActive : styles.toggleButtonTextInactive,
+            ]}>
               12 Words
             </Text>
           </TouchableOpacity>
@@ -103,22 +151,13 @@ export default function ImportSeedPhraseScreen() {
             ]}
             onPress={() => handleWordCountToggle(24)}
           >
-            <Text
-              style={[
-                styles.toggleButtonText,
-                wordCount === 24 ? styles.toggleButtonTextActive : styles.toggleButtonTextInactive,
-              ]}
-            >
+            <Text style={[
+              styles.toggleButtonText,
+              wordCount === 24 ? styles.toggleButtonTextActive : styles.toggleButtonTextInactive,
+            ]}>
               24 Words
             </Text>
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.warningBox}>
-          <Ionicons name="warning" size={20} color="#f87171" />
-          <Text style={styles.warningText}>
-            Never share your seed phrase with anyone. We will never ask for it outside of this import process.
-          </Text>
         </View>
 
         <View style={styles.securityBox}>
@@ -131,16 +170,25 @@ export default function ImportSeedPhraseScreen() {
           </View>
         </View>
 
+        <TouchableOpacity
+          style={styles.pasteButton}
+          onPress={handlePaste}
+        >
+          <Ionicons name="clipboard-outline" size={20} color={COLORS.white} />
+          <Text style={styles.pasteButtonText}>Paste Seed Phrase</Text>
+        </TouchableOpacity>
+
         <View style={styles.wordsGrid}>
           {Array.from({ length: wordCount }).map((_, i) => (
             <View key={i} style={styles.wordInputContainer}>
               <TextInput
                 style={styles.wordInput}
-                secureTextEntry={isSecure}
                 value={words[i]}
                 onChangeText={(value) => handleWordChange(i, value)}
                 placeholder={`Word ${i + 1}`}
-                placeholderTextColor="#93c5fd"
+                placeholderTextColor={COLORS.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
               />
             </View>
           ))}
@@ -161,162 +209,140 @@ export default function ImportSeedPhraseScreen() {
           disabled={isProcessing || words.some(word => !word)}
         >
           {isProcessing ? (
-            <ActivityIndicator color="white" />
+            <ActivityIndicator color={COLORS.white} />
           ) : (
             <Text style={styles.importButtonText}>Import Wallet</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-    padding: 16,
-  },
-  stepsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 32,
-  },
-  steps: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  activeStep: {
-    backgroundColor: "#3b82f6",
-  },
-  inactiveStep: {
-    backgroundColor: "#3b82f680",
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  toggleContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 16,
-    marginBottom: 24,
-  },
-  toggleButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  warningContainer: {
+    backgroundColor: `${COLORS.error}20`,
     borderRadius: 12,
-  },
-  toggleButtonActive: {
-    backgroundColor: "#2563eb",
-  },
-  toggleButtonInactive: {
-    backgroundColor: "#ffffff1a",
-  },
-  toggleButtonText: {
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  toggleButtonTextActive: {
-    color: "white",
-  },
-  toggleButtonTextInactive: {
-    color: "#93c5fd",
-  },
-  warningBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#ef44441a",
-    borderWidth: 1,
-    borderColor: "#ef444433",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   warningText: {
+    ...FONTS.body,
+    color: COLORS.error,
     flex: 1,
-    color: "#f87171",
-    fontSize: 14,
+    marginLeft: SPACING.sm,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
+  },
+  toggleButton: {
+    flex: 1,
+    padding: SPACING.md,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: COLORS.primary,
+  },
+  toggleButtonInactive: {
+    backgroundColor: `${COLORS.primary}20`,
+  },
+  toggleButtonText: {
+    ...FONTS.body,
+    fontWeight: '600',
+  },
+  toggleButtonTextActive: {
+    color: COLORS.white,
+  },
+  toggleButtonTextInactive: {
+    color: COLORS.textSecondary,
   },
   securityBox: {
-    backgroundColor: "#ffffff1a",
+    backgroundColor: `${COLORS.primary}10`,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   securityHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.sm,
   },
   securityText: {
-    color: "#93c5fd",
-    fontSize: 14,
+    ...FONTS.body,
+    color: COLORS.primary,
   },
   securityBarContainer: {
-    height: 8,
-    backgroundColor: "#ffffff1a",
-    borderRadius: 4,
-    overflow: "hidden",
+    height: 4,
+    backgroundColor: `${COLORS.primary}20`,
+    borderRadius: 2,
   },
   securityBar: {
-    height: "100%",
-    backgroundColor: "#3b82f6",
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: 2,
   },
   wordsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 24,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginBottom: SPACING.xl,
   },
   wordInputContainer: {
-    width: "48%",
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${COLORS.white}10`,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${COLORS.white}20`,
   },
   wordInput: {
-    backgroundColor: "#ffffff1a",
-    borderWidth: 1,
-    borderColor: "#ffffff1a",
-    borderRadius: 12,
-    padding: 12,
-    color: "white",
-    fontSize: 16,
+    flex: 1,
+    padding: SPACING.md,
+    ...FONTS.body,
+    color: COLORS.white,
   },
   errorContainer: {
-    backgroundColor: "#ef44441a",
-    borderWidth: 1,
-    borderColor: "#ef444433",
+    backgroundColor: `${COLORS.error}20`,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   errorText: {
-    color: "#f87171",
-    fontSize: 14,
+    ...FONTS.body,
+    color: COLORS.error,
   },
   importButton: {
-    backgroundColor: "#2563eb",
-    padding: 16,
+    backgroundColor: COLORS.primary,
+    padding: SPACING.md,
     borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 24,
+    alignItems: 'center',
   },
   importButtonDisabled: {
     opacity: 0.5,
   },
   importButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
+    ...FONTS.body,
+    color: COLORS.white,
+    fontWeight: '600',
   },
+  pasteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${COLORS.primary}20`,
+    padding: SPACING.md,
+    borderRadius: 12,
+    marginBottom: SPACING.lg,
+    gap: SPACING.xs,
+  },
+  pasteButtonText: {
+    ...FONTS.body,
+    color: COLORS.white,
+  }
 }); 

@@ -1,13 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { useRouter, useNavigation } from "expo-router";
-import { StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, ActivityIndicator } from "react-native";
-import { LinearGradient } from 'expo-linear-gradient';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, ActivityIndicator, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from 'expo-secure-store';
 import { verifyPassword } from "../api/securityApi";
 import { STORAGE_KEYS } from "../constants/storageKeys";
+import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
 
 const MAX_NAVIGATION_ATTEMPTS = 3;
 const FETCH_TIMEOUT = 8000; // 8 seconds timeout
@@ -107,49 +107,42 @@ export default function Page() {
   };
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
-      <View 
-        style={[
-          styles.content,
-          {
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-          }
-        ]}
-      >
+    <View style={[sharedStyles.container]}>
+      <Image 
+        source={require('../assets/images/background.png')} 
+        style={sharedStyles.backgroundImage}
+      />
+      <View style={[styles.content, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Enter your password to continue</Text>
+          <Text style={sharedStyles.title}>Welcome Back</Text>
+          <Text style={sharedStyles.subtitle}>Enter your password to continue</Text>
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your password"
-                placeholderTextColor="#93c5fd"
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={setPassword}
-                onSubmitEditing={handleSignIn}
-                returnKeyType="go"
+        <View style={styles.formContainer}>
+          <Text style={styles.label}>Password</Text>
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your password"
+              placeholderTextColor={COLORS.textSecondary}
+              secureTextEntry={!showPassword}
+              value={password}
+              onChangeText={setPassword}
+              onSubmitEditing={handleSignIn}
+              returnKeyType="go"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity
+              style={styles.eyeIcon}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Ionicons
+                name={showPassword ? "eye-off-outline" : "eye-outline"}
+                size={24}
+                color={COLORS.textSecondary}
               />
-              <TouchableOpacity
-                style={styles.eyeIcon}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? "eye-off-outline" : "eye-outline"}
-                  size={20}
-                  color="#93c5fd"
-                />
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -163,91 +156,90 @@ export default function Page() {
         >
           {isLoading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color={COLORS.white} />
               <Text style={styles.buttonText}>Signing In...</Text>
             </View>
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}
         </TouchableOpacity>
+
+        {error && (
+          <Text style={styles.errorText}>{error}</Text>
+        )}
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   content: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.xl * 2,
   },
   header: {
     alignItems: "center",
-    marginVertical: 48,
+    marginBottom: SPACING.xl,
+    marginTop: SPACING.xl * 3,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "white",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#93c5fd",
-  },
-  card: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-  },
-  inputGroup: {
-    gap: 8,
+  formContainer: {
+    marginBottom: SPACING.lg,
   },
   label: {
-    fontSize: 14,
-    color: "#93c5fd",
+    ...FONTS.body,
+    fontWeight: '600',
+    marginBottom: SPACING.xs,
   },
-  passwordContainer: {
+  inputContainer: {
     position: "relative",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
   },
   input: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    padding: 12,
-    color: "white",
-    fontSize: 16,
-    paddingRight: 40,
+    ...FONTS.body,
+    padding: SPACING.md,
+    paddingRight: SPACING.xl * 2,
   },
   eyeIcon: {
     position: "absolute",
-    right: 12,
+    right: SPACING.md,
     top: "50%",
-    transform: [{ translateY: -10 }],
+    transform: [{ translateY: -12 }],
   },
   signInButton: {
-    backgroundColor: "#3b82f6",
+    backgroundColor: COLORS.primary,
     borderRadius: 12,
-    padding: 16,
+    padding: SPACING.md,
     alignItems: "center",
-    marginTop: 24,
+    marginTop: SPACING.xs,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   signInButtonDisabled: {
-    backgroundColor: "rgba(59, 130, 246, 0.5)",
+    opacity: 0.5,
   },
   loadingContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: SPACING.xs,
   },
   buttonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
+    ...FONTS.body,
+    fontWeight: '600',
+  },
+  errorText: {
+    ...FONTS.caption,
+    color: COLORS.error,
+    textAlign: "center",
+    marginTop: SPACING.md,
   },
 });

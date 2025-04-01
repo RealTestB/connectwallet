@@ -33,6 +33,7 @@ interface ExpoManifest {
     SUPABASE_S3_SECRET_KEY?: string;
     CMC_API_KEY?: string;
     LIFI_API_KEY?: string;
+    ALCHEMY_API_KEY?: string;
     NETWORK_SETTINGS?: {
       timeoutMs: number;
       maxRetries: number;
@@ -303,7 +304,8 @@ const config = {
   // API Keys
   apiKeys: {
     cmcKey: extra?.CMC_API_KEY || '',
-    lifiKey: extra?.LIFI_API_KEY || ''
+    lifiKey: extra?.LIFI_API_KEY || '',
+    alchemyKey: extra?.ALCHEMY_API_KEY || ''
   },
 
   // Chain configuration

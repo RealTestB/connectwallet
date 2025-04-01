@@ -3,6 +3,8 @@ import * as SecureStore from "expo-secure-store";
 import config from "./config";
 import { createWallet } from "./supabaseApi";
 import { STORAGE_KEYS } from "../constants/storageKeys";
+import { getTokenBalances } from "./tokensApi";
+import { supabaseAdmin } from "../lib/supabase";
 
 export interface WalletData {
   address: string;
@@ -33,12 +35,41 @@ export const importClassicWalletFromPrivateKey = async (privateKey: string): Pro
       throw new Error("No temp_user_id found");
     }
 
-    // Store wallet in database
-    await createWallet({
+    // Store wallet in database with imported flag
+    const walletId = await createWallet({
       public_address: address,
       temp_user_id: tempUserId,
-      chain_name: "ethereum"
+      chain_name: "ethereum",
+      imported: true
     });
+
+    // Fetch token balances
+    const tokenBalances = await getTokenBalances(address);
+    if (!Array.isArray(tokenBalances)) {
+      throw new Error("Failed to fetch token balances");
+    }
+
+    // Store token balances in database
+    const balancesToInsert = tokenBalances.map(token => ({
+      wallet_id: walletId,
+      token_address: token.contractAddress,
+      chain_id: 1, // Ethereum mainnet
+      symbol: token.metadata?.symbol || "UNKNOWN",
+      name: token.metadata?.name || "Unknown Token",
+      decimals: token.metadata?.decimals || 18,
+      balance: token.formattedBalance,
+      timestamp: new Date().toISOString()
+    }));
+
+    if (balancesToInsert.length > 0) {
+      const { error } = await supabaseAdmin
+        .from("token_balances")
+        .insert(balancesToInsert);
+
+      if (error) {
+        console.error("Failed to store token balances:", error);
+      }
+    }
 
     return { 
       address, 
@@ -67,8 +98,9 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
     };
     await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
 
-    // Store seed phrase separately
+    // Store seed phrase securely
     await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, seedPhrase);
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, wallet.privateKey);
 
     // Get temp_user_id from SecureStore
     const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
@@ -76,17 +108,47 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
       throw new Error("No temp_user_id found");
     }
 
-    // Store wallet in database
-    await createWallet({
+    // Store wallet in database with imported flag
+    const walletId = await createWallet({
       public_address: address,
       temp_user_id: tempUserId,
-      chain_name: "ethereum"
+      chain_name: "ethereum",
+      imported: true
     });
+
+    // Fetch token balances
+    const tokenBalances = await getTokenBalances(address);
+    if (!Array.isArray(tokenBalances)) {
+      throw new Error("Failed to fetch token balances");
+    }
+
+    // Store token balances in database
+    const balancesToInsert = tokenBalances.map(token => ({
+      wallet_id: walletId,
+      token_address: token.contractAddress,
+      chain_id: 1, // Ethereum mainnet
+      symbol: token.metadata?.symbol || "UNKNOWN",
+      name: token.metadata?.name || "Unknown Token",
+      decimals: token.metadata?.decimals || 18,
+      balance: token.formattedBalance,
+      timestamp: new Date().toISOString()
+    }));
+
+    if (balancesToInsert.length > 0) {
+      const { error } = await supabaseAdmin
+        .from("token_balances")
+        .insert(balancesToInsert);
+
+      if (error) {
+        console.error("Failed to store token balances:", error);
+      }
+    }
 
     return { 
       address, 
       type: "classic",
-      chainId: config.chain.chainId
+      chainId: config.chain.chainId,
+      hasPassword: true
     };
   } catch (error) {
     console.error("Classic Wallet import from seed phrase failed:", error);
@@ -227,15 +289,21 @@ export const completeWalletSetup = async (): Promise<boolean> => {
       lastActive: Date.now().toString()
     };
 
-    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
-    await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.COMPLETE);
+    console.log('[WalletApi] Storing wallet data and clearing setup state...');
 
-    // 4. Clear temp data from SecureStore
+    // 4. Clear setup state first to prevent race conditions
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.SETUP_STATE);
+
+    // 5. Store wallet data
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
+
+    // 6. Clear all temporary setup data
     await Promise.all([
       SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE),
       SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_USER_ID)
     ]);
 
+    console.log('[WalletApi] Wallet setup completed successfully');
     return true;
   } catch (error) {
     console.error('[WalletApi] Error completing wallet setup:', error);

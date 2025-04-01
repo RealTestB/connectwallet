@@ -1,5 +1,5 @@
 import { Alchemy, Network, TokenBalancesResponse } from 'alchemy-sdk';
-import { getProvider } from './provider';
+import { getProvider } from '../lib/provider';
 import { NETWORKS } from './config';
 import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
@@ -77,6 +77,8 @@ export interface TokenTransferParams {
   toAddress: string;
   amount: string;
   decimals: number;
+  gasPrice?: string;
+  gasLimit?: string;
 }
 
 export interface TokenBalanceResult {
@@ -106,13 +108,13 @@ export function initializeAlchemy(networkKey: NetworkKey | string = 'ethereum'):
 
     console.log('[TokensApi] Initializing Alchemy with settings:', {
       network,
-      hasApiKey: !!config.alchemy.mainnetKey,
+      hasApiKey: !!NETWORKS.ethereum.rpcUrl.split('/').pop(),
       timeout: 5000,
       maxRetries: 5
     });
 
     const settings = {
-      apiKey: config.alchemy.mainnetKey,
+      apiKey: NETWORKS.ethereum.rpcUrl.split('/').pop() || '',
       network,
       maxRetries: 5,
       requestTimeout: 5000,
@@ -327,13 +329,18 @@ export const makeAlchemyRequest = (method: string, params: any[]): Promise<any> 
       console.log('[TokensApi] Response received:', {
         status: xhr.status,
         statusText: xhr.statusText,
-        hasResponse: !!xhr.responseText
+        hasResponse: !!xhr.responseText,
+        responseText: xhr.responseText
       });
       
       if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
         try {
           const response = JSON.parse(xhr.responseText);
-          console.log('[TokensApi] Parsed response:', response);
+          console.log('[TokensApi] Parsed response:', {
+            response,
+            result: response.result,
+            resultType: typeof response.result
+          });
           if (response.error) {
             console.error('[TokensApi] JSON-RPC error:', response.error);
             reject(new Error(response.error.message));
@@ -432,58 +439,73 @@ export const estimateTokenTransferGas = async (
   fromAddress: string,
   toAddress: string,
   amount: string
-): Promise<bigint> => {
-  console.log('[TokensApi] Estimating gas for token transfer:', { 
-    tokenAddress, 
-    fromAddress, 
-    toAddress, 
-    amount 
-  });
-  
+): Promise<string> => {
   try {
-    // Get token metadata first to ensure we have the correct decimals
-    const metadata = await makeAlchemyRequest('alchemy_getTokenMetadata', [tokenAddress])
-      .catch(error => {
-        console.error('[TokensApi] Error getting token metadata:', {
-          tokenAddress,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-        // Return default decimals of 18 if metadata fetch fails
-        return { decimals: 18 };
-      });
-
-    // Convert amount to wei using the token's decimals
-    const amountInWei = ethers.parseUnits(amount, metadata.decimals);
-
-    // Create interface for transfer function
-    const iface = new ethers.Interface(['function transfer(address to, uint256 amount)']);
-
-    // Make the gas estimation request
-    const data = await makeAlchemyRequest('eth_estimateGas', [{
-      from: fromAddress,
-      to: tokenAddress,
-      data: iface.encodeFunctionData('transfer', [toAddress, amountInWei])
-    }]).catch(error => {
-      console.error('[TokensApi] Error estimating gas:', {
-        tokenAddress,
-        fromAddress,
-        toAddress,
-        amount,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      // Return a safe default gas limit if estimation fails
-      return BigInt(100000); // Standard ERC20 transfer gas limit
-    });
-
-    console.log('[TokensApi] Gas estimation result:', {
+    console.log('[TokensApi] Estimating gas for token transfer:', {
       tokenAddress,
       fromAddress,
       toAddress,
-      amount,
-      gasEstimate: data.toString()
+      amount
     });
 
-    return BigInt(data);
+    // Validate inputs
+    if (!tokenAddress || !fromAddress || !toAddress || amount === undefined || amount === null) {
+      throw new Error('Missing required parameters for gas estimation');
+    }
+
+    // Validate amount is a valid number
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount)) {
+      throw new Error('Invalid amount format');
+    }
+
+    // Initialize provider
+    const provider = await getProvider();
+
+    // For native ETH transfers
+    if (tokenAddress === '0x0000000000000000000000000000000000000000') {
+      const response = await makeAlchemyRequest('eth_estimateGas', [{
+        from: fromAddress,
+        to: toAddress,
+        value: ethers.toQuantity(ethers.parseEther(amount))
+      }]);
+
+      console.log('[TokensApi] Response received:', response);
+
+      if (response.error) {
+        console.log('[TokensApi] JSON-RPC error:', response.error);
+        
+        // Handle insufficient funds error
+        if (response.error.code === -32003) {
+          const balance = await makeAlchemyRequest('eth_getBalance', [fromAddress, 'latest']);
+          const balanceInEth = ethers.formatEther(balance);
+          throw new Error(`Insufficient funds. Your balance is ${parseFloat(balanceInEth).toFixed(6)} ETH. Please reduce the amount or add more funds to your wallet.`);
+        }
+        throw new Error(response.error.message);
+      }
+
+      return response;
+    }
+
+    // For ERC20 token transfers
+    const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+    const decimals = await contract.decimals();
+    const amountInWei = ethers.parseUnits(amount, decimals);
+    
+    const response = await makeAlchemyRequest('eth_estimateGas', [{
+      from: fromAddress,
+      to: tokenAddress,
+      data: contract.interface.encodeFunctionData('transfer', [toAddress, amountInWei])
+    }]);
+
+    console.log('[TokensApi] Response received:', response);
+
+    if (response.error) {
+      console.log('[TokensApi] JSON-RPC error:', response.error);
+      throw new Error(response.error.message);
+    }
+
+    return response;
   } catch (error) {
     console.error('[TokensApi] Error in gas estimation:', {
       tokenAddress,
@@ -493,8 +515,7 @@ export const estimateTokenTransferGas = async (
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    // Return a safe default gas limit for any errors
-    return BigInt(100000); // Standard ERC20 transfer gas limit
+    throw error;
   }
 };
 
@@ -507,37 +528,152 @@ const ERC20_ABI = [
 ];
 
 /**
- * Transfer tokens
+ * Transfer ETH or tokens
  */
-export const transferToken = async (params: TokenTransferParams): Promise<string> => {
-  console.log('[TokensApi] Starting token transfer:', params);
-  const provider = getProvider();
-  
+export const transferToken = async ({
+  contractAddress,
+  toAddress,
+  amount,
+  decimals = 18,
+  gasPrice,
+  gasLimit
+}: TokenTransferParams): Promise<string> => {
   try {
-    const privateKey = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
-    if (!privateKey) {
-      console.error('[TokensApi] Private key not found in secure storage');
-      throw new Error('Private key not found');
+    console.log('[TokensApi] Starting transfer:', {
+      contractAddress,
+      toAddress,
+      amount,
+      decimals,
+      gasPrice,
+      gasLimit
+    });
+
+    // Get wallet data from secure storage
+    const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+    if (!walletDataStr) {
+      throw new Error('No wallet data found');
     }
 
-    const wallet = new ethers.Wallet(privateKey, provider);
-    console.log('[TokensApi] Created wallet instance for address:', wallet.address);
+    const walletData = JSON.parse(walletDataStr);
+    if (!walletData.privateKey) {
+      throw new Error('No private key found in wallet data');
+    }
 
-    const contract = new ethers.Contract(params.contractAddress, ERC20_ABI, wallet);
-    const amountInWei = ethers.parseUnits(params.amount, params.decimals);
-    
-    console.log('[TokensApi] Sending token transfer transaction');
-    const tx = await contract.transfer(params.toAddress, amountInWei);
-    console.log('[TokensApi] Transfer transaction sent:', tx.hash);
-    
-    return tx.hash;
+    // Create provider and wallet instance
+    const provider = await getProvider();
+    console.log('[TokensApi] Provider initialized');
+
+    const wallet = new ethers.Wallet(walletData.privateKey, provider);
+    console.log('[TokensApi] Wallet instance created for address:', wallet.address);
+
+    // For native ETH transfer
+    if (contractAddress === '0x0000000000000000000000000000000000000000') {
+      console.log('[TokensApi] Sending native ETH transfer');
+      
+      if (!gasPrice) {
+        throw new Error('Gas price is required for transfer');
+      }
+
+      // Convert gas price to Wei
+      const gasPriceInWei = ethers.parseUnits(
+        Math.floor(parseFloat(gasPrice)).toString(),
+        'wei'
+      );
+      console.log('[TokensApi] Gas price in Wei:', gasPriceInWei.toString());
+
+      // Get current nonce
+      const nonce = await makeAlchemyRequest('eth_getTransactionCount', [wallet.address, 'latest']);
+      
+      // Create transaction object with proper string values
+      const tx = {
+        to: toAddress,
+        value: ethers.parseEther(amount).toString(),
+        gasLimit: (gasLimit || '21000').toString(),
+        gasPrice: gasPriceInWei.toString(),
+        chainId: 1,
+        nonce: nonce
+      };
+
+      console.log('[TokensApi] Transaction object created:', tx);
+      console.log('[TokensApi] Sending transaction...');
+
+      // Sign the transaction
+      console.log('[TokensApi] Signing transaction...');
+      const signedTx = await wallet.signTransaction(tx);
+      
+      // Send the raw transaction
+      console.log('[TokensApi] Sending raw transaction...');
+      const txHash = await makeAlchemyRequest('eth_sendRawTransaction', [signedTx]);
+      
+      if (!txHash) {
+        throw new Error('Failed to get transaction hash');
+      }
+
+      console.log('[TokensApi] Transaction hash received:', txHash);
+      return txHash;
+    } else {
+      // For ERC20 token transfer
+      console.log('[TokensApi] Sending ERC20 token transfer');
+      
+      if (!gasPrice) {
+        throw new Error('Gas price is required for transfer');
+      }
+
+      const contract = new ethers.Contract(contractAddress, ERC20_ABI, wallet);
+      const amountInWei = ethers.parseUnits(amount, decimals);
+      const gasPriceInWei = ethers.parseUnits(
+        Math.floor(parseFloat(gasPrice)).toString(),
+        'wei'
+      );
+
+      try {
+        console.log('[TokensApi] Sending token transfer transaction...');
+        const nonce = await makeAlchemyRequest('eth_getTransactionCount', [wallet.address, 'latest']);
+        
+        // Create transaction object with all values as strings
+        const tx = {
+          to: contractAddress,
+          data: contract.interface.encodeFunctionData('transfer', [toAddress, amountInWei.toString()]),
+          gasLimit: (gasLimit || '200000').toString(),
+          gasPrice: gasPriceInWei.toString(),
+          chainId: 1,
+          nonce: nonce
+        };
+
+        console.log('[TokensApi] Transaction object created:', tx);
+        console.log('[TokensApi] Signing transaction...');
+        const signedTx = await wallet.signTransaction(tx);
+        
+        console.log('[TokensApi] Sending raw transaction...');
+        const txHash = await makeAlchemyRequest('eth_sendRawTransaction', [signedTx]);
+        
+        if (!txHash) {
+          throw new Error('Failed to get transaction hash');
+        }
+
+        console.log('[TokensApi] Transaction hash received:', txHash);
+        return txHash;
+      } catch (txError) {
+        console.error('[TokensApi] Token transfer failed:', txError);
+        if (txError instanceof Error) {
+          if (txError.message.includes('insufficient funds')) {
+            throw new Error('Insufficient balance to cover gas fees');
+          } else if (txError.message.includes('insufficient token balance')) {
+            throw new Error('Insufficient token balance for transfer');
+          } else if (txError.message.includes('nonce')) {
+            throw new Error('Transaction nonce error. Please try again');
+          } else if (txError.message.includes('gas required exceeds allowance')) {
+            throw new Error('Gas estimation failed. The transaction may not succeed');
+          } else if (txError.message.includes('1015')) {
+            throw new Error('Network request blocked. Please check your internet connection');
+          }
+        }
+        throw txError;
+      }
+    }
   } catch (error) {
-    console.error('[TokensApi] Transfer error:', {
-      params,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to transfer tokens');
+    console.error('[TokensApi] Transfer failed:', error);
+    throw error;
   }
 };
 
@@ -666,7 +802,13 @@ export const setupTransactionMonitoring = async (
 ): Promise<void> => {
   try {
     const alchemy = initializeAlchemy(networkKey);
-    const provider = getProvider();
+    const provider = await getProvider();
+    
+    interface TransferLog {
+      transactionHash: string;
+      address: string;
+      topics: string[];
+    }
     
     // Monitor for ETH transfers
     provider.on(
@@ -676,7 +818,7 @@ export const setupTransactionMonitoring = async (
           ethers.id("Transfer(address,address,uint256)")
         ]
       },
-      async (log) => {
+      async (log: TransferLog) => {
         console.log('[TokensApi] New transaction detected:', log.transactionHash);
         
         // Update ETH balance
@@ -697,7 +839,7 @@ export const setupTransactionMonitoring = async (
           ethers.id("Transfer(address,address,uint256)")
         ]
       },
-      async (log) => {
+      async (log: TransferLog) => {
         if (!log.address) return;
         
         // Get new token balance

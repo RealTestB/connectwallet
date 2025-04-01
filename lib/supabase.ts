@@ -4,48 +4,103 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { createClient, SupabaseClientOptions } from '@supabase/supabase-js'
 import config from '../api/config'
 
-// Custom fetch with longer timeout for Android emulator
-const customFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-  const url = typeof input === 'string' ? input : input.toString();
-  console.log(`🌐 Network request to: ${url.split('?')[0]}`);
-  
-  // Increase timeout for database operations
-  const timeoutMs = Platform.OS === 'android' ? 30000 : 20000; // Increased to 30s for Android, 20s for others
-  
-  return new Promise<Response>((resolve, reject) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      console.log(`⏱️ Request timeout after ${timeoutMs}ms: ${url.split('?')[0]}`);
-      controller.abort();
-    }, timeoutMs);
+const TIMEOUT_MS = Platform.OS === 'android' ? 30000 : 20000;
+
+// Custom fetch implementation using XMLHttpRequest
+const makeSupabaseRequest = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  return new Promise((resolve, reject) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    console.log(`🌐 [Supabase] Making request to:`, url);
     
-    const options = init || {};
-    options.signal = controller.signal;
+    const xhr = new XMLHttpRequest();
+    xhr.timeout = TIMEOUT_MS;
     
-    fetch(input, options)
-      .then(response => {
-        clearTimeout(timeoutId);
-        if (!response.ok) {
-          console.log(`⚠️ Response not OK from: ${url.split('?')[0]}, status: ${response.status}`);
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        console.log(`✅ Response received from: ${url.split('?')[0]}, status: ${response.status}`);
-        resolve(response);
-      })
-      .catch(error => {
-        clearTimeout(timeoutId);
-        console.log(`❌ Error in fetch to: ${url.split('?')[0]}:`, error.message);
-        if (error.name === 'AbortError') {
-          reject(new Error(`Request timed out after ${timeoutMs}ms`));
-        } else {
-          reject(error);
-        }
+    xhr.addEventListener('readystatechange', () => {
+      if (xhr.readyState !== 4) return;
+      
+      console.log(`✅ [Supabase] Response received:`, {
+        status: xhr.status,
+        statusText: xhr.statusText,
+        hasResponse: !!xhr.responseText
       });
+      
+      if ((xhr.status >= 200 && xhr.status < 300)) {
+        try {
+          // For 201 Created with no content, return empty array
+          const responseText = xhr.status === 201 && !xhr.responseText ? '[]' : xhr.responseText;
+          
+          // Create a simple Response object with the text
+          const response = new Response(responseText, {
+            status: xhr.status,
+            statusText: xhr.statusText || '',
+            headers: new Headers({
+              'Content-Type': 'application/json'
+            })
+          });
+          resolve(response);
+        } catch (error) {
+          console.error(`❌ [Supabase] Failed to create response:`, error);
+          reject(new Error('Failed to create response'));
+        }
+      } else {
+        let errorMessage = `Request failed with status ${xhr.status}`;
+        try {
+          if (xhr.responseText) {
+            const errorData = JSON.parse(xhr.responseText);
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          }
+        } catch (e) {
+          // Ignore JSON parse error
+        }
+        
+        console.error(`❌ [Supabase] Request failed:`, {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          responseText: xhr.responseText,
+          errorMessage
+        });
+        reject(new Error(errorMessage));
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      console.error(`❌ [Supabase] Network request failed`);
+      reject(new Error('Network request failed'));
+    });
+
+    xhr.addEventListener('timeout', () => {
+      console.error(`❌ [Supabase] Request timed out after ${TIMEOUT_MS}ms`);
+      reject(new Error(`Request timed out after ${TIMEOUT_MS}ms`));
+    });
+
+    try {
+      xhr.open(init?.method || 'GET', url);
+      
+      // Set default headers
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('Accept', 'application/json');
+      
+      // Set custom headers
+      if (init?.headers) {
+        Object.entries(init.headers).forEach(([key, value]) => {
+          if (value) xhr.setRequestHeader(key, value.toString());
+        });
+      }
+      
+      // Send the request with body if present
+      const body = init?.body ? 
+        (typeof init.body === 'string' ? init.body : JSON.stringify(init.body)) 
+        : null;
+      xhr.send(body);
+    } catch (error) {
+      console.error(`❌ [Supabase] Failed to send request:`, error);
+      reject(new Error('Failed to send request'));
+    }
   });
 };
 
-// Supabase client options with custom fetch
-const supabaseOptions: SupabaseClientOptions<'public'> = {
+// Configure Supabase client
+const supabaseOptions = {
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,
@@ -53,36 +108,33 @@ const supabaseOptions: SupabaseClientOptions<'public'> = {
     detectSessionInUrl: false,
   },
   global: {
-    fetch: customFetch
+    fetch: makeSupabaseRequest,
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
   }
 };
 
-// Public client for client-side operations (with limited permissions)
+// Create Supabase clients
 export const supabase = createClient(
-  config.supabase.url, 
-  config.supabase.anonKey, 
+  config.supabase.url,
+  config.supabase.anonKey,
   supabaseOptions
 );
 
-// Admin client for trusted operations (with full permissions)
 export const supabaseAdmin = createClient(
   config.supabase.url,
   config.supabase.serviceRoleKey,
   {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-      detectSessionInUrl: false
-    },
+    ...supabaseOptions,
     global: {
-      fetch: customFetch,
+      ...supabaseOptions.global,
       headers: {
-        'x-client-info': 'supabase-js-admin',  // Identify admin client
-        'apikey': config.supabase.serviceRoleKey  // Explicitly set the service role key
+        ...supabaseOptions.global.headers,
+        'x-client-info': 'supabase-js-admin',
+        'apikey': config.supabase.serviceRoleKey
       }
-    },
-    db: {
-      schema: 'public'
     }
   }
 );
@@ -97,14 +149,11 @@ supabaseAdmin.auth.onAuthStateChange((event, session) => {
 });
 
 // Tells Supabase Auth to continuously refresh the session automatically
-// if the app is in the foreground. When this is added, you will continue
-// to receive `onAuthStateChange` events with the `TOKEN_REFRESHED` or
-// `SIGNED_OUT` event if the user's session is terminated. This should
-// only be registered once.
+// if the app is in the foreground
 AppState.addEventListener('change', (state) => {
   if (state === 'active') {
-    supabase.auth.startAutoRefresh()
+    supabase.auth.startAutoRefresh();
   } else {
-    supabase.auth.stopAutoRefresh()
+    supabase.auth.stopAutoRefresh();
   }
-}) 
+}); 

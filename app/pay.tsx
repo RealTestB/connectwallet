@@ -6,7 +6,7 @@ import WalletHeader from "../components/ui/WalletHeader";
 import { validateEthereumAddress } from "../utils/validators";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, ImageBackground, Image } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, ImageBackground, Image, Alert } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import config from "../api/config";
 import { Alchemy, Network } from "alchemy-sdk";
@@ -83,6 +83,7 @@ export default function PayScreen(): JSX.Element {
   const [tokenAmount, setTokenAmount] = useState<string>("");
   const [tokenPrice, setTokenPrice] = useState<number>(0);
   const [gasUsd, setGasUsd] = useState('0.00');
+  const [lastGasUpdate, setLastGasUpdate] = useState<number>(0);
 
   useEffect(() => {
     loadWalletData();
@@ -206,13 +207,13 @@ export default function PayScreen(): JSX.Element {
         // If user was entering USD, keep USD the same and recalculate token amount
         const numValue = parseFloat(fiatAmount) || 0;
         const calculatedTokens = selectedTokenData.price > 0 ? numValue / selectedTokenData.price : 0;
-        setTokenAmount(calculatedTokens.toFixed(6));
-        setAmount(calculatedTokens.toFixed(6));
+        setTokenAmount(calculatedTokens.toString());
+        setAmount(calculatedTokens.toString());
       } else {
         // If user was entering tokens, keep token amount the same and recalculate USD
         const numValue = parseFloat(tokenAmount) || 0;
         const calculatedUsd = numValue * selectedTokenData.price;
-        setFiatAmount(calculatedUsd.toFixed(2));
+        setFiatAmount(calculatedUsd.toString());
       }
     }
   }, [selectedToken, tokens]);
@@ -224,85 +225,54 @@ export default function PayScreen(): JSX.Element {
     }
   }, [params.scannedAddress]);
 
-  const updateGasEstimate = async () => {
-    if (!recipient || !amount || !walletAddress) return;
-
-    try {
-      // Only estimate if we have valid values
-      if (parseFloat(amount) <= 0) {
-        setGasEstimate('0.00');
-        setError(null);
-        return;
-      }
-
-      // Get the token address for the selected token
-      const selectedTokenData = tokens.find(t => t.symbol === selectedToken?.symbol);
-      if (!selectedTokenData?.address) {
-        setError('Selected token not found');
-        return;
-      }
-
-      // Get gas estimate using the token-specific function
-      const gasEstimate = await estimateTokenTransferGas(
-        selectedTokenData.address,
-        walletAddress,
-        recipient,
-        amount
-      );
-
-      // Get current gas price using direct Alchemy call
-      const gasPrice = await makeAlchemyRequest('eth_gasPrice', [])
-        .catch((error: Error) => {
-          console.error('[Pay] Error getting gas price:', error);
-          return '0x0'; // Default to 0 if call fails
-        });
-
-      // Calculate total gas cost
-      const totalGasCost = gasEstimate * BigInt(gasPrice);
-      const formattedGas = ethers.formatEther(totalGasCost);
-      setGasEstimate(formattedGas);
-
-      // Get USD value of gas
-      const ethPrice = tokens.find(t => t.symbol === 'ETH')?.price || 0;
-      const gasUsd = parseFloat(formattedGas) * ethPrice;
-      setGasUsd(gasUsd.toFixed(2));
-      setError(null);
-    } catch (error) {
-      console.error('[Pay] Gas estimation error:', error);
-      setGasEstimate('0.00');
-      setGasUsd('0.00');
-      
-      // Handle different types of errors
-      if (error instanceof Error) {
-        if (error.name === 'InsufficientFundsError') {
-          const ethPrice = tokens.find(t => t.symbol === 'ETH')?.price || 0;
-          const gasUsd = parseFloat(gasEstimate) * ethPrice;
-          setError(`Insufficient funds for gas fee (${gasEstimate} ETH ≈ $${gasUsd.toFixed(2)})`);
-        } else if (error.message.includes('timeout')) {
-          setError('Gas estimation timed out. Please check your connection and try again.');
-        } else if (error.message.includes('network') || error.message.includes('connection')) {
-          setError('Network error. Please check your connection and try again.');
-        } else {
-          setError('Failed to estimate gas. Please try again.');
-        }
-      } else {
-        setError('An unexpected error occurred. Please try again.');
+  // Update effect to estimate gas when page loads or network changes
+  useEffect(() => {
+    if (walletAddress && selectedToken) {
+      const now = Date.now();
+      // Only update if it's been more than 60 seconds since last update
+      if (now - lastGasUpdate > 60000) {
+        estimateBaseGas();
+        setLastGasUpdate(now);
       }
     }
-  };
-
-  // Update gas estimate when amount or recipient changes
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      updateGasEstimate();
-    }, 500); // Debounce gas estimation
-
-    return () => clearTimeout(timer);
-  }, [amount, recipient, walletAddress, networkId]);
+  }, [walletAddress, selectedToken, networkId]);
 
   const handleAmountChange = (value: string, isFromFiat: boolean = false) => {
+    // Remove any non-numeric characters except decimal point
     const cleanValue = value.replace(/[^0-9.]/g, '');
-    const numValue = parseFloat(cleanValue) || 0;
+    
+    // Handle empty input
+    if (!cleanValue) {
+      setFiatAmount('');
+      setTokenAmount('');
+      setAmount('');
+      return;
+    }
+
+    // Remove leading zeros before decimal
+    const formattedValue = cleanValue.replace(/^0+(?=\d)/, '');
+    
+    // Prevent multiple decimal points
+    if ((formattedValue.match(/\./g) || []).length > 1) {
+      return;
+    }
+
+    // Limit decimal places to 7
+    const parts = formattedValue.split('.');
+    if (parts[1] && parts[1].length > 7) {
+      parts[1] = parts[1].substring(0, 7);
+      const limitedValue = parts.join('.');
+      // If we're limiting decimals, update the input value
+      if (isFromFiat) {
+        setFiatAmount(limitedValue);
+      } else {
+        setTokenAmount(limitedValue);
+      }
+      return;
+    }
+
+    // Convert to number for calculations
+    const numValue = parseFloat(formattedValue);
 
     console.log('[Pay] Amount change:', { 
       isFromFiat, 
@@ -315,15 +285,66 @@ export default function PayScreen(): JSX.Element {
     if (isFromFiat) {
       // User is entering USD amount
       const calculatedTokens = tokenPrice > 0 ? numValue / tokenPrice : 0;
-      setFiatAmount(cleanValue);
-      setTokenAmount(calculatedTokens.toFixed(6));
-      setAmount(calculatedTokens.toFixed(6));
+      setFiatAmount(formattedValue);
+      // Limit token amount to 7 decimal places
+      const limitedTokens = parseFloat(calculatedTokens.toFixed(7));
+      setTokenAmount(limitedTokens.toString());
+      setAmount(limitedTokens.toString());
     } else {
       // User is entering token amount
       const calculatedUsd = numValue * tokenPrice;
-      setTokenAmount(cleanValue);
-      setFiatAmount(calculatedUsd.toFixed(2));
-      setAmount(cleanValue);
+      setTokenAmount(formattedValue);
+      setFiatAmount(calculatedUsd.toString());
+      setAmount(formattedValue);
+    }
+  };
+
+  // New function to estimate base gas cost
+  const estimateBaseGas = async () => {
+    try {
+      if (!selectedToken) return;
+
+      // Get gas estimate and gas price
+      const [gasLimitHex, gasPriceHex] = await Promise.all([
+        estimateTokenTransferGas(
+          selectedToken.address,
+          walletAddress || '',
+          '0x0000000000000000000000000000000000000000', // Zero address for estimation
+          '0' // Zero amount for base estimation
+        ),
+        makeAlchemyRequest('eth_gasPrice', [])
+      ]);
+      
+      console.log('[Pay] Gas estimation responses:', {
+        gasLimitHex,
+        gasPriceHex
+      });
+      
+      // Validate responses
+      if (!gasLimitHex || typeof gasLimitHex !== 'string') {
+        throw new Error('Invalid gas limit response');
+      }
+      
+      if (!gasPriceHex || typeof gasPriceHex !== 'string') {
+        throw new Error('Invalid gas price response');
+      }
+
+      // Convert hex strings to BigInt
+      const gasLimitBigInt = BigInt(gasLimitHex);
+      const gasPriceBigInt = BigInt(gasPriceHex);
+      
+      // Calculate network fee (gas limit * gas price)
+      const networkFee = ethers.formatEther(gasLimitBigInt * gasPriceBigInt);
+      
+      // Update gas estimate and USD value
+      setGasEstimate(networkFee);
+      setGasUsd((parseFloat(networkFee) * 1800).toFixed(2)); // Using ETH price of $1800 for USD conversion
+      setError(null); // Clear any previous errors
+    } catch (error) {
+      console.error('Error estimating base gas:', error);
+      setGasEstimate('0');
+      setGasUsd('0');
+      setError(error instanceof Error ? error.message : 'Failed to estimate gas');
     }
   };
 
@@ -334,6 +355,12 @@ export default function PayScreen(): JSX.Element {
       }
 
       setIsLoading(true);
+
+      // Validate amount is a valid number
+      const numAmount = parseFloat(amount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+        throw new Error('Invalid amount');
+      }
 
       // Get gas estimate
       const gasLimit = await estimateTokenTransferGas(
@@ -347,16 +374,23 @@ export default function PayScreen(): JSX.Element {
       const gasPrice = await makeAlchemyRequest('eth_gasPrice', []);
       
       // Calculate network fee (gas limit * gas price)
-      const networkFee = ethers.formatEther(gasLimit * BigInt(gasPrice));
+      const networkFee = ethers.formatEther(BigInt(gasLimit) * BigInt(gasPrice));
       
-      // Calculate total (amount + network fee)
-      const total = (parseFloat(amount) + parseFloat(networkFee)).toString();
+      // Calculate total in ETH (amount + network fee)
+      const amountInEth = isFiatInput ? parseFloat(tokenAmount) : numAmount;
+      const total = amountInEth + parseFloat(networkFee);
+
+      // Check if total cost exceeds balance
+      const tokenBalance = parseFloat(selectedToken.balance);
+      if (total > tokenBalance) {
+        throw new Error(`Insufficient balance to cover amount plus gas fees. You have ${tokenBalance.toFixed(6)} ${selectedToken.symbol}`);
+      }
 
       // Navigate to confirmation screen
       router.push({
         pathname: '/confirm-transaction',
         params: {
-          amount,
+          amount: amountInEth.toString(),
           to: recipient,
           from: walletAddress || '',
           tokenSymbol: selectedToken.symbol,
@@ -365,12 +399,16 @@ export default function PayScreen(): JSX.Element {
           gasLimit: gasLimit.toString(),
           gasPrice,
           networkFee,
-          total
+          total: total.toString()
         }
       });
     } catch (error) {
       console.error('Error preparing transaction:', error);
       // Show error message
+      Alert.alert(
+        'Error',
+        error instanceof Error ? error.message : 'Failed to prepare transaction'
+      );
     } finally {
       setIsLoading(false);
     }

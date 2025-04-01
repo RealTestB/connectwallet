@@ -1,25 +1,81 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, ActivityIndicator } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WalletHeader from "../components/ui/WalletHeader";
 import BottomNav from "../components/ui/BottomNav";
+import NFTPropertiesModal from "../components/ui/NFTPropertiesModal";
+import { getNFTMetadata, NFT } from "../api/nftsApi";
+import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
+import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 export default function NFTDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams();
+  const [nft, setNft] = useState<NFT | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isPropertiesVisible, setIsPropertiesVisible] = useState(false);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Get wallet address
+        const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+        if (walletDataStr) {
+          const walletData = JSON.parse(walletDataStr);
+          setWalletAddress(walletData.address);
+        }
+
+        // Get NFT data
+        if (!params.id || !params.contractAddress) {
+          throw new Error('Missing NFT details');
+        }
+        const nftData = await getNFTMetadata(
+          params.contractAddress as string, 
+          params.id as string,
+          params.tokenType as 'erc721' | 'erc1155'
+        );
+        setNft(nftData);
+      } catch (err) {
+        console.error('[NFTDetailsScreen] Error fetching data:', err);
+        setError("Could not load NFT details");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [params.id, params.contractAddress]);
 
   const handleAccountChange = (account: { address: string; chainId?: number }) => {
     // Handle account change
   };
 
+  const handleViewOnEtherscan = () => {
+    if (nft?.contract?.address && nft?.tokenId) {
+      const url = `https://etherscan.io/nft/${nft.contract.address}/${nft.tokenId}`;
+      Linking.openURL(url);
+    }
+  };
+
+  const handleSendNFT = () => {
+    if (nft) {
+      router.push(`/send-nft?nft=${encodeURIComponent(JSON.stringify(nft))}`);
+    }
+  };
+
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
+    <View style={sharedStyles.container}>
+      <Image
+        source={require('../assets/images/background.png')}
+        style={sharedStyles.backgroundImage}
+      />
+      
       <WalletHeader 
         pageName="NFT Details"
         onAccountChange={handleAccountChange}
@@ -27,122 +83,193 @@ export default function NFTDetailsScreen() {
 
       {/* Main Content */}
       <ScrollView 
-        style={[
-          styles.content,
+        style={styles.content}
+        contentContainerStyle={[
+          styles.contentContainer,
           {
-            paddingBottom: 64 + insets.bottom,
+            paddingBottom: 80 + insets.bottom,
           }
         ]}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.imageContainer}>
-          <Image
-            source={{
-              uri: "https://i.seadn.io/gae/Ju9CkWtV-1Okvf45wo8UctR-M9He2PjILP0oOvxE89AyiPPGtrR3gysu1Zgy0hjd2xKIgjJJtWIc0ybj4Vd7wv8t3pxDGHoJBzDB?w=500&auto=format"
-            }}
-            style={styles.nftImage}
-          />
-        </View>
-
-        <View style={styles.detailsContainer}>
-          <Text style={styles.collectionName}>Bored Ape Yacht Club</Text>
-          <Text style={styles.nftName}>Bored Ape #8398</Text>
-
-          <View style={styles.infoBox}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Token ID</Text>
-              <Text style={styles.infoValue}>8398</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Owner</Text>
-              <Text style={styles.infoValue}>0x1234...5678</Text>
-            </View>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
           </View>
-        </View>
+        ) : error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : nft ? (
+          <>
+            <View style={styles.imageContainer}>
+              <Image
+                source={{
+                  uri: nft.media?.[0]?.gateway || nft.media?.[0]?.thumbnail
+                }}
+                style={styles.nftImage}
+              />
+            </View>
 
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.secondaryButton}>
-            <Text style={styles.buttonText}>View Properties</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton}>
-            <Text style={styles.buttonText}>View on Etherscan</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryButton}>
-            <Text style={styles.buttonText}>Send NFT</Text>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.detailsContainer}>
+              <Text style={styles.collectionName}>{nft.contract.name}</Text>
+              <Text style={styles.nftName}>{nft.title || `${nft.contract.name} #${nft.tokenId}`}</Text>
+
+              <View style={styles.infoBox}>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Token ID</Text>
+                  <Text style={styles.infoValue}>#{nft.tokenId}</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Owner</Text>
+                  <Text style={styles.infoValue}>
+                    {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : 'Unknown'}
+                  </Text>
+                </View>
+              </View>
+
+              {nft.description && (
+                <View style={styles.descriptionContainer}>
+                  <Text style={styles.descriptionTitle}>Description</Text>
+                  <Text style={styles.descriptionText}>{nft.description}</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={[styles.button, styles.secondaryButton]}
+                onPress={() => setIsPropertiesVisible(true)}
+              >
+                <Text style={styles.buttonText}>View Properties</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.button, styles.secondaryButton]}
+                onPress={handleViewOnEtherscan}
+              >
+                <Text style={styles.buttonText}>View on Etherscan</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.button, styles.primaryButton]}
+                onPress={handleSendNFT}
+              >
+                <Text style={styles.buttonText}>Send NFT</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : null}
       </ScrollView>
 
-      <BottomNav activeTab="nft" />
-    </LinearGradient>
+      {!isPropertiesVisible && <BottomNav activeTab="nft" />}
+
+      {nft && (
+        <NFTPropertiesModal
+          isVisible={isPropertiesVisible}
+          onClose={() => setIsPropertiesVisible(false)}
+          nft={nft}
+        />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   content: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 100, // Adjust based on WalletHeader height
+  },
+  contentContainer: {
+    padding: SPACING.lg,
+    paddingTop: SPACING.xl,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: SPACING.xl,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: COLORS.error,
+    borderRadius: 12,
+    padding: SPACING.md,
+    marginVertical: SPACING.lg,
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 14,
   },
   imageContainer: {
     borderRadius: 16,
     overflow: "hidden",
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   nftImage: {
     width: "100%",
     aspectRatio: 1,
   },
   detailsContainer: {
-    gap: 16,
-    marginBottom: 24,
+    gap: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   collectionName: {
-    color: "#93c5fd",
-    fontSize: 14,
+    color: COLORS.primary,
+    fontSize: FONTS.caption.fontSize,
   },
   nftName: {
-    color: "white",
-    fontSize: 24,
-    fontWeight: "bold",
+    ...FONTS.h1,
+    marginBottom: SPACING.xs,
   },
   infoBox: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: 16,
-    gap: 8,
+    padding: SPACING.md,
+    gap: SPACING.xs,
   },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
   },
   infoLabel: {
-    color: "#93c5fd",
+    ...FONTS.caption,
+    color: COLORS.primary,
   },
   infoValue: {
-    color: "white",
+    ...FONTS.body,
+    color: COLORS.white,
     fontWeight: "500",
   },
+  descriptionContainer: {
+    gap: SPACING.xs,
+  },
+  descriptionTitle: {
+    ...FONTS.body,
+    fontWeight: "600",
+  },
+  descriptionText: {
+    ...FONTS.caption,
+  },
   buttonContainer: {
-    gap: 12,
+    gap: SPACING.sm,
+    marginTop: SPACING.lg,
+  },
+  button: {
+    padding: SPACING.md,
+    borderRadius: 12,
+    alignItems: "center",
   },
   secondaryButton: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
   },
   primaryButton: {
-    backgroundColor: "#3b82f6",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
+    backgroundColor: COLORS.primary,
   },
   buttonText: {
-    color: "white",
-    fontSize: 16,
+    ...FONTS.body,
     fontWeight: "500",
   },
 }); 

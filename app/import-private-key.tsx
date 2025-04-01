@@ -1,24 +1,23 @@
 import React, { useEffect, useState } from "react";
-import {View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,} from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
+  ImageBackground,
+} from "react-native";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
-import WalletHeader from "../components/ui/WalletHeader";
 import * as Clipboard from "expo-clipboard";
 import * as ScreenCapture from "expo-screen-capture";
-import { encryptPrivateKey, storeEncryptedData } from "../api/securityApi";
 import { importClassicWalletFromPrivateKey } from "../api/walletApi";
+import { sharedStyles, COLORS, SPACING, FONTS } from '../styles/shared';
 
-interface Account {
-  address: string;
-  name?: string;
-  chainId?: number;
-}
-
-export default function Page() {
+export default function ImportPrivateKey() {
   const router = useRouter();
-  const params = useLocalSearchParams<Record<string, string | string[]>>();
   const [privateKey, setPrivateKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -33,10 +32,7 @@ export default function Page() {
   };
 
   const handlePrivateKeyChange = (value: string): void => {
-    console.log('[ImportPrivateKey] Handling private key change, input length:', value?.length);
-    
     try {
-      // Ensure value is a string and not null/undefined
       if (!value || typeof value !== 'string') {
         setPrivateKey("");
         setError(null);
@@ -44,17 +40,12 @@ export default function Page() {
       }
 
       let cleanValue = value.trim().replace(/\s+/g, "");
-      console.log('[ImportPrivateKey] Cleaned value length:', cleanValue.length);
       
-      // Check if cleanValue is a valid string and starts with 0x
       if (cleanValue && typeof cleanValue === 'string' && cleanValue.toLowerCase().startsWith("0x")) {
-        console.log('[ImportPrivateKey] Found 0x prefix, removing...');
         cleanValue = cleanValue.slice(2);
-        console.log('[ImportPrivateKey] Value after prefix removal length:', cleanValue.length);
       }
 
       if (!cleanValue) {
-        console.log('[ImportPrivateKey] Empty value after cleaning');
         setPrivateKey("");
         setError(null);
         return;
@@ -62,11 +53,9 @@ export default function Page() {
 
       if (/^[0-9a-fA-F]*$/.test(cleanValue)) {
         const finalValue = "0x" + cleanValue;
-        console.log('[ImportPrivateKey] Valid hex format, final length:', finalValue.length);
         setPrivateKey(finalValue);
         setError(null);
       } else {
-        console.log('[ImportPrivateKey] Invalid hex format detected');
         setError("Invalid private key format - must be hexadecimal");
       }
     } catch (error) {
@@ -77,9 +66,7 @@ export default function Page() {
 
   const handlePaste = async (): Promise<void> => {
     try {
-      console.log('[ImportPrivateKey] Attempting to paste from clipboard');
       const pastedText = await Clipboard.getStringAsync();
-      console.log('[ImportPrivateKey] Pasted text length:', pastedText.length);
       handlePrivateKeyChange(pastedText);
     } catch (error) {
       console.error('[ImportPrivateKey] Error in handlePaste:', error);
@@ -88,10 +75,7 @@ export default function Page() {
   };
 
   const handleImport = async () => {
-    console.log('[ImportPrivateKey] Starting import process');
-    
     if (!privateKey || privateKey.length !== 66) {
-      console.log('[ImportPrivateKey] Invalid private key length:', privateKey?.length);
       setError("Please enter a valid private key.");
       return;
     }
@@ -100,20 +84,7 @@ export default function Page() {
     setError(null);
 
     try {
-      const password = typeof params.password === 'string' ? params.password : '';
-      
-      console.log('[ImportPrivateKey] Encrypting private key');
-      const encryptedKeyData = await encryptPrivateKey(privateKey, password);
-      console.log('[ImportPrivateKey] Successfully encrypted private key');
-
-      console.log('[ImportPrivateKey] Storing encrypted data');
-      await storeEncryptedData("walletPrivateKey", encryptedKeyData);
-      console.log('[ImportPrivateKey] Successfully stored encrypted data');
-
-      console.log('[ImportPrivateKey] Importing classic wallet');
       const { address } = await importClassicWalletFromPrivateKey(privateKey);
-      console.log('[ImportPrivateKey] Successfully imported wallet with address:', address);
-
       router.push({
         pathname: "/import-success",
         params: { type: "import", address }
@@ -127,30 +98,19 @@ export default function Page() {
   };
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
-      <WalletHeader pageName="Import Private Key" onAccountChange={() => {}} />
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.stepsContainer}>
-          <View style={styles.steps}>
-            {[1, 2, 3, 4].map((step) => (
-              <View
-                key={step}
-                style={[
-                  styles.stepDot,
-                  step === 4 ? styles.activeStep : styles.inactiveStep,
-                ]}
-              />
-            ))}
-          </View>
-        </View>
+    <View style={sharedStyles.container}>
+      <ImageBackground
+        source={require('../assets/images/background.png')}
+        style={sharedStyles.backgroundImage}
+      />
+      <ScrollView style={sharedStyles.contentContainer}>
+        <Text style={sharedStyles.title}>Import Private Key</Text>
+        <Text style={sharedStyles.subtitle}>
+          Enter your private key to import your wallet
+        </Text>
 
-        <Text style={styles.title}>Import Private Key</Text>
-
-        <View style={styles.warningBox}>
-          <Ionicons name="warning" size={20} color="#f87171" />
+        <View style={styles.warningContainer}>
+          <Ionicons name="warning" size={24} color={COLORS.error} style={sharedStyles.iconSpacing} />
           <Text style={styles.warningText}>
             Never share your private key with anyone. Make sure no one is watching your screen.
           </Text>
@@ -163,7 +123,7 @@ export default function Page() {
             value={privateKey}
             onChangeText={handlePrivateKeyChange}
             placeholder="Enter your private key"
-            placeholderTextColor="#93c5fd"
+            placeholderTextColor={COLORS.textSecondary}
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}
@@ -174,8 +134,8 @@ export default function Page() {
           >
             <Ionicons
               name={isSecure ? "eye-off" : "eye"}
-              size={20}
-              color="#93c5fd"
+              size={24}
+              color={COLORS.textSecondary}
             />
           </TouchableOpacity>
         </View>
@@ -184,27 +144,27 @@ export default function Page() {
           style={styles.pasteButton}
           onPress={handlePaste}
         >
-          <Ionicons name="clipboard" size={20} color="white" />
+          <Ionicons name="clipboard" size={24} color={COLORS.white} />
           <Text style={styles.pasteButtonText}>Paste Private Key</Text>
         </TouchableOpacity>
 
-        <View style={styles.infoBox}>
+        <View style={styles.infoContainer}>
           <Text style={styles.infoTitle}>Important:</Text>
           <View style={styles.infoList}>
             <View style={styles.infoItem}>
-              <Ionicons name="checkmark" size={12} color="#93c5fd" style={styles.infoIcon} />
+              <Ionicons name="checkmark" size={16} color={COLORS.primary} />
               <Text style={styles.infoText}>
                 Private key should be 66 characters long (including 0x)
               </Text>
             </View>
             <View style={styles.infoItem}>
-              <Ionicons name="checkmark" size={12} color="#93c5fd" style={styles.infoIcon} />
+              <Ionicons name="checkmark" size={16} color={COLORS.primary} />
               <Text style={styles.infoText}>
                 Contains only numbers and letters A-F
               </Text>
             </View>
             <View style={styles.infoItem}>
-              <Ionicons name="checkmark" size={12} color="#93c5fd" style={styles.infoIcon} />
+              <Ionicons name="checkmark" size={16} color={COLORS.primary} />
               <Text style={styles.infoText}>
                 You can paste your private key directly
               </Text>
@@ -227,155 +187,109 @@ export default function Page() {
           disabled={isProcessing || !privateKey || privateKey.length !== 66}
         >
           {isProcessing ? (
-            <ActivityIndicator color="white" />
+            <ActivityIndicator color={COLORS.white} />
           ) : (
             <Text style={styles.importButtonText}>Import Wallet</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-    padding: 16,
-  },
-  stepsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 32,
-  },
-  steps: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  activeStep: {
-    backgroundColor: "#3b82f6",
-  },
-  inactiveStep: {
-    backgroundColor: "#3b82f680",
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  warningBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#ef44441a",
-    borderWidth: 1,
-    borderColor: "#ef444433",
+  warningContainer: {
+    backgroundColor: `${COLORS.error}20`,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   warningText: {
+    ...FONTS.body,
+    color: COLORS.error,
     flex: 1,
-    color: "#f87171",
-    fontSize: 14,
+    marginLeft: SPACING.sm,
   },
   inputContainer: {
-    position: "relative",
-    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${COLORS.white}10`,
+    borderRadius: 12,
+    marginBottom: SPACING.sm,
   },
   input: {
-    backgroundColor: "#ffffff1a",
-    borderWidth: 1,
-    borderColor: "#ffffff1a",
-    borderRadius: 12,
-    padding: 12,
-    color: "white",
-    fontSize: 16,
-    paddingRight: 44,
+    flex: 1,
+    padding: SPACING.md,
+    ...FONTS.body,
+    color: COLORS.white,
   },
   eyeIcon: {
-    position: "absolute",
-    right: 12,
-    top: "50%",
-    transform: [{ translateY: -10 }],
+    padding: SPACING.md,
   },
   pasteButton: {
-    backgroundColor: "#ffffff1a",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    padding: 12,
+    backgroundColor: `${COLORS.white}10`,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    padding: SPACING.md,
     borderRadius: 12,
-    marginBottom: 24,
+    marginBottom: SPACING.xl,
   },
   pasteButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
+    ...FONTS.body,
+    color: COLORS.white,
+    marginLeft: SPACING.sm,
   },
-  infoBox: {
-    backgroundColor: "#ffffff1a",
+  infoContainer: {
+    backgroundColor: `${COLORS.white}10`,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.xl,
   },
   infoTitle: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
-    marginBottom: 8,
+    ...FONTS.body,
+    color: COLORS.white,
+    marginBottom: SPACING.sm,
   },
   infoList: {
-    gap: 8,
+    gap: SPACING.sm,
   },
   infoItem: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  infoIcon: {
-    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
   },
   infoText: {
+    ...FONTS.body,
+    color: COLORS.textSecondary,
     flex: 1,
-    color: "#93c5fd",
-    fontSize: 14,
   },
   errorContainer: {
-    backgroundColor: "#ef44441a",
-    borderWidth: 1,
-    borderColor: "#ef444433",
+    backgroundColor: `${COLORS.error}20`,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   errorText: {
-    color: "#f87171",
-    fontSize: 14,
+    ...FONTS.body,
+    color: COLORS.error,
   },
   importButton: {
-    backgroundColor: "#2563eb",
-    padding: 16,
+    backgroundColor: COLORS.primary,
+    padding: SPACING.md,
     borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 24,
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
   },
   importButtonDisabled: {
     opacity: 0.5,
   },
   importButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
+    ...FONTS.body,
+    color: COLORS.white,
+    fontWeight: '600',
   },
 }); 

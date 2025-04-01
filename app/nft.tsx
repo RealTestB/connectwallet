@@ -1,22 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Dimensions, FlatList } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Dimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WalletHeader from "../components/ui/WalletHeader";
 import BottomNav from "../components/ui/BottomNav";
-
-interface NFT {
-  id: string;
-  token_id: string;
-  image_url: string;
-  name: string;
-  description?: string;
-  metadata?: {
-    collection?: string;
-  };
-}
+import { getOwnedNFTs, NFT } from "../api/nftsApi";
+import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
 
 export default function NFTScreen() {
   const router = useRouter();
@@ -29,21 +21,27 @@ export default function NFTScreen() {
   useEffect(() => {
     const fetchNFTs = async () => {
       try {
-        // Here you would make your API call
-        // For now, we'll use mock data
-        const mockNFTs: NFT[] = [
-          {
-            id: "1",
-            token_id: "8398",
-            image_url: "https://i.seadn.io/gae/Ju9CkWtV-1Okvf45wo8UctR-M9He2PjILP0oOvxE89AyiPPGtrR3gysu1Zgy0hjd2xKIgjJJtWIc0ybj4Vd7wv8t3pxDGHoJBzDB?w=500&auto=format",
-            name: "Bored Ape #8398",
-            metadata: { collection: "Bored Ape Yacht Club" }
-          },
-          // Add more mock NFTs here
-        ];
-        setNfts(mockNFTs);
+        console.log('[NFTScreen] Fetching wallet data...');
+        const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+        console.log('[NFTScreen] Wallet data string:', walletDataStr);
+        
+        if (!walletDataStr) {
+          throw new Error('No wallet data found');
+        }
+        
+        const walletData = JSON.parse(walletDataStr);
+        console.log('[NFTScreen] Parsed wallet data:', walletData);
+        
+        if (!walletData.address) {
+          throw new Error('No wallet address found');
+        }
+        
+        console.log('[NFTScreen] Fetching NFTs for address:', walletData.address);
+        const response = await getOwnedNFTs(walletData.address);
+        console.log('[NFTScreen] NFTs response:', response);
+        setNfts(response.ownedNfts);
       } catch (err) {
-        console.error(err);
+        console.error('[NFTScreen] Error fetching NFTs:', err);
         setError("Could not load your NFTs");
       } finally {
         setIsLoading(false);
@@ -55,24 +53,25 @@ export default function NFTScreen() {
 
   const filteredNFTs = nfts.filter(
     (nft) =>
-      nft.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      nft.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       nft.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const renderNFTItem = ({ item }: { item: NFT }) => (
+  const renderNFTItem = (item: NFT) => (
     <TouchableOpacity
+      key={`${item.contract.address}-${item.tokenId}`}
       style={styles.nftCard}
-      onPress={() => router.push(`/nft-details?id=${item.id}`)}
+      onPress={() => router.push(`/nft-details?id=${item.tokenId}&contractAddress=${item.contract.address}&tokenType=${item.tokenType}`)}
     >
       <Image
-        source={{ uri: item.image_url }}
+        source={{ uri: item.media?.[0]?.gateway || item.media?.[0]?.thumbnail }}
         style={styles.nftImage}
       />
       <View style={styles.nftInfo}>
         <Text style={styles.collectionName}>
-          {item.metadata?.collection || "Collection"}
+          {item.contract.name || "Collection"}
         </Text>
-        <Text style={styles.tokenId}>#{item.token_id}</Text>
+        <Text style={styles.tokenId}>#{item.tokenId}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -82,10 +81,12 @@ export default function NFTScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
+    <View style={sharedStyles.container}>
+      <Image
+        source={require('../assets/images/background.png')}
+        style={sharedStyles.backgroundImage}
+      />
+      
       <WalletHeader
         onAccountChange={handleAccountChange}
       />
@@ -100,11 +101,11 @@ export default function NFTScreen() {
         ]}
       >
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="rgba(255, 255, 255, 0.5)" style={styles.searchIcon} />
+          <Ionicons name="search" size={20} color={COLORS.textSecondary} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search NFTs..."
-            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+            placeholderTextColor={COLORS.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
@@ -127,44 +128,36 @@ export default function NFTScreen() {
             <Text style={styles.emptyText}>No NFTs found</Text>
           </View>
         ) : (
-          <FlatList
-            data={nfts}
-            keyExtractor={(item, index) => `${item.id || index}`}
-            renderItem={renderNFTItem}
+          <ScrollView 
+            style={styles.scrollView}
             contentContainerStyle={styles.listContent}
-            removeClippedSubviews={false}
-            maxToRenderPerBatch={10}
-            windowSize={5}
-            initialNumToRender={5}
-            onEndReachedThreshold={0.5}
-            maintainVisibleContentPosition={{
-              minIndexForVisible: 0
-            }}
-          />
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.nftGrid}>
+              {filteredNFTs.map(renderNFTItem)}
+            </View>
+          </ScrollView>
         )}
       </View>
 
       <BottomNav activeTab="nft" />
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   content: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 100, // Adjust based on WalletHeader height
+    paddingHorizontal: SPACING.lg,
+    paddingTop: 100,
   },
   searchContainer: {
     position: "relative",
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   searchIcon: {
     position: "absolute",
-    left: 12,
+    left: SPACING.sm,
     top: "50%",
     transform: [{ translateY: -10 }],
     zIndex: 1,
@@ -174,73 +167,68 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    paddingVertical: 12,
+    paddingVertical: SPACING.sm,
     paddingLeft: 40,
-    paddingRight: 16,
-    color: "white",
-    fontSize: 16,
+    paddingRight: SPACING.md,
+    ...FONTS.body,
   },
   errorContainer: {
     backgroundColor: "rgba(239, 68, 68, 0.1)",
     borderWidth: 1,
-    borderColor: "#ef4444",
+    borderColor: COLORS.error,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   errorText: {
-    color: "#ef4444",
-    fontSize: 14,
+    ...FONTS.caption,
+  },
+  scrollView: {
+    flex: 1,
   },
   nftGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 16,
-  },
-  nftRow: {
-    gap: 16,
+    gap: SPACING.md,
   },
   skeletonCard: {
-    width: (Dimensions.get("window").width - 48) / 2,
+    width: (Dimensions.get("window").width - (SPACING.lg * 2) - SPACING.md) / 2,
     aspectRatio: 1,
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
   },
   nftCard: {
-    width: (Dimensions.get("window").width - 48) / 2,
+    width: (Dimensions.get("window").width - (SPACING.lg * 2) - SPACING.md) / 2,
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
-    padding: 16,
+    padding: SPACING.md,
   },
   nftImage: {
     width: "100%",
     aspectRatio: 1,
     borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: SPACING.sm,
   },
   nftInfo: {
-    gap: 4,
+    gap: SPACING.xs,
   },
   collectionName: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: 14,
+    ...FONTS.caption,
   },
   tokenId: {
-    color: "white",
-    fontSize: 16,
+    ...FONTS.body,
     fontWeight: "600",
   },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 48,
+    paddingVertical: SPACING.xl,
   },
   emptyText: {
-    color: "rgba(255, 255, 255, 0.5)",
-    fontSize: 16,
+    ...FONTS.body,
   },
   listContent: {
-    padding: 16,
+    padding: SPACING.md,
   },
 }); 

@@ -14,9 +14,10 @@ interface Account {
 
 interface WalletHeaderProps {
   onAccountChange: (account: Account) => void;
+  pageName?: string;
 }
 
-export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JSX.Element {
+export default function WalletHeader({ onAccountChange, pageName }: WalletHeaderProps): JSX.Element {
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -82,7 +83,7 @@ export default function WalletHeader({ onAccountChange }: WalletHeaderProps): JS
             />
           </View>
           <View style={styles.titleContainer}>
-            <Text style={styles.title}>Connect Wallet</Text>
+            <Text style={styles.title}>{pageName || 'Connect Wallet'}</Text>
             <Text style={styles.subtitle}>The Future of Security</Text>
           </View>
         </View>

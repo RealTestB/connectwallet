@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import config from '../api/config';
 import { COLORS } from '../styles/shared';
+import { TransactionProvider } from '../contexts/TransactionContext';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -54,122 +55,184 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <WalletProvider>
-        <AuthProvider>
-          <SettingsProvider>
-            <ProtectedRoute>
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  animation: 'fade',
-                  animationDuration: 200,
-                }}
-              >
-                <Stack.Screen 
-                  name="index"
-                  options={{
+    <TransactionProvider>
+      <SafeAreaProvider>
+        <WalletProvider>
+          <AuthProvider>
+            <SettingsProvider>
+              <ProtectedRoute>
+                <Stack
+                  screenOptions={{
                     headerShown: false,
+                    animation: 'fade',
+                    animationDuration: 200,
                   }}
-                />
-                
-                {/* Auth Group */}
-                <Stack.Screen 
-                  name="welcome"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="signin"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="create-password"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
+                >
+                  <Stack.Screen 
+                    name="index"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  
+                  {/* Auth Group */}
+                  <Stack.Screen 
+                    name="welcome"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="signin"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="create-password"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="create-password-import"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
 
-                {/* Wallet Setup Group */}
-                <Stack.Screen 
-                  name="seed-phrase"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="confirm-seed-phrase"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="secure-wallet"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="wallet-created"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
+                  {/* Wallet Setup Group */}
+                  <Stack.Screen 
+                    name="seed-phrase"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="confirm-seed-phrase"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="secure-wallet"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="wallet-created"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
 
-                {/* Import Group */}
-                <Stack.Screen 
-                  name="import-wallet"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="import-seed-phrase"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="import-private-key"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="import-success"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
+                  {/* Import Group */}
+                  <Stack.Screen 
+                    name="import-wallet"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="import-seed-phrase"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="import-private-key"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="import-success"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
 
-                {/* Main App Group */}
-                <Stack.Screen 
-                  name="portfolio"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="receive"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen 
-                  name="settings"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-              </Stack>
-            </ProtectedRoute>
-          </SettingsProvider>
-        </AuthProvider>
-      </WalletProvider>
-    </SafeAreaProvider>
+                  {/* Main App Group */}
+                  <Stack.Screen 
+                    name="portfolio"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="receive"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="settings"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="nft"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="nft-details"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="send-nft"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="transaction-history"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="transaction-details"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="confirm-transaction"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="pay"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="scan-qr"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen 
+                    name="swap"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                </Stack>
+              </ProtectedRoute>
+            </SettingsProvider>
+          </AuthProvider>
+        </WalletProvider>
+      </SafeAreaProvider>
+    </TransactionProvider>
   );
 }
 

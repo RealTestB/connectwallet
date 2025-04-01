@@ -12,8 +12,14 @@
     "types": ["react-native"],
     "paths": {
       "@env": ["./node_modules/react-native-dotenv"]
-    }
+    },
+    "baseUrl": ".",
+    "typeRoots": ["./types", "./node_modules/@types"]
   },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
   "exclude": [
     "node_modules",
     "babel.config.js",

@@ -1,15 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import {View, Text, StyleSheet, Image, TextInput, TouchableOpacity, ActivityIndicator, Alert, Linking} from 'react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { RootStackParamList } from '../navigation/types';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Linking
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { isAddress } from 'ethers';
-import { estimateNFTTransferGas, transferNFT } from '../api/nftTransactionsApi';
+import { estimateNFTTransferGas } from '../api/nftTransactionsApi';
 import * as SecureStore from 'expo-secure-store';
-import config from '../api/config';
 import { useLocalSearchParams } from 'expo-router';
 import { STORAGE_KEYS } from '../constants/storageKeys';
-
-type SendNFTScreenRouteProp = RouteProp<RootStackParamList, 'send-nft'>;
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import WalletHeader from '../components/ui/WalletHeader';
+import BottomNav from '../components/ui/BottomNav';
+import { COLORS, SPACING, FONTS, sharedStyles } from '../styles/shared';
 
 const truncateAddress = (address: string): string => {
   if (!address) return '';
@@ -18,26 +30,36 @@ const truncateAddress = (address: string): string => {
 
 export default function SendNFTScreen(): JSX.Element {
   const navigation = useNavigation();
-  const route = useRoute<SendNFTScreenRouteProp>();
-  const { nft } = route.params;
-  const { contractAddress, tokenId } = useLocalSearchParams<{ contractAddress: string; tokenId: string }>();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { nft: nftParam } = useLocalSearchParams<{ nft: string }>();
+  const nft = nftParam ? JSON.parse(decodeURIComponent(nftParam)) : null;
 
   const [recipientAddress, setRecipientAddress] = useState('');
   const [fromAddress, setFromAddress] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [gasEstimate, setGasEstimate] = useState<string | null>(null);
-  const [transactionStatus, setTransactionStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
+  const [isWalletLoading, setIsWalletLoading] = useState(true);
+  const [gasEstimate, setGasEstimate] = useState<{ gasLimit: bigint; gasPrice: bigint } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadWalletData = async () => {
       try {
-        const address = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
-        if (address) {
-          setFromAddress(address);
+        setIsWalletLoading(true);
+        const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+        if (walletDataStr) {
+          const walletData = JSON.parse(walletDataStr);
+          console.log('Loaded wallet data:', walletData);
+          setFromAddress(walletData.address);
+        } else {
+          console.error('No wallet data found in storage');
+          setError('Wallet data not found');
         }
       } catch (err) {
-        console.error('Error loading wallet address:', err);
+        console.error('Error loading wallet data:', err);
+        setError('Failed to load wallet data');
+      } finally {
+        setIsWalletLoading(false);
       }
     };
 
@@ -51,12 +73,60 @@ export default function SendNFTScreen(): JSX.Element {
   const estimateGas = async (toAddress: string) => {
     try {
       if (!validateAddress(toAddress)) return;
+      
+      if (!fromAddress) {
+        console.error('Wallet address not loaded');
+        setError('Wallet address not loaded. Please try again.');
+        return;
+      }
+      
+      // Validate NFT data
+      if (!nft?.contract?.address || !nft?.tokenId) {
+        console.error('Missing required NFT data:', {
+          contractAddress: nft?.contract?.address,
+          tokenId: nft?.tokenId
+        });
+        setError('Missing required NFT data');
+        return;
+      }
 
-      const estimate = await estimateNFTTransferGas({
-        contractAddress,
-        tokenId,
+      // Log full NFT data for debugging
+      console.log('Full NFT data:', {
+        contract: nft.contract,
+        tokenId: nft.tokenId,
+        title: nft.title,
+        media: nft.media
+      });
+
+      // Validate contract address format
+      if (!isAddress(nft.contract.address)) {
+        console.error('Invalid contract address:', nft.contract.address);
+        setError('Invalid NFT contract address');
+        return;
+      }
+
+      // Get token type from NFT data
+      const tokenType = nft.contract.tokenType as 'ERC721' | 'ERC1155';
+      if (!tokenType) {
+        console.error('Missing token type:', nft.contract);
+        setError('Invalid NFT token type');
+        return;
+      }
+
+      console.log('Estimating gas with params:', {
+        contractAddress: nft.contract.address,
+        tokenId: nft.tokenId,
         toAddress,
         fromAddress,
+        tokenType
+      });
+
+      const estimate = await estimateNFTTransferGas({
+        contractAddress: nft.contract.address,
+        tokenId: nft.tokenId,
+        toAddress,
+        fromAddress,
+        tokenType
       });
 
       setGasEstimate(estimate);
@@ -68,236 +138,258 @@ export default function SendNFTScreen(): JSX.Element {
     }
   };
 
+  const handleScan = () => {
+    router.push('/scan-qr');
+  };
+
+  const handleBack = () => {
+    router.back();
+  };
+
   const handleSend = async () => {
-    if (!validateAddress(recipientAddress)) {
-      Alert.alert('Invalid Address', 'Please enter a valid Ethereum address');
-      return;
-    }
-
-    setIsLoading(true);
-    setTransactionStatus('pending');
-    setError(null);
-
     try {
-      const txHash = await transferNFT({
-        contractAddress,
-        tokenId,
+      if (!recipientAddress || !validateAddress(recipientAddress)) {
+        setError('Please enter a valid recipient address');
+        return;
+      }
+
+      if (!gasEstimate) {
+        setError('Gas estimation failed. Please try again.');
+        return;
+      }
+
+      // Get token type from NFT data
+      const tokenType = nft.contract.tokenType as 'ERC721' | 'ERC1155';
+      if (!tokenType) {
+        console.error('Missing token type:', nft.contract);
+        setError('Invalid NFT token type');
+        return;
+      }
+
+      // Calculate network fee in Wei
+      const networkFeeWei = (BigInt(gasEstimate.gasLimit) * BigInt(gasEstimate.gasPrice)).toString();
+      
+      // Convert Wei to ETH (1 ETH = 10^18 Wei)
+      const networkFeeEth = (Number(networkFeeWei) / 1e18).toFixed(8);
+      
+      // For NFTs, total cost is just the network fee since we're not paying for the NFT itself
+      const totalEth = networkFeeEth;
+
+      console.log('Preparing navigation with params:', {
+        type: 'nft',
+        contractAddress: nft.contract.address,
+        tokenId: nft.tokenId,
         toAddress: recipientAddress,
-        fromAddress,
+        tokenType: nft.contract.tokenType,
+        nftName: nft.title,
+        nftImage: nft.media?.[0]?.gateway,
+        gasLimit: gasEstimate.gasLimit.toString(),
+        gasPrice: gasEstimate.gasPrice.toString(),
+        networkFee: networkFeeEth,
+        total: totalEth
       });
 
-      setTransactionStatus('success');
-      Alert.alert(
-        'Success',
-        'NFT sent successfully!',
-        [{ 
-          text: 'View Transaction',
-          onPress: () => {
-            // Open transaction in explorer
-            const explorerUrl = `https://etherscan.io/tx/${txHash}`;
-            Linking.openURL(explorerUrl);
+      // Set loading state
+      setIsLoading(true);
+
+      // Use push with a slight delay to ensure clean navigation
+      setTimeout(() => {
+        router.push({
+          pathname: '/confirm-transaction',
+          params: {
+            type: 'nft',
+            contractAddress: nft.contract.address,
+            tokenId: nft.tokenId,
+            toAddress: recipientAddress,
+            tokenType: nft.contract.tokenType as 'ERC721' | 'ERC1155',
+            nftName: nft.title,
+            nftImage: nft.media?.[0]?.gateway,
+            gasLimit: gasEstimate.gasLimit.toString(),
+            gasPrice: gasEstimate.gasPrice.toString(),
+            networkFee: networkFeeEth,
+            total: totalEth
           }
-        },
-        {
-          text: 'OK',
-          onPress: () => navigation.goBack()
-        }]
-      );
+        });
+      }, 100);
     } catch (err) {
-      console.error('Send NFT error:', err);
-      setTransactionStatus('error');
-      setError(err instanceof Error ? err.message : 'Failed to send NFT. Please try again.');
-      Alert.alert('Error', 'Failed to send NFT. Please try again.');
+      console.error('Error preparing transaction:', err);
+      setError('Failed to prepare transaction. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Send NFT</Text>
-      </View>
+  const handleAccountChange = (account: { address: string; chainId?: number }) => {
+    // Handle account change
+  };
 
-      <View style={styles.walletInfo}>
-        <Text style={styles.walletLabel}>From</Text>
-        <Text style={styles.walletAddress}>{truncateAddress(fromAddress)}</Text>
-        <Text style={styles.walletType}>Classic Wallet</Text>
-      </View>
-
-      <View style={styles.nftInfo}>
+  if (!nft) {
+    return (
+      <View style={sharedStyles.container}>
         <Image
-          source={{ uri: nft.image }}
-          style={styles.nftImage}
-          resizeMode="cover"
+          source={require('../assets/images/background.png')}
+          style={sharedStyles.backgroundImage}
         />
-        <Text style={styles.nftName}>{nft.name}</Text>
-        {nft.collection && (
-          <Text style={styles.collectionName}>{nft.collection}</Text>
-        )}
+        <WalletHeader onAccountChange={handleAccountChange} />
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Invalid NFT data</Text>
+        </View>
+        <BottomNav activeTab="nft" />
       </View>
+    );
+  }
 
-      <View style={styles.form}>
-        <Text style={styles.label}>Recipient Address</Text>
-        <TextInput
-          style={styles.input}
-          value={recipientAddress}
-          onChangeText={(text) => {
-            setRecipientAddress(text);
-            if (validateAddress(text)) {
-              estimateGas(text);
-            }
-          }}
-          placeholder="Enter recipient's address"
-          placeholderTextColor="#6A9EFF"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        {gasEstimate && (
-          <View style={styles.gasEstimate}>
-            <Text style={styles.gasLabel}>Estimated Gas Fee:</Text>
-            <Text style={styles.gasAmount}>{gasEstimate} ETH</Text>
-          </View>
-        )}
-
-        {error && (
-          <Text style={styles.errorText}>{error}</Text>
-        )}
-
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            (!validateAddress(recipientAddress) || isLoading) && styles.buttonDisabled
-          ]}
-          onPress={handleSend}
-          disabled={!validateAddress(recipientAddress) || isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text style={styles.sendButtonText}>Send NFT</Text>
-          )}
+  return (
+    <View style={sharedStyles.container}>
+      <Image
+        source={require('../assets/images/background.png')}
+        style={sharedStyles.backgroundImage}
+      />
+      
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color={COLORS.white} />
         </TouchableOpacity>
-
-        {transactionStatus === 'pending' && (
-          <View style={styles.statusContainer}>
-            <ActivityIndicator color="#6A9EFF" />
-            <Text style={styles.statusText}>Transaction in progress...</Text>
-          </View>
-        )}
+        <Text style={styles.headerTitle}>Send NFT</Text>
       </View>
+
+      <View style={[styles.content, { paddingBottom: 64 + insets.bottom }]}>
+        <View style={styles.nftInfo}>
+          <Image
+            source={{ uri: nft?.media?.[0]?.gateway }}
+            style={styles.nftImage}
+            resizeMode="cover"
+          />
+          <Text style={styles.nftName}>{nft?.title || 'Untitled NFT'}</Text>
+          {nft?.contract?.name && (
+            <Text style={styles.collectionName}>{nft.contract.name}</Text>
+          )}
+        </View>
+
+        <View style={styles.form}>
+          <Text style={styles.label}>Recipient Address</Text>
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              value={recipientAddress}
+              onChangeText={(text) => {
+                setRecipientAddress(text);
+                if (validateAddress(text) && !isWalletLoading) {
+                  estimateGas(text);
+                }
+              }}
+              placeholder={isWalletLoading ? "Loading wallet..." : "Enter recipient's address"}
+              placeholderTextColor={COLORS.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isWalletLoading}
+            />
+            <TouchableOpacity 
+              style={[styles.scanButton, isWalletLoading && styles.buttonDisabled]} 
+              onPress={handleScan}
+              disabled={isWalletLoading}
+            >
+              <Ionicons name="qr-code-outline" size={24} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {error && (
+            <Text style={styles.errorText}>{error}</Text>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              (!validateAddress(recipientAddress) || isLoading || isWalletLoading) && styles.buttonDisabled
+            ]}
+            onPress={handleSend}
+            disabled={!validateAddress(recipientAddress) || isLoading || isWalletLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.sendButtonText}>Continue</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <BottomNav activeTab="nft" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A1B3F',
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    paddingTop: 40,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.xl + 20,
+    paddingBottom: SPACING.lg,
   },
   backButton: {
-    fontSize: 24,
-    color: '#6A9EFF',
-    marginRight: 16,
+    padding: SPACING.xs,
+    marginRight: SPACING.md,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: 'white',
+  headerTitle: {
+    ...FONTS.h2,
+    color: COLORS.white,
+  },
+  content: {
     flex: 1,
-  },
-  walletInfo: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  walletLabel: {
-    fontSize: 16,
-    color: '#6A9EFF',
-    marginBottom: 8,
-  },
-  walletAddress: {
-    fontSize: 16,
-    color: 'white',
-    marginBottom: 8,
-  },
-  walletType: {
-    fontSize: 14,
-    color: '#6A9EFF',
-    backgroundColor: 'rgba(106, 158, 255, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.lg,
   },
   nftInfo: {
     alignItems: 'center',
-    padding: 20,
+    paddingVertical: SPACING.xl,
   },
   nftImage: {
     width: 200,
     height: 200,
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   nftName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 8,
+    ...FONTS.h2,
+    color: COLORS.white,
+    marginBottom: SPACING.xs,
   },
   collectionName: {
-    fontSize: 16,
-    color: '#6A9EFF',
-    marginBottom: 24,
+    ...FONTS.body,
+    color: COLORS.primary,
   },
   form: {
-    padding: 20,
+    flex: 1,
   },
   label: {
-    fontSize: 16,
-    color: '#6A9EFF',
-    marginBottom: 8,
+    ...FONTS.caption,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
   },
-  input: {
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
-    padding: 16,
-    color: 'white',
-    fontSize: 16,
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
-  gasEstimate: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+  input: {
+    flex: 1,
+    ...FONTS.body,
+    color: COLORS.white,
+    padding: SPACING.md,
   },
-  gasLabel: {
-    fontSize: 14,
-    color: '#6A9EFF',
-  },
-  gasAmount: {
-    fontSize: 14,
-    color: 'white',
-    fontWeight: '600',
+  scanButton: {
+    padding: SPACING.md,
   },
   errorText: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginBottom: 16,
+    ...FONTS.caption,
+    color: COLORS.error,
+    marginBottom: SPACING.md,
   },
   sendButton: {
-    backgroundColor: '#3b82f6',
-    paddingVertical: 16,
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.md,
     borderRadius: 12,
     alignItems: 'center',
   },
@@ -305,18 +397,13 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   sendButtonText: {
-    color: 'white',
-    fontSize: 18,
+    ...FONTS.body,
+    color: COLORS.white,
     fontWeight: '600',
   },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  errorContainer: {
+    flex: 1,
     justifyContent: 'center',
-    marginTop: 16,
-  },
-  statusText: {
-    color: '#6A9EFF',
-    marginLeft: 8,
+    alignItems: 'center',
   },
 }); 
