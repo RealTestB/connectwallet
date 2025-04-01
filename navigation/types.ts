@@ -61,6 +61,7 @@ export type RootStackParamList = {
   pay: undefined;
   receive: undefined;
   settings: undefined;
+  'manage-accounts': undefined;
   
   // NFT Related
   'nft-details': {

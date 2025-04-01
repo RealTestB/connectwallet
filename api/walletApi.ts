@@ -5,6 +5,7 @@ import { createWallet } from "./supabaseApi";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { getTokenBalances } from "./tokensApi";
 import { supabaseAdmin } from "../lib/supabase";
+import { encryptSeedPhrase } from "./securityApi";
 
 export interface WalletData {
   address: string;
@@ -274,9 +275,10 @@ export const completeWalletSetup = async (): Promise<boolean> => {
     // 1. Read from SecureStore
     const tempSeedPhrase = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
     const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
+    const password = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
     
-    if (!tempSeedPhrase || !tempUserId) {
-      throw new Error('Missing temporary setup data');
+    if (!tempSeedPhrase || !tempUserId || !password) {
+      throw new Error('Missing temporary setup data or password');
     }
 
     // 2. Create wallet from seed phrase
@@ -291,13 +293,18 @@ export const completeWalletSetup = async (): Promise<boolean> => {
 
     console.log('[WalletApi] Storing wallet data and clearing setup state...');
 
-    // 4. Clear setup state first to prevent race conditions
+    // 4. Encrypt and store the seed phrase permanently
+    const encryptedSeedPhrase = await encryptSeedPhrase(tempSeedPhrase, password);
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, encryptedSeedPhrase);
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, wallet.privateKey);
+
+    // 5. Clear setup state first to prevent race conditions
     await SecureStore.deleteItemAsync(STORAGE_KEYS.SETUP_STATE);
 
-    // 5. Store wallet data
+    // 6. Store wallet data
     await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
 
-    // 6. Clear all temporary setup data
+    // 7. Clear all temporary setup data
     await Promise.all([
       SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE),
       SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_USER_ID)

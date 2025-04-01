@@ -1,11 +1,15 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Image, Modal } from "react-native";
+import React, { useState, useCallback } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Image, Modal, TouchableWithoutFeedback, Animated, Dimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WalletHeader from "../components/ui/WalletHeader";
 import BottomNav from "../components/ui/BottomNav";
 import { COLORS, SPACING, sharedStyles } from '../styles/shared';
+import { useSettings } from '../contexts/SettingsContext';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+
+const MODAL_HEIGHT = Dimensions.get('window').height * 0.7;
 
 interface SettingItem {
   icon: string;
@@ -25,13 +29,37 @@ interface SettingGroup {
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [isDarkMode, setIsDarkMode] = useState(true);
-  const [language, setLanguage] = useState("en");
-  const [currency, setCurrency] = useState("USD");
-  const [network, setNetwork] = useState("ethereum");
+  const { settings, updateSetting, saveLastUsedNetwork } = useSettings();
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
   const [showNetworkPicker, setShowNetworkPicker] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const slideAnim = React.useRef(new Animated.Value(MODAL_HEIGHT)).current;
+
+  React.useEffect(() => {
+    if ((showLanguagePicker || showCurrencyPicker || showNetworkPicker) && !isClosing) {
+      setIsClosing(false);
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        bounciness: 5,
+      }).start();
+    }
+  }, [showLanguagePicker, showCurrencyPicker, showNetworkPicker]);
+
+  const handleCloseModal = useCallback(() => {
+    setIsClosing(true);
+    Animated.timing(slideAnim, {
+      toValue: MODAL_HEIGHT,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => {
+      setIsClosing(false);
+      setShowLanguagePicker(false);
+      setShowCurrencyPicker(false);
+      setShowNetworkPicker(false);
+    });
+  }, []);
 
   const settingsGroups: SettingGroup[] = [
     {
@@ -41,15 +69,15 @@ export default function SettingsScreen() {
           icon: "moon",
           label: "Dark Mode",
           type: "toggle",
-          value: isDarkMode,
-          onChange: setIsDarkMode,
+          value: settings.darkMode,
+          onChange: (value) => updateSetting(STORAGE_KEYS.SETTINGS.DARK_MODE, value),
         },
         {
           icon: "globe",
           label: "Language",
           type: "select",
-          value: language,
-          onChange: setLanguage,
+          value: settings.language,
+          onChange: (value) => updateSetting(STORAGE_KEYS.SETTINGS.LANGUAGE, value),
           options: [
             { value: "en", label: "English" },
             { value: "es", label: "Español" },
@@ -61,8 +89,8 @@ export default function SettingsScreen() {
           icon: "cash",
           label: "Currency",
           type: "select",
-          value: currency,
-          onChange: setCurrency,
+          value: settings.currency,
+          onChange: (value) => updateSetting(STORAGE_KEYS.SETTINGS.CURRENCY, value),
           options: [
             { value: "USD", label: "USD" },
             { value: "EUR", label: "EUR" },
@@ -79,8 +107,8 @@ export default function SettingsScreen() {
           icon: "git-network",
           label: "Default Network",
           type: "select",
-          value: network,
-          onChange: setNetwork,
+          value: settings.lastUsedNetwork,
+          onChange: (value) => saveLastUsedNetwork(value),
           options: [
             { value: "ethereum", label: "Ethereum" },
             { value: "polygon", label: "Polygon" },
@@ -94,10 +122,16 @@ export default function SettingsScreen() {
       title: "Security",
       items: [
         {
+          icon: "wallet",
+          label: "Manage Accounts",
+          type: "button",
+          onClick: () => router.push('/manage-accounts'),
+        },
+        {
           icon: "lock-closed",
           label: "Change Password",
           type: "button",
-          onClick: () => {},
+          onClick: () => router.push('/change-password'),
         },
         {
           icon: "shield",
@@ -175,59 +209,6 @@ export default function SettingsScreen() {
     </View>
   );
 
-  const renderOptionPicker = (
-    visible: boolean,
-    onClose: () => void,
-    options: Array<{ value: string; label: string }>,
-    selectedValue: string,
-    onSelect: (value: string) => void,
-    title: string
-  ) => (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={COLORS.white} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.modalList}>
-            {options.map((option, index) => (
-              <TouchableOpacity
-                key={option.value}
-                style={[
-                  styles.modalOption,
-                  index < options.length - 1 && styles.modalOptionBorder,
-                  option.value === selectedValue && styles.modalOptionSelected
-                ]}
-                onPress={() => {
-                  onSelect(option.value);
-                  onClose();
-                }}
-              >
-                <Text style={[
-                  styles.modalOptionText,
-                  option.value === selectedValue && styles.modalOptionTextSelected
-                ]}>
-                  {option.label}
-                </Text>
-                {option.value === selectedValue && (
-                  <Ionicons name="checkmark" size={20} color={COLORS.primary} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-
   return (
     <View style={sharedStyles.container}>
       <Image 
@@ -237,60 +218,151 @@ export default function SettingsScreen() {
 
       <WalletHeader 
         onAccountChange={handleAccountChange}
+        pageName="Settings"
       />
 
       <ScrollView 
-        style={[styles.content, { paddingTop: insets.top + 80 }]}
+        style={styles.content}
+        contentContainerStyle={styles.groupsContainer}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.groupsContainer}>
-          {settingsGroups.map((group, groupIndex) => (
-            <View key={groupIndex} style={styles.group}>
-              <Text style={styles.groupTitle}>{group.title}</Text>
-              <View style={styles.card}>
-                {group.items.map((item, itemIndex) => (
-                  <View 
-                    key={itemIndex}
-                    style={[
-                      styles.itemContainer,
-                      itemIndex < group.items.length - 1 && styles.itemBorder
-                    ]}
-                  >
-                    {renderSettingItem(item)}
-                  </View>
-                ))}
-              </View>
+        {settingsGroups.map((group, groupIndex) => (
+          <View key={groupIndex} style={styles.group}>
+            <Text style={styles.groupTitle}>{group.title}</Text>
+            <View style={styles.card}>
+              {group.items.map((item, itemIndex) => (
+                <View 
+                  key={itemIndex}
+                  style={[
+                    styles.itemContainer,
+                    itemIndex < group.items.length - 1 && styles.itemBorder
+                  ]}
+                >
+                  {renderSettingItem(item)}
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </View>
+        ))}
       </ScrollView>
 
-      {renderOptionPicker(
-        showLanguagePicker,
-        () => setShowLanguagePicker(false),
-        settingsGroups[0].items[1].options!,
-        language,
-        setLanguage,
-        "Select Language"
-      )}
+      <Modal
+        transparent
+        visible={(showLanguagePicker || showCurrencyPicker || showNetworkPicker) || isClosing}
+        onRequestClose={handleCloseModal}
+      >
+        <TouchableWithoutFeedback onPress={handleCloseModal}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <Animated.View 
+                style={[
+                  styles.modalContainer,
+                  {
+                    transform: [{ translateY: slideAnim }],
+                  }
+                ]}
+              >
+                <Image
+                  source={require('../assets/background.png')}
+                  style={styles.modalBackground}
+                />
+                
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    {showLanguagePicker ? 'Select Language' : 
+                     showCurrencyPicker ? 'Select Currency' : 
+                     'Select Network'}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.closeButton}
+                    onPress={handleCloseModal}
+                  >
+                    <Ionicons name="close" size={24} color={COLORS.white} />
+                  </TouchableOpacity>
+                </View>
 
-      {renderOptionPicker(
-        showCurrencyPicker,
-        () => setShowCurrencyPicker(false),
-        settingsGroups[0].items[2].options!,
-        currency,
-        setCurrency,
-        "Select Currency"
-      )}
+                <ScrollView
+                  style={styles.modalList}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.modalListContent}
+                >
+                  {showLanguagePicker && settingsGroups[0].items[1].options?.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.modalOption,
+                        settings.language === option.value && styles.modalOptionSelected
+                      ]}
+                      onPress={() => {
+                        updateSetting(STORAGE_KEYS.SETTINGS.LANGUAGE, option.value);
+                        handleCloseModal();
+                      }}
+                    >
+                      <Text style={[
+                        styles.modalOptionText,
+                        settings.language === option.value && styles.modalOptionTextSelected
+                      ]}>
+                        {option.label}
+                      </Text>
+                      {settings.language === option.value && (
+                        <Ionicons name="checkmark" size={20} color={COLORS.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
 
-      {renderOptionPicker(
-        showNetworkPicker,
-        () => setShowNetworkPicker(false),
-        settingsGroups[1].items[0].options!,
-        network,
-        setNetwork,
-        "Select Network"
-      )}
+                  {showCurrencyPicker && settingsGroups[0].items[2].options?.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.modalOption,
+                        settings.currency === option.value && styles.modalOptionSelected
+                      ]}
+                      onPress={() => {
+                        updateSetting(STORAGE_KEYS.SETTINGS.CURRENCY, option.value);
+                        handleCloseModal();
+                      }}
+                    >
+                      <Text style={[
+                        styles.modalOptionText,
+                        settings.currency === option.value && styles.modalOptionTextSelected
+                      ]}>
+                        {option.label}
+                      </Text>
+                      {settings.currency === option.value && (
+                        <Ionicons name="checkmark" size={20} color={COLORS.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+
+                  {showNetworkPicker && settingsGroups[1].items[0].options?.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.modalOption,
+                        settings.lastUsedNetwork === option.value && styles.modalOptionSelected
+                      ]}
+                      onPress={() => {
+                        saveLastUsedNetwork(option.value);
+                        handleCloseModal();
+                      }}
+                    >
+                      <Text style={[
+                        styles.modalOptionText,
+                        settings.lastUsedNetwork === option.value && styles.modalOptionTextSelected
+                      ]}>
+                        {option.label}
+                      </Text>
+                      {settings.lastUsedNetwork === option.value && (
+                        <Ionicons name="checkmark" size={20} color={COLORS.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </Animated.View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
 
       <BottomNav activeTab="settings" />
     </View>
@@ -303,6 +375,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
   },
   groupsContainer: {
+    paddingTop: SPACING.md,
     paddingBottom: 100,
   },
   group: {
@@ -365,11 +438,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
-  modalContent: {
+  modalContainer: {
+    height: MODAL_HEIGHT,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
     backgroundColor: COLORS.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '70%',
+  },
+  modalBackground: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -379,23 +459,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
+  closeButton: {
+    padding: SPACING.xs,
+  },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: COLORS.white,
   },
   modalList: {
-    padding: SPACING.md,
+    flex: 1,
+  },
+  modalListContent: {
+    padding: SPACING.lg,
   },
   modalOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: SPACING.md,
-  },
-  modalOptionBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: SPACING.md,
+    borderRadius: 12,
   },
   modalOptionSelected: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',

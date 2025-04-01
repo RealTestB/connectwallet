@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import config from '../api/config';
 
 // Define types for our settings
 interface Settings {
@@ -19,6 +20,55 @@ type SettingsContextType = {
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
+// Helper function to make Supabase requests
+const makeSupabaseRequest = (url: string, method: string, body?: any): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.timeout = 30000; // 30 second timeout
+
+    xhr.addEventListener('readystatechange', () => {
+      if (xhr.readyState !== 4) return;
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const responseText = xhr.status === 201 && !xhr.responseText ? '[]' : xhr.responseText;
+          const data = responseText ? JSON.parse(responseText) : null;
+          resolve(data);
+        } catch (error) {
+          console.error('Failed to parse response:', error);
+          reject(new Error('Failed to parse response'));
+        }
+      } else {
+        let errorMessage = `Request failed with status ${xhr.status}`;
+        try {
+          if (xhr.responseText) {
+            const errorData = JSON.parse(xhr.responseText);
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          }
+        } catch (e) {
+          // Ignore JSON parse error
+        }
+        reject(new Error(errorMessage));
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      reject(new Error('Network request failed'));
+    });
+
+    xhr.addEventListener('timeout', () => {
+      reject(new Error('Request timed out'));
+    });
+
+    xhr.open(method, `${config.supabase.url}${url}`);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('apikey', config.supabase.serviceRoleKey);
+    xhr.setRequestHeader('Prefer', 'return=representation');
+
+    xhr.send(body ? JSON.stringify(body) : null);
+  });
+};
+
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<Settings>({
     darkMode: true,
@@ -31,29 +81,124 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     loadSettings();
   }, []);
 
-  // 🔹 Load settings from SecureStore
+  // Load settings from SecureStore and database
   const loadSettings = async () => {
     try {
+      // Get user ID from SecureStore
+      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
+      if (!tempUserId) {
+        console.error('No user ID found in SecureStore');
+        return;
+      }
+
+      // Get user ID from auth_users table
+      const userData = await makeSupabaseRequest(
+        '/rest/v1/auth_users?select=id&temp_user_id=eq.' + tempUserId,
+        'GET'
+      );
+
+      if (!userData?.[0]?.id) {
+        console.error('Error fetching user');
+        return;
+      }
+
+      const userId = userData[0].id;
+
+      // Load settings from SecureStore
       const darkMode = (await SecureStore.getItemAsync(STORAGE_KEYS.SETTINGS.DARK_MODE)) === "true";
       const language = await SecureStore.getItemAsync(STORAGE_KEYS.SETTINGS.LANGUAGE) || "en";
       const currency = await SecureStore.getItemAsync(STORAGE_KEYS.SETTINGS.CURRENCY) || "USD";
-      setSettings({ darkMode, language, currency, lastUsedNetwork: "ethereum" });
+      const lastUsedNetwork = await SecureStore.getItemAsync(STORAGE_KEYS.SETTINGS.LAST_USED_NETWORK) || "ethereum";
+
+      // Load settings from database
+      const userPreferences = await makeSupabaseRequest(
+        '/rest/v1/user_preferences?select=*&user_id=eq.' + userId,
+        'GET'
+      );
+
+      // Use database values if available, otherwise use SecureStore values
+      setSettings({
+        darkMode: userPreferences?.[0]?.theme === 'dark' || darkMode,
+        language: userPreferences?.[0]?.language || language,
+        currency: userPreferences?.[0]?.selected_currency || currency,
+        lastUsedNetwork: lastUsedNetwork,
+      });
     } catch (error) {
       console.error('Error loading settings:', error);
     }
   };
 
-  // 🔹 Update settings and store them securely
+  // Update settings and store them securely
   const updateSetting = async (key: string, value: any) => {
     try {
+      // Get user ID from SecureStore
+      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
+      if (!tempUserId) {
+        console.error('No user ID found in SecureStore');
+        return;
+      }
+
+      // Get user ID from auth_users table
+      const userData = await makeSupabaseRequest(
+        '/rest/v1/auth_users?select=id&temp_user_id=eq.' + tempUserId,
+        'GET'
+      );
+
+      if (!userData?.[0]?.id) {
+        console.error('Error fetching user');
+        return;
+      }
+
+      const userId = userData[0].id;
+
+      // Update SecureStore
       await SecureStore.setItemAsync(key, value.toString());
+
+      // Update database based on setting type
+      const updates: any = {
+        updated_at: new Date().toISOString()
+      };
+
+      if (key === STORAGE_KEYS.SETTINGS.DARK_MODE) {
+        updates.theme = value ? 'dark' : 'light';
+      } else if (key === STORAGE_KEYS.SETTINGS.LANGUAGE) {
+        updates.language = value;
+      } else if (key === STORAGE_KEYS.SETTINGS.CURRENCY) {
+        updates.selected_currency = value;
+      }
+
+      // Update preferences using PATCH
+      await makeSupabaseRequest(
+        `/rest/v1/user_preferences?user_id=eq.${userId}`,
+        'PATCH',
+        updates
+      );
+
+      // If no row exists, create one
+      const checkExisting = await makeSupabaseRequest(
+        `/rest/v1/user_preferences?user_id=eq.${userId}`,
+        'GET'
+      );
+
+      if (!checkExisting || checkExisting.length === 0) {
+        await makeSupabaseRequest(
+          '/rest/v1/user_preferences',
+          'POST',
+          {
+            ...updates,
+            user_id: userId
+          }
+        );
+      }
+
       setSettings(prev => ({ ...prev, [key]: value }));
     } catch (error) {
       console.error('Error updating setting:', error);
+      throw error; // Re-throw to allow handling by the UI
     }
   };
 
-  // 🔹 Save last-used network separately
+  // Save last-used network separately
   const saveLastUsedNetwork = async (network: string) => {
     try {
       await SecureStore.setItemAsync(STORAGE_KEYS.SETTINGS.LAST_USED_NETWORK, network);
@@ -63,7 +208,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // 🔹 Get last-used network
+  // Get last-used network
   const getLastUsedNetwork = async () => {
     try {
       const network = await SecureStore.getItemAsync(STORAGE_KEYS.SETTINGS.LAST_USED_NETWORK);
