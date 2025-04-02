@@ -11,7 +11,8 @@
     "lib": ["es2017", "dom"],
     "types": ["react-native"],
     "paths": {
-      "@env": ["./node_modules/react-native-dotenv"]
+      "@env": ["./node_modules/react-native-dotenv"],
+      "*": ["*", "utils/*"]
     },
     "baseUrl": ".",
     "typeRoots": ["./types", "./node_modules/@types"]

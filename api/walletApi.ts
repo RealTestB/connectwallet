@@ -6,6 +6,7 @@ import { STORAGE_KEYS } from "../constants/storageKeys";
 import { getTokenBalances } from "./tokensApi";
 import { supabaseAdmin } from "../lib/supabase";
 import { encryptSeedPhrase } from "./securityApi";
+import { clearSupabaseStorage } from "../lib/supabase";
 
 export interface WalletData {
   address: string;
@@ -30,16 +31,16 @@ export const importClassicWalletFromPrivateKey = async (privateKey: string): Pro
     };
     await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
 
-    // Get temp_user_id from SecureStore
-    const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-    if (!tempUserId) {
-      throw new Error("No temp_user_id found");
+    // Get user ID from SecureStore
+    const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+    if (!userId) {
+      throw new Error("No user ID found");
     }
 
     // Store wallet in database with imported flag
     const walletId = await createWallet({
+      user_id: userId,
       public_address: address,
-      temp_user_id: tempUserId,
       chain_name: "ethereum",
       imported: true
     });
@@ -78,7 +79,7 @@ export const importClassicWalletFromPrivateKey = async (privateKey: string): Pro
       chainId: config.chain.chainId
     };
   } catch (error) {
-    console.error("Classic Wallet import failed:", error);
+    console.error("Failed to import wallet from private key:", error);
     throw error;
   }
 };
@@ -103,16 +104,16 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
     await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, seedPhrase);
     await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, wallet.privateKey);
 
-    // Get temp_user_id from SecureStore
-    const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-    if (!tempUserId) {
-      throw new Error("No temp_user_id found");
+    // Get user ID from SecureStore
+    const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+    if (!userId) {
+      throw new Error("No user ID found");
     }
 
     // Store wallet in database with imported flag
     const walletId = await createWallet({
+      user_id: userId,
       public_address: address,
-      temp_user_id: tempUserId,
       chain_name: "ethereum",
       imported: true
     });
@@ -148,11 +149,10 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
     return { 
       address, 
       type: "classic",
-      chainId: config.chain.chainId,
-      hasPassword: true
+      chainId: config.chain.chainId
     };
   } catch (error) {
-    console.error("Classic Wallet import from seed phrase failed:", error);
+    console.error("Failed to import wallet from seed phrase:", error);
     throw error;
   }
 };
@@ -188,16 +188,16 @@ export const createClassicWallet = async (password?: string): Promise<WalletData
       await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, password);
     }
 
-    // Get temp_user_id from SecureStore
-    const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-    if (!tempUserId) {
-      throw new Error("No temp_user_id found");
+    // Get user ID from SecureStore
+    const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+    if (!userId) {
+      throw new Error("No user ID found");
     }
 
     // Store wallet in database
     await createWallet({
+      user_id: userId,
       public_address: address,
-      temp_user_id: tempUserId,
       chain_name: "ethereum"
     });
 
@@ -274,46 +274,55 @@ export const completeWalletSetup = async (): Promise<boolean> => {
     
     // 1. Read from SecureStore
     const tempSeedPhrase = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
-    const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
     const password = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+    const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
     
-    if (!tempSeedPhrase || !tempUserId || !password) {
-      throw new Error('Missing temporary setup data or password');
+    if (!tempSeedPhrase || !password || !walletDataStr) {
+      throw new Error('Missing temporary setup data, password, or wallet data');
     }
 
-    // 2. Create wallet from seed phrase
-    const wallet = ethers.Wallet.fromPhrase(tempSeedPhrase);
-
-    // 3. Store only essential wallet data
-    const walletData = {
-      address: wallet.address,
-      privateKey: wallet.privateKey,
-      lastActive: Date.now().toString()
-    };
+    // 2. Use existing wallet data
+    const walletData = JSON.parse(walletDataStr);
 
     console.log('[WalletApi] Storing wallet data and clearing setup state...');
 
-    // 4. Encrypt and store the seed phrase permanently
+    // 3. Encrypt and store the seed phrase permanently
     const encryptedSeedPhrase = await encryptSeedPhrase(tempSeedPhrase, password);
     await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, encryptedSeedPhrase);
-    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, wallet.privateKey);
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, walletData.privateKey);
 
-    // 5. Clear setup state first to prevent race conditions
-    await SecureStore.deleteItemAsync(STORAGE_KEYS.SETUP_STATE);
+    // 4. Set setup state to complete
+    await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.COMPLETE);
 
-    // 6. Store wallet data
-    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
-
-    // 7. Clear all temporary setup data
-    await Promise.all([
-      SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE),
-      SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_USER_ID)
-    ]);
+    // 5. Clear temporary setup data
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
 
     console.log('[WalletApi] Wallet setup completed successfully');
     return true;
   } catch (error) {
     console.error('[WalletApi] Error completing wallet setup:', error);
+    throw error;
+  }
+};
+
+export const clearWalletStorage = async () => {
+  try {
+    console.log('🧹 [WalletApi] Clearing wallet storage...');
+    
+    // Clear SecureStore wallet data
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_DATA);
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE);
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
+    
+    // Clear Supabase storage
+    await clearSupabaseStorage();
+    
+    console.log('✅ [WalletApi] Successfully cleared wallet storage');
+  } catch (error) {
+    console.error('❌ [WalletApi] Failed to clear wallet storage:', error);
     throw error;
   }
 }; 

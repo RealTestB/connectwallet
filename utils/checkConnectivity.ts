@@ -14,28 +14,43 @@ export const checkConnectivity = async (): Promise<boolean> => {
   try {
     console.log('[Connectivity] Checking network connectivity...');
     
-    // Try a basic fetch to verify internet connectivity
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    try {
-      const response = await fetch('https://google.com', { 
-        method: 'HEAD',
-        signal: controller.signal
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.timeout = 5000; // 5 second timeout
+
+      xhr.addEventListener('readystatechange', () => {
+        if (xhr.readyState !== 4) return;
+
+        // Handle network errors
+        if (xhr.status === 0) {
+          console.warn('[Connectivity] Network connectivity test failed: No response');
+          resolve(false);
+          return;
+        }
+
+        // Check if we got a successful response
+        if (xhr.status >= 200 && xhr.status < 300) {
+          console.log('[Connectivity] Network connectivity verified');
+          resolve(true);
+        } else {
+          console.warn('[Connectivity] Network connectivity test failed: Bad status', xhr.status);
+          resolve(false);
+        }
       });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      
-      console.log('[Connectivity] Network connectivity verified');
-      return true;
-    } catch (error) {
-      console.warn('[Connectivity] Network connectivity test failed:', error);
-      return false;
-    }
+
+      xhr.addEventListener('error', () => {
+        console.warn('[Connectivity] Network connectivity test failed: Request error');
+        resolve(false);
+      });
+
+      xhr.addEventListener('timeout', () => {
+        console.warn('[Connectivity] Network connectivity test failed: Timeout');
+        resolve(false);
+      });
+
+      xhr.open('HEAD', 'https://google.com');
+      xhr.send();
+    });
   } catch (error) {
     console.error('[Connectivity] Failed to check connectivity:', error);
     return false;

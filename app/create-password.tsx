@@ -99,8 +99,8 @@ export default function Page() {
 
       // Create anonymous user in Supabase
       try {
-        const tempUserId = await createAnonymousUser(hashedPasswordObj);
-        await SecureStore.setItemAsync(STORAGE_KEYS.TEMP_USER_ID, tempUserId);
+        const userId = await createAnonymousUser(hashedPasswordObj);
+        await SecureStore.setItemAsync(STORAGE_KEYS.USER_ID, userId);
 
         // Update setup state
         await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.PASSWORD_CREATED);

@@ -15,6 +15,9 @@ import { LineChart } from 'react-native-wagmi-charts';
 import { BlurView } from 'expo-blur';
 import { ethers } from 'ethers';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { getWalletTokenBalances } from '../api/tokensApi';
+import { supabaseAdmin } from '../lib/supabase';
+import { calculateTokenBalanceUSD } from "../utils/tokenUtils";
 
 interface PriceHistoryResponse {
   prices: [number, number][];
@@ -28,15 +31,18 @@ interface Token {
   address: string;
   decimals: number;
   balance: string;
-  logo: string;
-  price: number;
-  balanceUSD: number;
+  balanceUSD: string;
+  priceUSD: string;
   priceChange24h: number;
+  logo: string;
+  lastUpdate: string;
   isNative: boolean;
-  priceHistory: Array<{
-    timestamp: number;
-    value: number;
-  }>;
+  chain_id: number;
+  priceHistory: {
+    prices: [number, number][];
+    market_caps: [number, number][];
+    total_volumes: [number, number][];
+  };
 }
 
 interface Account {
@@ -45,9 +51,17 @@ interface Account {
 }
 
 interface WalletData {
-  hasAddress: boolean;
-  hasBalance: boolean;
-  balance: string;
+  address: string;
+  type: "classic";
+  chainId?: number;
+  hasPassword?: boolean;
+}
+
+interface ChartData {
+  symbol: string;
+  data: { timestamp: number; value: number }[];
+  currentPrice: string;
+  priceChange24h: number;
 }
 
 // Storage functions
@@ -66,11 +80,10 @@ const savePortfolioData = async (data: {
         decimals: token.decimals,
         balance: token.balance,
         logo: token.logo,
-        price: token.price,
+        priceUSD: token.priceUSD,
         balanceUSD: token.balanceUSD,
         priceChange24h: token.priceChange24h,
         isNative: token.isNative
-        // Don't store priceHistory in SecureStore
       })),
       totalValue: data.totalValue,
       lastUpdate: data.lastUpdate
@@ -102,7 +115,11 @@ const loadPortfolioData = async () => {
       // Initialize priceHistory as empty array for each token
       const tokensWithEmptyHistory = parsed.tokens.map((token: any) => ({
         ...token,
-        priceHistory: []
+        priceHistory: {
+          prices: [],
+          market_caps: [],
+          total_volumes: []
+        }
       }));
       
       console.log('[Portfolio] Successfully loaded portfolio data:', {
@@ -123,53 +140,35 @@ const loadPortfolioData = async () => {
   return null;
 };
 
-export default function Portfolio(): JSX.Element {
-  const [tokens, setTokens] = useState<Token[]>([
-    {
-      symbol: "ETH",
-      name: "Ethereum",
-      address: "0x0000000000000000000000000000000000000000",
-      decimals: 18,
-      balance: "0",
-      logo: "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-      isNative: true,
-      price: 0,
-      balanceUSD: 0,
-      priceChange24h: 0,
-      priceHistory: [] // Initialize empty, will be populated when we get data
-    },
-    {
-      symbol: "WBTC",
-      name: "Wrapped Bitcoin",
-      address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", // WBTC contract address
-      decimals: 8,
-      balance: "0",
-      logo: "https://cryptologos.cc/logos/wrapped-bitcoin-wbtc-logo.png",
-      isNative: false,
-      price: 0,
-      balanceUSD: 0,
-      priceChange24h: 0,
-      priceHistory: [] // Initialize empty, will be populated when we get data
-    }
-  ]);
+// Token logo mapping
+const TOKEN_LOGOS: { [key: string]: string } = {
+  'ETH': 'https://cryptologos.cc/logos/ethereum-eth-logo.png',
+  'WETH': 'https://cryptologos.cc/logos/ethereum-eth-logo.png',
+  'WBTC': 'https://cryptologos.cc/logos/wrapped-bitcoin-wbtc-logo.png'
+};
 
+export default function Portfolio(): JSX.Element {
+  const [tokens, setTokens] = useState<Token[]>([]);
   const [totalValue, setTotalValue] = useState<string>("0");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
   const [lastRefreshTime, setLastRefreshTime] = useState(0);
   const REFRESH_COOLDOWN = 5000; // 5 seconds cooldown between manual refreshes
   const [walletData, setWalletData] = useState<WalletData>({
-    hasAddress: false,
-    hasBalance: false,
-    balance: '0'
+    address: '',
+    type: 'classic',
+    chainId: undefined,
+    hasPassword: undefined
   });
+  const [error, setError] = useState<string | null>(null);
+  const [chartData, setChartData] = useState<ChartData[]>([]);
+  const [currentChainId, setCurrentChainId] = useState<number>(1); // Default to Ethereum mainnet
 
   const handleTokenPress = (token: Token): void => {
     console.log('Token pressed:', token.symbol);
   };
 
   const handleAccountChange = useCallback(async (account: Account) => {
-    // Only update if the account has actually changed and we have an address
     if (account?.address && currentAccount?.address !== account.address) {
       console.log('[Portfolio] Account changed:', account.address);
       setCurrentAccount(account);
@@ -237,200 +236,172 @@ export default function Portfolio(): JSX.Element {
         console.log('[Portfolio] Cleared refresh interval');
       }
     };
-  }, [currentAccount?.address]); // Only depend on the address
+  }, [currentAccount?.address]);
 
   const handleRefresh = async () => {
-    if (isRefreshing) {
-      console.log('[Portfolio] Already refreshing, skipping');
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastRefreshTime < REFRESH_COOLDOWN) {
-      console.log('[Portfolio] Too soon to refresh, skipping');
-      return;
-    }
-
-    console.log('[Portfolio] Starting refresh...');
-    setIsRefreshing(true);
-    setLastRefreshTime(now);
-    
     try {
+      setIsRefreshing(true);
+      console.log("Starting portfolio refresh...");
+
       // Get stored wallet data
-      console.log('[Portfolio] Getting stored wallet data...');
-      const walletData = await getStoredWallet();
-      
-      if (!walletData?.address) {
-        throw new Error('No wallet address found');
+      const storedWalletData = await getStoredWallet();
+      console.log("Stored wallet data:", storedWalletData);
+
+      if (!storedWalletData?.address) {
+        throw new Error("No wallet address found in stored data");
       }
 
-      // Handle ETH and WBTC updates independently
-      const updateToken = async (token: Token) => {
-        try {
-          if (token.isNative) {
-            // Fetch ETH data
-            console.log('[Portfolio] Fetching ETH data...');
-            const [priceHistory, hexBalance, priceData] = await Promise.all([
-              getTokenPriceHistory('0x0000000000000000000000000000000000000000'),
-              getNativeBalance(walletData.address),
-              getTokenPrice('0x0000000000000000000000000000000000000000')
-            ]);
+      // Get wallet from Supabase first
+      const { data: wallet, error: walletError } = await supabaseAdmin
+        .from("wallets")
+        .select("id, public_address")
+        .eq("public_address", storedWalletData.address.toLowerCase())
+        .maybeSingle();
 
-            if (!priceHistory || !hexBalance || !priceData) {
-              throw new Error('Failed to fetch ETH data');
-            }
+      if (walletError) {
+        console.error("Error fetching wallet:", walletError);
+        throw new Error("Failed to fetch wallet data");
+      }
 
-            // Process ETH price history
-            let mappedPriceHistory: Array<{ timestamp: number; value: number }> = [];
-            if (priceHistory.prices.length >= 280) {
-              const points = priceHistory.prices.slice(-280);
-              mappedPriceHistory = points.map(([timestamp, price]) => ({
-                timestamp,
-                value: price
-              }));
-            }
+      if (!wallet) {
+        console.error("No wallet found for address:", storedWalletData.address);
+        throw new Error("Wallet not found");
+      }
 
-            const balance = ethers.formatEther(hexBalance);
-            const balanceNum = parseFloat(balance);
-            const balanceUSD = balanceNum * (priceData?.price || 0);
+      // Fetch token balances using wallet ID
+      console.log("Fetching token balances for wallet ID:", wallet.id);
+      const supabaseTokens = await getWalletTokenBalances(wallet.id);
+      console.log("Fetched tokens from Supabase:", supabaseTokens);
+
+      if (!supabaseTokens || supabaseTokens.length === 0) {
+        console.log("No tokens found in Supabase");
+        setTokens([]);
+        return;
+      }
+
+      // Filter tokens by current chain ID
+      const chainTokens = supabaseTokens.filter(token => token.chain_id === currentChainId);
+      console.log(`Filtered tokens for chain ${currentChainId}:`, chainTokens);
+
+      // Map Supabase tokens to Token interface
+      const mappedTokens: Token[] = chainTokens.map((token) => ({
+        symbol: token.symbol,
+        name: token.name,
+        address: token.token_address,
+        decimals: token.decimals || 18,
+        balance: token.balance || "0",
+        balanceUSD: "0",
+        priceUSD: "0",
+        priceChange24h: 0,
+        logo: TOKEN_LOGOS[token.symbol] || TOKEN_LOGOS.ETH,
+        lastUpdate: token.timestamp,
+        isNative: token.token_address === "0x0000000000000000000000000000000000000000",
+        priceHistory: {
+          prices: [],
+          market_caps: [],
+          total_volumes: []
+        },
+        chain_id: token.chain_id
+      }));
+
+      console.log("Mapped tokens:", mappedTokens);
+
+      // Update each token's data
+      const updatedTokens = await Promise.all(
+        mappedTokens.map(async (token) => {
+          try {
+            // Get token balance
+            const balance = await getTokenBalance(
+              storedWalletData.address,
+              token.address
+            );
+            console.log(`Balance for ${token.symbol}:`, balance);
+
+            // Get token price data
+            const priceData = await getTokenPrice(token.address, token.chain_id);
+            console.log(`Price data for ${token.symbol}:`, priceData);
+
+            // Get price history data
+            const priceHistory = await getTokenPriceHistory(token.address, token.chain_id);
+            console.log(`Price history for ${token.symbol}:`, priceHistory);
 
             return {
               ...token,
-              balance,
-              balanceUSD,
-              price: priceData?.price || token.price,
-              priceChange24h: priceData?.change24h || token.priceChange24h,
-              priceHistory: mappedPriceHistory
+              balance: balance || "0",
+              balanceUSD: calculateTokenBalanceUSD(
+                balance || "0",
+                priceData?.price?.toString() || "0",
+                token.decimals
+              ),
+              priceUSD: priceData?.price?.toString() || "0",
+              priceChange24h: priceData?.change24h || 0,
+              lastUpdate: new Date().toISOString(),
+              priceHistory: priceHistory || {
+                prices: [],
+                market_caps: [],
+                total_volumes: []
+              }
             };
-          } else {
-            // Fetch WBTC data
-            console.log('[Portfolio] Fetching WBTC data...');
-            
-            // First get price data and history since these don't need RPC
-            const [priceHistory, priceData] = await Promise.all([
-              getTokenPriceHistory(token.address),
-              getTokenPrice(token.address)
-            ]);
-
-            console.log('[Portfolio] WBTC price data received:', priceData);
-
-            // Process price history first so we at least have the chart
-            let mappedPriceHistory: Array<{ timestamp: number; value: number }> = [];
-            if (priceHistory?.prices?.length >= 280) {
-              const points = priceHistory.prices.slice(-280);
-              mappedPriceHistory = points.map(([timestamp, price]) => ({
-                timestamp,
-                value: price
-              }));
-            }
-
-            // Try to get balance with a shorter timeout
-            let balance = '0';
-            try {
-              console.log('[Portfolio] Attempting to fetch WBTC balance...');
-              balance = await Promise.race([
-                getTokenBalance(token.address, walletData.address),
-                new Promise<string>((_, reject) => 
-                  setTimeout(() => reject(new Error('Balance fetch timeout')), 5000)
-                )
-              ]);
-              console.log('[Portfolio] WBTC balance fetched successfully');
-            } catch (error) {
-              console.warn('[Portfolio] WBTC balance fetch failed, using 0:', error);
-              // Keep balance as '0'
-            }
-
-            const balanceNum = parseFloat(balance || '0');
-            const balanceUSD = balanceNum * (priceData?.price || 0);
-
-            // Calculate 24h price change
-            const priceChange24h = typeof priceData?.change24h === 'number' 
-              ? priceData.change24h 
-              : (priceHistory?.prices?.length >= 2 
-                ? ((priceHistory.prices[priceHistory.prices.length - 1][1] - priceHistory.prices[0][1]) / priceHistory.prices[0][1]) * 100
-                : 0);
-
-            console.log('[Portfolio] WBTC data prepared:', {
-              price: priceData?.price,
-              priceChange24h,
-              historyPoints: mappedPriceHistory.length,
-              balance: balanceNum,
-              firstPrice: priceHistory?.prices?.[0]?.[1],
-              lastPrice: priceHistory?.prices?.[priceHistory.prices.length - 1]?.[1]
-            });
-
-            // Return token with whatever data we managed to get
+          } catch (error) {
+            console.error(`Failed to update ${token.symbol} data:`, error);
             return {
               ...token,
-              balance: balance || '0',
-              balanceUSD,
-              price: priceData?.price || token.price,
-              priceChange24h,
-              priceHistory: mappedPriceHistory
+              priceHistory: {
+                prices: [],
+                market_caps: [],
+                total_volumes: []
+              }
             };
           }
-        } catch (error) {
-          console.error(`[Portfolio] Error updating ${token.symbol}:`, error);
-          return token; // Return unchanged token on error
-        }
-      };
-
-      // Update tokens independently
-      const updatedTokens = await Promise.all(tokens.map(updateToken));
-      const newTotalValue = updatedTokens.reduce((total, token) => total + (token.balanceUSD || 0), 0).toFixed(2);
-
-      console.log('[Portfolio] Updating state with:', {
-        tokenCount: updatedTokens.length,
-        totalValue: newTotalValue,
-        tokens: updatedTokens.map(t => ({
-          symbol: t.symbol,
-          priceHistoryPoints: t.priceHistory.length,
-          balance: t.balance,
-          price: t.price
-        }))
-      });
-
-      // Update state with final data
-      setTokens(updatedTokens);
-      setTotalValue(newTotalValue);
-      setWalletData({
-        hasAddress: true,
-        hasBalance: true,
-        balance: updatedTokens.find(t => t.isNative)?.balance || '0'
-      });
-
-      // Save updated data to storage
-      await savePortfolioData({
-        tokens: updatedTokens,
-        totalValue: newTotalValue,
-        lastUpdate: now
-      });
-
-      console.log('[Portfolio] Successfully updated all data and saved to storage');
-    } catch (error) {
-      console.error('[Portfolio] Error during refresh:', error);
-      Alert.alert(
-        "Update Failed",
-        "Failed to update portfolio data. Please try again.",
-        [{ text: "OK" }]
+        })
       );
+
+      console.log("Setting updated tokens:", updatedTokens);
+      setTokens(updatedTokens);
+
+      // Prepare chart data
+      const chartData = updatedTokens.map((token) => {
+        const chartPoints = token.priceHistory.prices.map(([timestamp, price]) => ({
+          timestamp: timestamp,
+          value: price,
+        }));
+        console.log(`[Portfolio] Chart data prepared:`, {
+          symbol: token.symbol,
+          totalPoints: chartPoints.length,
+          allPoints: chartPoints,
+          currentPrice: token.priceUSD,
+          priceChange24h: token.priceChange24h,
+        });
+        return {
+          symbol: token.symbol,
+          data: chartPoints,
+          currentPrice: token.priceUSD,
+          priceChange24h: token.priceChange24h,
+        };
+      });
+
+      // Update chart data state
+      setChartData(chartData);
+    } catch (error) {
+      console.error("Failed to refresh portfolio:", error);
+      Alert.alert("Error", "Failed to refresh portfolio. Please try again.");
     } finally {
       setIsRefreshing(false);
     }
   };
 
   const renderTokenCard = (token: Token) => {
-    const chartData = token.priceHistory;
+    // Create chart data from price history
+    const chartPoints = token.priceHistory?.prices?.map(([timestamp, price]) => ({
+      timestamp,
+      value: price,
+    })) || [];
 
     // Always log chart data to track what we're showing
-    console.log('[Portfolio] Chart data prepared:', {
-      symbol: token.symbol,
-      totalPoints: chartData.length,
-      allPoints: chartData.map(p => ({
-        time: new Date(p.timestamp).toISOString(),
-        value: p.value
-      })),
-      currentPrice: token.price,
+    console.log(`[Portfolio] Chart data prepared for ${token.symbol}:`, {
+      totalPoints: chartPoints.length,
+      samplePoints: chartPoints.slice(0, 3),
+      currentPrice: token.priceUSD,
       priceChange24h: token.priceChange24h
     });
 
@@ -438,11 +409,11 @@ export default function Portfolio(): JSX.Element {
     const screenWidth = Dimensions.get('window').width;
     const cardWidth = screenWidth - (SPACING.lg * 2);
     const chartWidth = cardWidth;
-    
+
     // Format values
-    const pricePerCoin = token.price ? `$${token.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00';
+    const pricePerCoin = token.priceUSD ? `$${parseFloat(token.priceUSD).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00';
     const formattedBalance = parseFloat(token.balance || '0').toFixed(4);
-    const formattedBalanceUSD = token.balanceUSD ? `$${token.balanceUSD.toFixed(2)}` : '$0.00';
+    const formattedBalanceUSD = token.balanceUSD ? `$${parseFloat(token.balanceUSD).toFixed(2)}` : '$0.00';
     const formattedPriceChange = (token.priceChange24h || 0).toFixed(2);
 
     return (
@@ -489,10 +460,10 @@ export default function Portfolio(): JSX.Element {
             {/* Chart */}
             <View style={styles.chartWrapper}>
               <View style={styles.chartContainer}>
-                {chartData.length > 0 ? (
+                {chartPoints.length > 0 ? (
                   <GestureHandlerRootView style={{ flex: 1 }}>
                     <LineChart.Provider 
-                      data={chartData}
+                      data={chartPoints}
                     >
                       <LineChart 
                         height={80} 

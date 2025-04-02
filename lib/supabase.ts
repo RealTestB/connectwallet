@@ -4,6 +4,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { createClient, SupabaseClientOptions } from '@supabase/supabase-js'
 import config from '../api/config'
 
+// Add this new function
+export const clearSupabaseStorage = async () => {
+  console.log('🧹 [Supabase] Clearing storage...');
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const supabaseKeys = keys.filter(key => key.includes('supabase'));
+    if (supabaseKeys.length > 0) {
+      await AsyncStorage.multiRemove(supabaseKeys);
+      console.log('✅ [Supabase] Cleared storage:', supabaseKeys);
+    } else {
+      console.log('ℹ️ [Supabase] No storage to clear');
+    }
+  } catch (error) {
+    console.error('❌ [Supabase] Failed to clear storage:', error);
+  }
+};
+
 const TIMEOUT_MS = Platform.OS === 'android' ? 30000 : 20000;
 
 // Custom fetch implementation using XMLHttpRequest
@@ -15,32 +32,61 @@ const makeSupabaseRequest = (input: RequestInfo | URL, init?: RequestInit): Prom
     const xhr = new XMLHttpRequest();
     xhr.timeout = TIMEOUT_MS;
     
+    // Add more specific event listeners
+    xhr.addEventListener('loadstart', () => {
+      console.log('📡 [Supabase] Request started');
+    });
+
+    xhr.addEventListener('progress', (event) => {
+      if (event.lengthComputable) {
+        console.log(`📡 [Supabase] Progress: ${Math.round((event.loaded / event.total) * 100)}%`);
+      }
+    });
+
     xhr.addEventListener('readystatechange', () => {
+      console.log(`📡 [Supabase] Ready state: ${xhr.readyState}`);
+      
       if (xhr.readyState !== 4) return;
-      
-      console.log(`✅ [Supabase] Response received:`, {
-        status: xhr.status,
-        statusText: xhr.statusText,
-        hasResponse: !!xhr.responseText
-      });
-      
-      if ((xhr.status >= 200 && xhr.status < 300)) {
+
+      // Handle network errors
+      if (xhr.status === 0) {
+        console.error('❌ [Supabase] Network error - unable to connect to server');
+        reject(new Error('Unable to connect to Supabase server. Please check your connection and try again.'));
+        return;
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          // For 201 Created with no content, return empty array
-          const responseText = xhr.status === 201 && !xhr.responseText ? '[]' : xhr.responseText;
-          
-          // Create a simple Response object with the text
-          const response = new Response(responseText, {
+          // For 201 Created responses, we need to parse the response data
+          if (xhr.status === 201) {
+            console.log('✅ [Supabase] Resource created successfully');
+            try {
+              const responseText = xhr.responseText || '[]';
+              console.log('📥 [Supabase] Creation response:', responseText);
+              resolve(new Response(responseText, {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+              }));
+              return;
+            } catch (error) {
+              console.error('❌ [Supabase] Failed to parse creation response:', error);
+              reject(new Error('Failed to parse creation response'));
+              return;
+            }
+          }
+
+          // For all other successful responses
+          const responseText = xhr.responseText || '[]';
+          resolve(new Response(responseText, {
             status: xhr.status,
-            statusText: xhr.statusText || '',
+            statusText: xhr.statusText,
             headers: new Headers({
               'Content-Type': 'application/json'
             })
-          });
-          resolve(response);
+          }));
         } catch (error) {
-          console.error(`❌ [Supabase] Failed to create response:`, error);
-          reject(new Error('Failed to create response'));
+          console.error('Failed to parse response:', error);
+          reject(new Error('Failed to parse response'));
         }
       } else {
         let errorMessage = `Request failed with status ${xhr.status}`;
@@ -52,50 +98,72 @@ const makeSupabaseRequest = (input: RequestInfo | URL, init?: RequestInit): Prom
         } catch (e) {
           // Ignore JSON parse error
         }
-        
-        console.error(`❌ [Supabase] Request failed:`, {
-          status: xhr.status,
-          statusText: xhr.statusText,
-          responseText: xhr.responseText,
-          errorMessage
-        });
         reject(new Error(errorMessage));
       }
     });
 
-    xhr.addEventListener('error', () => {
-      console.error(`❌ [Supabase] Network request failed`);
-      reject(new Error('Network request failed'));
+    xhr.addEventListener('error', (event) => {
+      console.error('❌ [Supabase] Network error:', event);
+      reject(new Error('Network request failed. Please check your connection and try again.'));
     });
 
     xhr.addEventListener('timeout', () => {
-      console.error(`❌ [Supabase] Request timed out after ${TIMEOUT_MS}ms`);
+      console.error('⏰ [Supabase] Request timed out');
       reject(new Error(`Request timed out after ${TIMEOUT_MS}ms`));
     });
 
-    try {
-      xhr.open(init?.method || 'GET', url);
-      
-      // Set default headers
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.setRequestHeader('Accept', 'application/json');
-      
-      // Set custom headers
-      if (init?.headers) {
-        Object.entries(init.headers).forEach(([key, value]) => {
-          if (value) xhr.setRequestHeader(key, value.toString());
-        });
+    xhr.addEventListener('abort', () => {
+      console.error('🚫 [Supabase] Request aborted');
+      reject(new Error('Request was aborted'));
+    });
+
+    xhr.open(init?.method || 'GET', url, true);
+    
+    // Set headers
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...(init?.headers as Record<string, string> || {})
+    };
+
+    // Only set API key headers if they're not already set by the Supabase client
+    if (!headers['apikey'] && !headers['Authorization']) {
+      // Use service role key for /rest/v1/ endpoints, anon key for auth endpoints and others
+      const apiKey = url.includes('/rest/v1/') ? config.supabase.serviceRoleKey : config.supabase.anonKey;
+      console.log(`🔑 [Supabase] Setting API key for ${url.includes('/rest/v1/') ? 'service role' : 'anon'} request to ${url}`);
+      console.log(`🔑 [Supabase] API Key length: ${apiKey?.length || 0}`);
+      headers['apikey'] = apiKey;
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else {
+      // Override with service role key for /rest/v1/ endpoints even if headers exist
+      if (url.includes('/rest/v1/')) {
+        console.log('🔑 [Supabase] Overriding with service role key for REST endpoint');
+        headers['apikey'] = config.supabase.serviceRoleKey;
+        headers['Authorization'] = `Bearer ${config.supabase.serviceRoleKey}`;
+      } else {
+        console.log('🔑 [Supabase] Using existing API key headers');
       }
-      
-      // Send the request with body if present
-      const body = init?.body ? 
-        (typeof init.body === 'string' ? init.body : JSON.stringify(init.body)) 
-        : null;
-      xhr.send(body);
-    } catch (error) {
-      console.error(`❌ [Supabase] Failed to send request:`, error);
-      reject(new Error('Failed to send request'));
     }
+
+    // Add Prefer header for POST/PUT requests
+    if (init?.method === 'POST' || init?.method === 'PUT') {
+      headers['Prefer'] = 'return=representation';
+    }
+
+    // Set all headers
+    Object.entries(headers).forEach(([key, value]) => {
+      if (value) xhr.setRequestHeader(key, value);
+    });
+
+    // Log all headers being sent (safely)
+    console.log('📤 [Supabase] Request headers:', {
+      ...headers,
+      apikey: headers['apikey'] ? `${headers['apikey'].substring(0, 10)}...` : undefined,
+      Authorization: headers['Authorization'] ? `${headers['Authorization'].substring(0, 20)}...` : undefined
+    });
+
+    // Send request
+    xhr.send(init?.body);
   });
 };
 
@@ -111,12 +179,18 @@ const supabaseOptions = {
     fetch: makeSupabaseRequest,
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'apikey': config.supabase.anonKey,
+      'Authorization': `Bearer ${config.supabase.anonKey}`
     }
   }
 };
 
 // Create Supabase clients
+console.log('🔧 [Supabase] Initializing clients with URL:', config.supabase.url);
+console.log('🔧 [Supabase] Anon key length:', config.supabase.anonKey?.length || 0);
+console.log('🔧 [Supabase] Service role key length:', config.supabase.serviceRoleKey?.length || 0);
+
 export const supabase = createClient(
   config.supabase.url,
   config.supabase.anonKey,
@@ -133,7 +207,8 @@ export const supabaseAdmin = createClient(
       headers: {
         ...supabaseOptions.global.headers,
         'x-client-info': 'supabase-js-admin',
-        'apikey': config.supabase.serviceRoleKey
+        'apikey': config.supabase.serviceRoleKey,
+        'Authorization': `Bearer ${config.supabase.serviceRoleKey}`
       }
     }
   }

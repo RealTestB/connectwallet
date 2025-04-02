@@ -90,75 +90,92 @@ const makeCoinGeckoRequest = (url: string): Promise<any> => {
   });
 };
 
-export const getTokenPrice = async (address: string): Promise<TokenPrice | null> => {
+export const getTokenPrice = async (address: string, chainId: number): Promise<TokenPrice | null> => {
   try {
+    // Only fetch prices for Ethereum mainnet tokens
+    if (chainId !== 1) {
+      console.log(`[CoinGeckoAPI] Skipping price fetch for token ${address} on chain ${chainId}`);
+      return null;
+    }
+
     const isNativeEth = address === '0x0000000000000000000000000000000000000000';
     
-    // For ETH we use /simple/price, for tokens we use /simple/token_price/ethereum
-    const url = isNativeEth
-      ? `${COINGECKO_BASE_URL}/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true&x_cg_demo_api_key=${COINGECKO_API_KEY}`
-      : `${COINGECKO_BASE_URL}/simple/token_price/ethereum?contract_addresses=${address}&vs_currencies=usd&include_24hr_change=true&x_cg_demo_api_key=${COINGECKO_API_KEY}`;
-    
-    console.log('[CoinGeckoAPI] Making price request to:', url);
-
-    const data = await makeCoinGeckoRequest(url);
-    console.log('[CoinGeckoAPI] Raw price response:', data);
-    
+    // For native ETH, use the ethereum endpoint
     if (isNativeEth) {
+      const url = `${COINGECKO_BASE_URL}/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true`;
+      const data = await makeCoinGeckoRequest(url);
+      
       if (!data?.ethereum?.usd) {
         console.error('[CoinGeckoAPI] No ETH price data in response:', data);
         return null;
       }
-      const priceData = {
+      return {
         price: data.ethereum.usd,
         change24h: data.ethereum.usd_24h_change || 0
       };
-      console.log('[CoinGeckoAPI] Parsed ETH price data:', priceData);
-      return priceData;
     }
+
+    // For all other tokens, use the contract price endpoint
+    const url = `${COINGECKO_BASE_URL}/simple/token_price/ethereum?contract_addresses=${address}&vs_currencies=usd&include_24hr_change=true`;
+    const data = await makeCoinGeckoRequest(url);
     
     const tokenData = data[address.toLowerCase()];
     if (!tokenData?.usd) {
       console.error('[CoinGeckoAPI] No token price data in response:', data);
       return null;
     }
-    
-    const priceData = {
+    return {
       price: tokenData.usd,
       change24h: tokenData.usd_24h_change || 0
     };
-    console.log('[CoinGeckoAPI] Parsed token price data:', priceData);
-    return priceData;
   } catch (error) {
     console.error('[CoinGeckoAPI] Error in price request:', error);
     return null;
   }
 };
 
-export const getTokenPriceHistory = async (address: string): Promise<PriceHistoryResponse> => {
+export const getTokenPriceHistory = async (address: string, chainId: number): Promise<PriceHistoryResponse> => {
   try {
-    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
-    
-    // For ETH we use /coins/ethereum/market_chart, for tokens we use /coins/ethereum/contract/{address}/market_chart
-    const url = isNativeEth 
-      ? `${COINGECKO_BASE_URL}/coins/ethereum/market_chart?vs_currency=usd&days=1&x_cg_demo_api_key=${COINGECKO_API_KEY}`
-      : `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}/market_chart?vs_currency=usd&days=1&x_cg_demo_api_key=${COINGECKO_API_KEY}`;
-    
-    console.log('[CoinGeckoAPI] Making history request to:', url);
-
-    const data = await makeCoinGeckoRequest(url);
-    console.log('[CoinGeckoAPI] Raw history response:', data);
-    
-    if (!data?.prices?.length) {
-      console.error('[CoinGeckoAPI] No price history data found:', data);
+    // Only fetch price history for Ethereum mainnet tokens
+    if (chainId !== 1) {
+      console.log(`[CoinGeckoAPI] Skipping price history fetch for token ${address} on chain ${chainId}`);
       return {
         prices: [],
         market_caps: [],
         total_volumes: []
       };
     }
+
+    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
     
-    console.log('[CoinGeckoAPI] Found price history points:', data.prices.length);
+    // For native ETH, use the ethereum endpoint
+    if (isNativeEth) {
+      const url = `${COINGECKO_BASE_URL}/coins/ethereum/market_chart?vs_currency=usd&days=1`;
+      const data = await makeCoinGeckoRequest(url);
+      
+      if (!data?.prices?.length) {
+        console.error('[CoinGeckoAPI] No ETH price history data found:', data);
+        return {
+          prices: [],
+          market_caps: [],
+          total_volumes: []
+        };
+      }
+      return data as PriceHistoryResponse;
+    }
+
+    // For all other tokens, use the contract endpoint
+    const url = `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}/market_chart?vs_currency=usd&days=1`;
+    const data = await makeCoinGeckoRequest(url);
+    
+    if (!data?.prices?.length) {
+      console.error('[CoinGeckoAPI] No token price history data found:', data);
+      return {
+        prices: [],
+        market_caps: [],
+        total_volumes: []
+      };
+    }
     return data as PriceHistoryResponse;
   } catch (error) {
     console.error('[CoinGeckoAPI] Error in history request:', error);

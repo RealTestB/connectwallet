@@ -5,6 +5,8 @@ import { ethers } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import config from './config';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import { supabaseAdmin } from '../lib/supabase';
+import { makeHttpRequest } from '../utils/httpClient';
 
 // Map Alchemy networks to our network keys
 const ALCHEMY_NETWORKS = {
@@ -281,18 +283,13 @@ const fetchWithRetry = async (url: string, retries = 3): Promise<Response> => {
   try {
     // Add API key as query parameter
     const urlWithKey = `${url}${url.includes('?') ? '&' : '?'}x_cg_demo_api_key=${COINGECKO_API_KEY}`;
-    const response = await fetch(urlWithKey);
     
-    // Handle rate limiting
-    if (response.status === 429) {
-      if (retries > 0) {
-        const retryAfter = parseInt(response.headers.get('retry-after') || '60');
-        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-        return fetchWithRetry(url, retries - 1);
+    return makeHttpRequest(urlWithKey, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
       }
-    }
-    
-    return response;
+    });
   } catch (error) {
     if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -323,10 +320,22 @@ export const makeAlchemyRequest = (method: string, params: any[]): Promise<any> 
 
     console.log('[TokensApi] Making Alchemy request:', { method, params });
 
+    xhr.addEventListener('loadstart', () => {
+      console.log('📡 [Alchemy] Request started');
+    });
+
+    xhr.addEventListener('progress', (event) => {
+      if (event.lengthComputable) {
+        console.log(`📡 [Alchemy] Progress: ${Math.round((event.loaded / event.total) * 100)}%`);
+      }
+    });
+
     xhr.addEventListener('readystatechange', () => {
+      console.log(`📡 [Alchemy] Ready state: ${xhr.readyState}`);
+      
       if (xhr.readyState !== 4) return;
       
-      console.log('[TokensApi] Response received:', {
+      console.log('[Alchemy] Response received:', {
         status: xhr.status,
         statusText: xhr.statusText,
         hasResponse: !!xhr.responseText,
@@ -336,24 +345,24 @@ export const makeAlchemyRequest = (method: string, params: any[]): Promise<any> 
       if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
         try {
           const response = JSON.parse(xhr.responseText);
-          console.log('[TokensApi] Parsed response:', {
+          console.log('[Alchemy] Parsed response:', {
             response,
             result: response.result,
             resultType: typeof response.result
           });
           if (response.error) {
-            console.error('[TokensApi] JSON-RPC error:', response.error);
+            console.error('[Alchemy] JSON-RPC error:', response.error);
             reject(new Error(response.error.message));
             return;
           }
           resolve(response.result);
         } catch (error) {
-          console.error('[TokensApi] Failed to parse response:', error);
+          console.error('[Alchemy] Failed to parse response:', error);
           reject(new Error('Failed to parse response'));
         }
       } else {
         const errorMsg = `Request failed with status ${xhr.status}`;
-        console.error('[TokensApi]', errorMsg, {
+        console.error('[Alchemy]', errorMsg, {
           status: xhr.status,
           statusText: xhr.statusText,
           responseText: xhr.responseText
@@ -362,14 +371,19 @@ export const makeAlchemyRequest = (method: string, params: any[]): Promise<any> 
       }
     });
 
-    xhr.addEventListener('error', () => {
-      console.error('[TokensApi] Network request failed');
+    xhr.addEventListener('error', (event) => {
+      console.error('❌ [Alchemy] Network error:', event);
       reject(new Error('Network request failed'));
     });
 
     xhr.addEventListener('timeout', () => {
-      console.error('[TokensApi] Request timed out');
+      console.error('⏰ [Alchemy] Request timed out');
       reject(new Error('Request timed out'));
+    });
+
+    xhr.addEventListener('abort', () => {
+      console.error('🚫 [Alchemy] Request aborted');
+      reject(new Error('Request was aborted'));
     });
 
     try {
@@ -377,7 +391,7 @@ export const makeAlchemyRequest = (method: string, params: any[]): Promise<any> 
       xhr.setRequestHeader('Content-Type', 'application/json');
       xhr.send(body);
     } catch (error) {
-      console.error('[TokensApi] Failed to send request:', error);
+      console.error('[Alchemy] Failed to send request:', error);
       reject(new Error('Failed to send request'));
     }
   });
@@ -860,6 +874,104 @@ export const setupTransactionMonitoring = async (
     console.log('[TokensApi] Transaction monitoring set up for:', walletAddress);
   } catch (error) {
     console.error('[TokensApi] Error setting up transaction monitoring:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get token balances for a wallet
+ */
+export const getWalletTokenBalances = async (walletId: string) => {
+  try {
+    if (!walletId) {
+      throw new Error("No wallet ID provided");
+    }
+    console.log("[TokensApi] Fetching token balances for wallet ID:", walletId);
+
+    // Get token balances for the wallet
+    const { data: existingTokens, error: tokenError } = await supabaseAdmin
+      .from("token_balances")
+      .select("*")
+      .eq("wallet_id", walletId)
+      .order("timestamp", { ascending: false });
+
+    if (tokenError) {
+      console.error("[TokensApi] Failed to fetch token balances:", tokenError);
+      throw tokenError;
+    }
+
+    // If no tokens exist, create default ones
+    if (!existingTokens || existingTokens.length === 0) {
+      console.log("[TokensApi] No tokens found, creating defaults...");
+      
+      // Get wallet address first
+      const { data: wallet } = await supabaseAdmin
+        .from("wallets")
+        .select("public_address")
+        .eq("id", walletId)
+        .single();
+
+      if (!wallet) {
+        throw new Error("Wallet not found");
+      }
+      
+      const defaultTokens = [
+        {
+          wallet_id: walletId,
+          public_address: wallet.public_address,
+          token_address: "0x0000000000000000000000000000000000000000",
+          chain_id: 1,
+          symbol: "ETH",
+          name: "Ethereum",
+          decimals: 18,
+          balance: "0",
+          usd_value: "0",
+          timestamp: new Date().toISOString()
+        },
+        {
+          wallet_id: walletId,
+          public_address: wallet.public_address,
+          token_address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          chain_id: 1,
+          symbol: "WETH",
+          name: "Wrapped Ethereum",
+          decimals: 18,
+          balance: "0",
+          usd_value: "0",
+          timestamp: new Date().toISOString()
+        },
+        {
+          wallet_id: walletId,
+          public_address: wallet.public_address,
+          token_address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+          chain_id: 1,
+          symbol: "WBTC",
+          name: "Wrapped Bitcoin",
+          decimals: 8,
+          balance: "0",
+          usd_value: "0",
+          timestamp: new Date().toISOString()
+        }
+      ];
+
+      const { data: newTokens, error: insertTokenError } = await supabaseAdmin
+        .from("token_balances")
+        .insert(defaultTokens)
+        .select();
+
+      if (insertTokenError) {
+        console.error("[TokensApi] Failed to create default tokens:", insertTokenError);
+        throw insertTokenError;
+      }
+
+      console.log("[TokensApi] Created default tokens:", newTokens?.length || 0);
+      return newTokens || [];
+    }
+
+    console.log("[TokensApi] Found token balances:", existingTokens.length);
+    return existingTokens;
+  } catch (error) {
+    console.error("[TokensApi] Failed to fetch token balances:", error);
     throw error;
   }
 }; 

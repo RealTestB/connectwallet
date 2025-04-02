@@ -96,65 +96,62 @@ export default function ChangePasswordScreen() {
         return;
       }
 
-      // Get user ID from secure storage
-      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-      if (!tempUserId) {
-        throw new Error("User ID not found in secure storage");
+      // Get user ID from SecureStore
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (!userId) {
+        throw new Error('No user ID found');
       }
 
       // Hash new password
       const newHashedPasswordStr = await hashPassword(newPassword);
       const newHashedPasswordObj = JSON.parse(newHashedPasswordStr);
 
-      // Update password in Supabase using XMLHttpRequest
-      const updatePassword = () => {
-        return new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.timeout = 30000; // 30 second timeout
+      // Update password in database
+      const url = `${config.supabase.url}/rest/v1/auth_users?id=eq.${userId}`;
+      
+      const response = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.timeout = 30000; // 30 second timeout
 
-          xhr.addEventListener('readystatechange', () => {
-            if (xhr.readyState !== 4) return;
+        xhr.addEventListener('readystatechange', () => {
+          if (xhr.readyState !== 4) return;
 
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(true);
+          // Handle network errors
+          if (xhr.status === 0) {
+            reject(new Error('Network error occurred'));
+            return;
+          }
+
+          try {
+            const response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+
+            // Handle successful response
+            if (xhr.status >= 200 && xhr.status < 300 && response) {
+              resolve(response);
             } else {
-              let errorMessage = `Failed to update password (${xhr.status})`;
-              try {
-                if (xhr.responseText) {
-                  const errorData = JSON.parse(xhr.responseText);
-                  errorMessage = errorData.message || errorData.error || errorMessage;
-                }
-              } catch (e) {
-                // Ignore JSON parse error
-              }
-              reject(new Error(errorMessage));
+              reject(new Error(response?.error || `HTTP error! status: ${xhr.status}`));
             }
-          });
-
-          xhr.addEventListener('error', () => {
-            reject(new Error('Network request failed'));
-          });
-
-          xhr.addEventListener('timeout', () => {
-            reject(new Error('Request timed out'));
-          });
-
-          const url = `${config.supabase.url}/rest/v1/auth_users?temp_user_id=eq.${tempUserId}`;
-          xhr.open('PATCH', url);
-          xhr.setRequestHeader('Content-Type', 'application/json');
-          xhr.setRequestHeader('apikey', config.supabase.serviceRoleKey);
-          xhr.setRequestHeader('Prefer', 'return=minimal');
-
-          const body = JSON.stringify({
-            password_hash: newHashedPasswordObj
-          });
-
-          xhr.send(body);
+          } catch (error) {
+            reject(new Error('Failed to parse response'));
+          }
         });
-      };
 
-      // Update password in Supabase
-      await updatePassword();
+        xhr.addEventListener('error', () => {
+          reject(new Error('Request failed'));
+        });
+
+        xhr.addEventListener('timeout', () => {
+          reject(new Error('Request timed out'));
+        });
+
+        xhr.open('PATCH', url);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('apikey', config.supabase.serviceRoleKey);
+        xhr.setRequestHeader('Prefer', 'return=representation');
+        xhr.send(JSON.stringify({
+          password_hash: newHashedPasswordObj
+        }));
+      });
 
       // Update password in SecureStore
       await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, newHashedPasswordStr);

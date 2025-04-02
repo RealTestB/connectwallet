@@ -13,6 +13,7 @@ import * as SecureStore from 'expo-secure-store';
 import config from '../api/config';
 import { COLORS } from '../styles/shared';
 import { TransactionProvider } from '../contexts/TransactionContext';
+import { clearSupabaseStorage } from '../lib/supabase';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -29,6 +30,9 @@ export default function RootLayout() {
     const initializeApp = async () => {
       try {
         console.log('[Layout] Starting app initialization...');
+        
+        // Clear Supabase storage first
+        await clearSupabaseStorage();
         
         // Initialize providers and services
         await Promise.all([

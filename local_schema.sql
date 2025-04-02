@@ -157,49 +157,17 @@ $$;
 ALTER FUNCTION "public"."get_user_by_email"("user_email" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_user_by_temp_id"("temp_id" "text") RETURNS "jsonb"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    AS $$
-DECLARE
-  result JSONB;
-BEGIN
-  SELECT jsonb_build_object(
-    'id', id,
-    'temp_user_id', temp_user_id,
-    'email', email
-  )
-  INTO result
-  FROM auth_users
-  WHERE temp_user_id = temp_id
-  LIMIT 1;
-  
-  RETURN result;
-END;
-$$;
-
-
-ALTER FUNCTION "public"."get_user_by_temp_id"("temp_id" "text") OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
-DECLARE
-  v_count int;
 BEGIN
-  -- Check if profile already exists
-  SELECT COUNT(*) INTO v_count
-  FROM public.auth_users
-  WHERE id = NEW.id;
-
-  IF v_count > 0 THEN
+  IF EXISTS (SELECT 1 FROM public.auth_users WHERE id = NEW.id) THEN
     -- Profile exists, update last_active
     UPDATE public.auth_users
     SET last_active = CURRENT_TIMESTAMP
     WHERE id = NEW.id;
     
-    -- Log the update
     INSERT INTO public.security_logs (
       user_id,
       event_type,
@@ -234,7 +202,6 @@ BEGIN
       CURRENT_TIMESTAMP
     );
     
-    -- Log the creation
     INSERT INTO public.security_logs (
       user_id,
       event_type,
@@ -253,7 +220,6 @@ BEGIN
 
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  -- Log any errors
   INSERT INTO public.security_logs (
     user_id,
     event_type,
@@ -289,76 +255,6 @@ $$;
 
 
 ALTER FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."update_wallet_user_id"() RETURNS "trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    AS $$
-DECLARE
-    auth_user_id uuid;
-BEGIN
-    -- Find the matching auth_user based on temp_user_id
-    SELECT id INTO auth_user_id
-    FROM auth_users
-    WHERE temp_user_id = NEW.temp_user_id
-    LIMIT 1;
-
-    IF auth_user_id IS NOT NULL THEN
-        -- Update the wallet's user_id
-        UPDATE wallets
-        SET 
-            user_id = auth_user_id,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = NEW.id;
-
-        -- Update auth_user wallet status
-        UPDATE auth_users
-        SET 
-            wallet_created = true,
-            setup_step = 'SETUP_COMPLETED'
-        WHERE id = auth_user_id;
-        
-        -- Log the successful linking
-        INSERT INTO security_logs (
-            user_id,
-            event_type,
-            error_code,
-            metadata
-        ) VALUES (
-            auth_user_id,
-            'WALLET_USER_LINKED',
-            'SUCCESS',
-            jsonb_build_object(
-                'wallet_id', NEW.id,
-                'temp_user_id', NEW.temp_user_id,
-                'public_address', NEW.public_address
-            )
-        );
-    ELSE
-        -- Log the failed linking attempt
-        INSERT INTO security_logs (
-            user_id,
-            event_type,
-            error_code,
-            metadata
-        ) VALUES (
-            NEW.user_id,
-            'WALLET_USER_LINK_FAILED',
-            'NO_USER_FOUND',
-            jsonb_build_object(
-                'wallet_id', NEW.id,
-                'temp_user_id', NEW.temp_user_id,
-                'public_address', NEW.public_address
-            )
-        );
-    END IF;
-    
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION "public"."update_wallet_user_id"() OWNER TO "postgres";
 
 SET default_tablespace = '';
 
@@ -408,9 +304,7 @@ CREATE TABLE IF NOT EXISTS "public"."auth_users" (
     "wallet_created" boolean DEFAULT false,
     "wallet_encrypted" boolean DEFAULT false,
     "encrypted_seed_phrase" "text",
-    "password_hash" "jsonb",
-    "temp_user_id" "text",
-    CONSTRAINT "chk_temp_user_id_format" CHECK (("temp_user_id" ~~ 'temp_%'::"text"))
+    "password_hash" "jsonb"
 );
 
 
@@ -449,7 +343,8 @@ CREATE TABLE IF NOT EXISTS "public"."networks" (
     "rpc_url" "text" NOT NULL,
     "symbol" "text" NOT NULL,
     "explorer_url" "text",
-    "is_active" boolean DEFAULT true
+    "is_active" boolean DEFAULT true,
+    "gas_token_symbol" character varying(10) DEFAULT 'ETH'::character varying
 );
 
 
@@ -589,8 +484,8 @@ CREATE TABLE IF NOT EXISTS "public"."wallets" (
     "auth_tag" "text",
     "chain_name" character varying(50),
     "decimals" integer DEFAULT 18,
-    "temp_user_id" "text",
-    "imported" boolean DEFAULT false NOT NULL
+    "imported" boolean DEFAULT false NOT NULL,
+    "account_index" integer DEFAULT 0
 );
 
 
@@ -672,11 +567,6 @@ ALTER TABLE ONLY "public"."token_balances"
 
 
 
-ALTER TABLE ONLY "public"."auth_users"
-    ADD CONSTRAINT "unq_temp_user_id" UNIQUE ("temp_user_id");
-
-
-
 ALTER TABLE ONLY "public"."user_preferences"
     ADD CONSTRAINT "user_preferences_pkey" PRIMARY KEY ("user_id");
 
@@ -727,10 +617,6 @@ CREATE INDEX "idx_temp_seed_phrases_expires_at" ON "public"."temp_seed_phrases" 
 
 
 
-CREATE INDEX "idx_temp_user_id" ON "public"."auth_users" USING "btree" ("temp_user_id");
-
-
-
 CREATE INDEX "idx_token_balances_chain_id" ON "public"."token_balances" USING "btree" ("chain_id");
 
 
@@ -768,14 +654,6 @@ CREATE INDEX "idx_user_setup_status" ON "public"."auth_users" USING "btree" ("id
 
 
 CREATE INDEX "idx_wallet_user" ON "public"."wallets" USING "btree" ("user_id");
-
-
-
-CREATE INDEX "wallets_temp_user_id_idx" ON "public"."wallets" USING "btree" ("temp_user_id");
-
-
-
-CREATE OR REPLACE TRIGGER "tr_update_wallet_user_id" AFTER INSERT ON "public"."wallets" FOR EACH ROW WHEN (("new"."temp_user_id" IS NOT NULL)) EXECUTE FUNCTION "public"."update_wallet_user_id"();
 
 
 
@@ -913,11 +791,7 @@ CREATE POLICY "Users can update their own token balances" ON "public"."token_bal
 
 
 
-CREATE POLICY "Users can update their own wallets" ON "public"."wallets" FOR UPDATE USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
-   FROM "public"."auth_users"
-  WHERE ("auth_users"."temp_user_id" = "wallets"."temp_user_id"))))) WITH CHECK ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
-   FROM "public"."auth_users"
-  WHERE ("auth_users"."temp_user_id" = "wallets"."temp_user_id")))));
+CREATE POLICY "Users can update their own wallets" ON "public"."wallets" FOR UPDATE USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
@@ -959,9 +833,7 @@ CREATE POLICY "Users can view their own transactions" ON "public"."transactions"
 
 
 
-CREATE POLICY "Users can view their own wallets" ON "public"."wallets" FOR SELECT USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
-   FROM "public"."auth_users"
-  WHERE ("auth_users"."temp_user_id" = "wallets"."temp_user_id")))));
+CREATE POLICY "Users can view their own wallets" ON "public"."wallets" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -969,15 +841,11 @@ CREATE POLICY "anon_insert_wallets" ON "public"."wallets" FOR INSERT TO "anon" W
 
 
 
-CREATE POLICY "anon_select_wallets" ON "public"."wallets" FOR SELECT TO "anon" USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
-   FROM "public"."auth_users"
-  WHERE ("auth_users"."temp_user_id" = "wallets"."temp_user_id")))));
+CREATE POLICY "anon_select_wallets" ON "public"."wallets" FOR SELECT TO "anon" USING (("auth"."uid"() = "user_id"));
 
 
 
-CREATE POLICY "anon_update_wallets" ON "public"."wallets" FOR UPDATE TO "anon" USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
-   FROM "public"."auth_users"
-  WHERE ("auth_users"."temp_user_id" = "wallets"."temp_user_id"))))) WITH CHECK (true);
+CREATE POLICY "anon_update_wallets" ON "public"."wallets" FOR UPDATE TO "anon" USING (("auth"."uid"() = "user_id")) WITH CHECK (true);
 
 
 
@@ -1205,12 +1073,6 @@ GRANT ALL ON FUNCTION "public"."get_user_by_email"("user_email" "text") TO "serv
 
 
 
-GRANT ALL ON FUNCTION "public"."get_user_by_temp_id"("temp_id" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."get_user_by_temp_id"("temp_id" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."get_user_by_temp_id"("temp_id" "text") TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "anon";
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
@@ -1220,12 +1082,6 @@ GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "anon";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."update_wallet_user_id"() TO "anon";
-GRANT ALL ON FUNCTION "public"."update_wallet_user_id"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."update_wallet_user_id"() TO "service_role";
 
 
 

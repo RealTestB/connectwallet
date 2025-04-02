@@ -31,10 +31,59 @@ export interface UserProfile {
   };
 }
 
+export interface TokenBalance {
+  id?: string;
+  wallet_id: string;
+  token_address: string;
+  chain_id: number;
+  symbol: string;
+  name: string;
+  decimals: number;
+  balance: string;
+  timestamp: string;
+  metadata?: {
+    logo_url?: string;
+    verified?: boolean;
+  };
+}
+
+export interface NetworkConfig {
+  id?: string;
+  name: string;
+  chain_id: number;
+  rpc_url: string;
+  explorer_url: string;
+  symbol: string;
+  decimals: number;
+  is_testnet: boolean;
+  icon_url?: string;
+  created_at?: string;
+  updated_at?: string;
+  is_enabled: boolean;
+  gas_token_symbol: string;
+}
+
+export interface UserSettings {
+  id?: string;
+  user_id: string;
+  theme: 'light' | 'dark';
+  language: string;
+  selected_currency: string;
+  notifications: {
+    email: boolean;
+    push: boolean;
+    transactions: boolean;
+    security: boolean;
+  };
+  default_network?: string;
+  auto_lock_timeout?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface WalletData {
   id?: string;
-  user_id?: string;
-  temp_user_id: string;
+  user_id: string;
   public_address: string;
   chain_name?: string;
   created_at?: string;
@@ -43,6 +92,8 @@ export interface WalletData {
   name?: string;
   ens_name?: string;
   avatar_url?: string;
+  imported?: boolean;
+  account_index?: number;
 }
 
 export interface Contact {
@@ -374,89 +425,43 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export const createAnonymousUser = async (hashObj: { hash: string; salt: string }, skipWalletCreation: boolean = false): Promise<string> => {
   console.log("🛠️ Creating anonymous user in Supabase...");
 
-  // Create a unique identifier that we'll use to find this user later
-  const timestamp = Date.now();
-  const uniqueIdentifier = `${timestamp}_${Math.random().toString(36).substring(2)}`;
-  const tempUserId = `temp_${uniqueIdentifier}`;
-  const uniqueEmail = `anonymous_${uniqueIdentifier}@temp.wallet`;
+  // Create a unique identifier for the email that's more email-like
+  const uniqueIdentifier = Math.random().toString(36).substring(2, 10);
+  const uniqueEmail = `anon_${uniqueIdentifier}@connectwallet.app`;
   
   try {
-    console.log(`📡 Checking for existing user...`);
-    
-    // Check if user already exists with this email (in case of partial success)
-    const { data: existingUser, error: checkError } = await supabaseAdmin
-      .from("auth_users")
-      .select("id, temp_user_id")
-      .eq("email", uniqueEmail)
-      .single();
-
-    if (existingUser?.temp_user_id) {
-      console.log("✅ User already exists with this email, returning existing temp_user_id");
-      return existingUser.temp_user_id;
-    }
-
-    if (checkError && !checkError.message.includes('No rows found')) {
-      throw checkError;
-    }
-    
     console.log(`📡 Creating new user...`);
     
-    // Create the user
-    const { error: createError } = await supabaseAdmin
-      .from("auth_users")
+    // Create user directly in auth_users table using admin client
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('auth_users')
       .insert([{
         email: uniqueEmail,
-        temp_user_id: tempUserId,
-        setup_completed: false,
         password_hash: hashObj,
-        setup_step: "password_created",
-      }]);
+        setup_completed: false,
+        setup_step: "password_created"
+      }])
+      .select('id');
 
-    if (createError) {
-      // If error is duplicate key, user was created but we couldn't get the response
-      if (createError.code === '23505') {
-        console.log("⚠️ User already exists (duplicate key), proceeding...");
-      } else {
-        throw createError;
-      }
+    if (userError) {
+      throw userError;
     }
 
-    console.log("✅ User created/found successfully");
-
-    // Skip wallet creation for import flow
-    if (!skipWalletCreation) {
-      console.log("📡 Creating initial wallet...");
-      try {
-        const walletId = await createWallet({
-          temp_user_id: tempUserId,
-          public_address: '', // Will be set later
-          chain_name: 'ethereum'
-        });
-        
-        if (!walletId) {
-          throw new Error('No wallet ID returned from creation');
-        }
-        
-        console.log("✅ Wallet created successfully:", walletId);
-      } catch (walletError) {
-        console.error("❌ Failed to create initial wallet:", walletError);
-        // Check if wallet already exists
-        const { data: existingWallet } = await supabaseAdmin
-          .from("wallets")
-          .select("id")
-          .eq("temp_user_id", tempUserId)
-          .single();
-          
-        if (!existingWallet) {
-          throw walletError;
-        }
-        console.log("✅ Found existing wallet:", existingWallet.id);
-      }
-    } else {
-      console.log("📝 Skipping wallet creation for import flow");
+    // Handle array response
+    const userDataArray = Array.isArray(userData) ? userData : [userData];
+    if (!userDataArray?.[0]?.id) {
+      console.error("❌ User creation response:", userData);
+      throw new Error('Failed to get user ID after creation');
     }
 
-    return tempUserId;
+    const userId = userDataArray[0].id;
+    console.log("✅ User created successfully with ID:", userId);
+
+    // We no longer create an initial wallet with empty address
+    // The wallet will be created later with the actual address
+    console.log("📝 Wallet will be created when address is available");
+
+    return userId;
   } catch (error: any) {
     console.error("❌ Failed to create user:", {
       error: error?.message || error,
@@ -474,55 +479,39 @@ export const createAnonymousUser = async (hashObj: { hash: string; salt: string 
 export const createAnonymousUserForImport = async (hashObj: { hash: string; salt: string }): Promise<string> => {
   console.log("🛠️ Creating anonymous user for import in Supabase...");
 
-  // Create a unique identifier that we'll use to find this user later
-  const timestamp = Date.now();
-  const uniqueIdentifier = `${timestamp}_${Math.random().toString(36).substring(2)}`;
-  const tempUserId = `temp_${uniqueIdentifier}`;
-  const uniqueEmail = `anonymous_${uniqueIdentifier}@temp.wallet`;
+  // Create a unique identifier for the email
+  const uniqueIdentifier = Math.random().toString(36).substring(2, 10);
+  const uniqueEmail = `import_${uniqueIdentifier}@connectwallet.app`;
   
   try {
-    console.log(`📡 Checking for existing user...`);
-    
-    // Check if user already exists with this email (in case of partial success)
-    const { data: existingUser, error: checkError } = await supabaseAdmin
-      .from("auth_users")
-      .select("id, temp_user_id")
-      .eq("email", uniqueEmail)
-      .single();
-
-    if (existingUser?.temp_user_id) {
-      console.log("✅ User already exists with this email, returning existing temp_user_id");
-      return existingUser.temp_user_id;
-    }
-
-    if (checkError && !checkError.message.includes('No rows found')) {
-      throw checkError;
-    }
-    
     console.log(`📡 Creating new user for import...`);
     
-    // Create the user
-    const { error: createError } = await supabaseAdmin
-      .from("auth_users")
+    // Create user directly in auth_users table using admin client
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('auth_users')
       .insert([{
         email: uniqueEmail,
-        temp_user_id: tempUserId,
-        setup_completed: false,
         password_hash: hashObj,
-        setup_step: "password_created",
-      }]);
+        setup_completed: false,
+        setup_step: "password_created"
+      }])
+      .select('id');
 
-    if (createError) {
-      // If error is duplicate key, user was created but we couldn't get the response
-      if (createError.code === '23505') {
-        console.log("⚠️ User already exists (duplicate key), proceeding...");
-      } else {
-        throw createError;
-      }
+    if (userError) {
+      throw userError;
     }
 
-    console.log("✅ User created successfully for import flow");
-    return tempUserId;
+    // Handle array response
+    const userDataArray = Array.isArray(userData) ? userData : [userData];
+    if (!userDataArray?.[0]?.id) {
+      console.error("❌ User creation response:", userData);
+      throw new Error('Failed to get user ID after creation');
+    }
+
+    const userId = userDataArray[0].id;
+    console.log("✅ User created successfully for import with ID:", userId);
+
+    return userId;
   } catch (error: any) {
     console.error("❌ Failed to create user for import:", {
       error: error?.message || error,
@@ -609,7 +598,7 @@ export const resolveTempUserId = async (tempUserId: string): Promise<string | nu
 /**
  * Create default token balances for a wallet
  */
-const createDefaultTokenBalances = async (walletId: string) => {
+const createDefaultTokenBalances = async (walletId: string, publicAddress: string) => {
   try {
     console.log("Creating default token balances for wallet:", walletId);
 
@@ -619,12 +608,26 @@ const createDefaultTokenBalances = async (walletId: string) => {
       .insert([
         {
           wallet_id: walletId,
+          public_address: publicAddress,
           token_address: "0x0000000000000000000000000000000000000000", // ETH
           chain_id: 1,
           symbol: "ETH",
           name: "Ethereum",
           decimals: 18,
           balance: "0",
+          usd_value: "0",
+          timestamp: new Date().toISOString()
+        },
+        {
+          wallet_id: walletId,
+          public_address: publicAddress,
+          token_address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
+          chain_id: 1,
+          symbol: "WETH",
+          name: "Wrapped Ether",
+          decimals: 18,
+          balance: "0",
+          usd_value: "0",
           timestamp: new Date().toISOString()
         }
       ]);
@@ -641,56 +644,204 @@ const createDefaultTokenBalances = async (walletId: string) => {
   }
 };
 
-/**
- * Create a wallet using proper Supabase query builder
- */
-export const createWallet = async (params: {
+interface CreateWalletParams {
+  user_id: string;
   public_address: string;
-  temp_user_id: string;
   chain_name: string;
   imported?: boolean;
-}) => {
+}
+
+/**
+ * Create a new wallet in the database
+ */
+export const createWallet = async (params: CreateWalletParams): Promise<string> => {
   try {
-    console.log("Creating wallet:", params);
-
-    // For imported wallets or if this is the first wallet, set is_primary to true
-    const { data: existingWallets, error: checkError } = await supabaseAdmin
-      .from("wallets")
-      .select("id")
-      .eq("temp_user_id", params.temp_user_id);
-
-    if (checkError) {
-      console.error("❌ Failed to check existing wallets:", checkError);
-      throw checkError;
+    console.log("📡 Creating wallet in database...");
+    
+    // Validate required fields
+    if (!params.public_address || params.public_address.trim().length === 0) {
+      throw new Error("Public address is required to create a wallet");
     }
 
-    const isPrimary = params.imported || existingWallets.length === 0;
+    if (!params.user_id) {
+      throw new Error("User ID is required to create a wallet");
+    }
 
-    const { data: walletData, error } = await supabaseAdmin
+    // Create the wallet with the provided user_id
+    const { data, error } = await supabaseAdmin
       .from("wallets")
-      .insert({
-        public_address: params.public_address,
-        temp_user_id: params.temp_user_id,
+      .insert([{
+        user_id: params.user_id,
+        public_address: params.public_address.toLowerCase(),
         chain_name: params.chain_name,
         imported: params.imported || false,
-        is_primary: isPrimary
-      })
-      .select()
-      .single();
+        is_primary: true, // First wallet is primary
+        name: params.imported ? 'Imported Wallet' : 'My Wallet'
+      }])
+      .select('id, user_id, public_address, chain_name, imported, is_primary, name');
 
     if (error) {
-      console.error("❌ Failed to create wallet:", error);
+      console.error('❌ Error creating wallet:', error);
       throw error;
     }
 
-    console.log("✅ Wallet created successfully:", walletData);
+    // Handle both array and single object responses
+    const walletData = Array.isArray(data) ? data[0] : data;
+    if (!walletData?.id) {
+      console.error("❌ Wallet creation response:", data);
+      throw new Error('No wallet ID returned from creation');
+    }
 
-    // Create default token balances
-    await createDefaultTokenBalances(walletData.id);
-
+    console.log("✅ Wallet created successfully with ID:", walletData.id);
     return walletData.id;
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Failed to create wallet:", error);
+    throw new Error(`Failed to create wallet: ${error?.message || 'Unknown error'}`);
+  }
+};
+
+/**
+ * Get token balances for a wallet
+ */
+export const getWalletTokenBalances = async (publicAddress: string) => {
+  try {
+    if (!publicAddress) {
+      throw new Error("No wallet address provided");
+    }
+    console.log("Fetching token balances for wallet:", publicAddress);
+
+    // Get the wallet first to get the wallet ID
+    const { data: wallet, error: walletError } = await supabaseAdmin
+      .from("wallets")
+      .select("id")
+      .eq("public_address", publicAddress)
+      .single();
+
+    if (walletError) {
+      console.error("❌ Failed to fetch wallet:", walletError);
+      throw walletError;
+    }
+
+    if (!wallet) {
+      throw new Error("Wallet not found");
+    }
+
+    // Get token balances
+    const { data, error } = await supabaseAdmin
+      .from("token_balances")
+      .select("*")
+      .eq("wallet_id", wallet.id)
+      .order("timestamp", { ascending: false });
+
+    if (error) {
+      console.error("❌ Failed to fetch token balances:", error);
+      throw error;
+    }
+
+    // If no token balances found, create default ones
+    if (!data || data.length === 0) {
+      console.log("No token balances found, creating defaults...");
+      await createDefaultTokenBalances(wallet.id, publicAddress);
+      
+      // Fetch the newly created token balances
+      const { data: newData, error: newError } = await supabaseAdmin
+        .from("token_balances")
+        .select("*")
+        .eq("wallet_id", wallet.id)
+        .order("timestamp", { ascending: false });
+
+      if (newError) {
+        console.error("❌ Failed to fetch new token balances:", newError);
+        throw newError;
+      }
+
+      console.log("✅ Created and fetched default token balances:", newData?.length || 0);
+      return newData || [];
+    }
+
+    console.log("✅ Found token balances:", data.length);
+    return data;
+  } catch (error) {
+    console.error("❌ Failed to fetch token balances:", error);
     throw error;
+  }
+};
+
+/**
+ * Verify wallet ownership and clean up orphaned wallets
+ */
+export const verifyWalletOwnership = async (userId: string, walletId: string): Promise<boolean> => {
+  try {
+    console.log(`🔍 Verifying wallet ownership for user ${userId} and wallet ${walletId}`);
+    
+    // Check if wallet exists and belongs to user
+    const { data: wallet, error } = await supabaseAdmin
+      .from('wallets')
+      .select('id, user_id')
+      .eq('id', walletId)
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      console.error('❌ Error verifying wallet ownership:', error);
+      return false;
+    }
+
+    if (!wallet) {
+      console.log('⚠️ Wallet not found or does not belong to user');
+      return false;
+    }
+
+    console.log('✅ Wallet ownership verified');
+    return true;
+  } catch (error) {
+    console.error('❌ Exception in verifyWalletOwnership:', error);
+    return false;
+  }
+};
+
+/**
+ * Clean up orphaned wallets (wallets without a valid user)
+ */
+export const cleanupOrphanedWallets = async (): Promise<void> => {
+  try {
+    console.log('🧹 Starting orphaned wallet cleanup...');
+    
+    // Find wallets where user_id doesn't exist in auth_users
+    const { data: orphanedWallets, error: findError } = await supabaseAdmin
+      .from('wallets')
+      .select('id, user_id')
+      .not('user_id', 'in', (
+        supabaseAdmin
+          .from('auth_users')
+          .select('id')
+      ));
+
+    if (findError) {
+      console.error('❌ Error finding orphaned wallets:', findError);
+      return;
+    }
+
+    if (!orphanedWallets || orphanedWallets.length === 0) {
+      console.log('✅ No orphaned wallets found');
+      return;
+    }
+
+    console.log(`Found ${orphanedWallets.length} orphaned wallets`);
+
+    // Delete orphaned wallets
+    const { error: deleteError } = await supabaseAdmin
+      .from('wallets')
+      .delete()
+      .in('id', orphanedWallets.map(w => w.id));
+
+    if (deleteError) {
+      console.error('❌ Error deleting orphaned wallets:', deleteError);
+      return;
+    }
+
+    console.log('✅ Successfully cleaned up orphaned wallets');
+  } catch (error) {
+    console.error('❌ Exception in cleanupOrphanedWallets:', error);
   }
 };

@@ -4,6 +4,7 @@ import { ethers } from 'ethers';
 import { STORAGE_KEYS } from '../constants/storageKeys';
 import config from '../api/config';
 import { decryptSeedPhrase } from '../api/securityApi';
+import { useAuth } from './AuthContext';
 
 interface WalletAccount {
   id: string;
@@ -18,12 +19,16 @@ interface WalletAccountsContextType {
   currentAccount: WalletAccount | null;
   isLoading: boolean;
   error: string | null;
+  loadAccounts: () => Promise<void>;
+  setCurrentAccount: (account: WalletAccount) => void;
   addAccount: (name?: string) => Promise<void>;
   importPrivateKey: (privateKey: string, name?: string) => Promise<void>;
   switchAccount: (accountId: string) => Promise<void>;
   renameAccount: (accountId: string, newName: string) => Promise<void>;
   setPrimaryAccount: (accountId: string) => Promise<void>;
   removeAccount: (accountId: string) => Promise<void>;
+  updateAccount: (id: string, updates: Partial<WalletAccount>) => void;
+  deleteAccount: (id: string) => void;
 }
 
 const WalletAccountsContext = createContext<WalletAccountsContextType | undefined>(undefined);
@@ -77,43 +82,57 @@ const makeSupabaseRequest = (url: string, method: string, body?: any): Promise<a
   });
 };
 
+export const useWalletAccounts = () => {
+  const context = useContext(WalletAccountsContext);
+  if (context === undefined) {
+    throw new Error('useWalletAccounts must be used within a WalletAccountsProvider');
+  }
+  return context;
+};
+
 export function WalletAccountsProvider({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, hasWallet } = useAuth();
   const [accounts, setAccounts] = useState<WalletAccount[]>([]);
   const [currentAccount, setCurrentAccount] = useState<WalletAccount | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Only load accounts when authenticated and has wallet
   useEffect(() => {
-    loadAccounts();
-  }, []);
+    if (isAuthenticated && hasWallet) {
+      loadAccounts();
+    }
+  }, [isAuthenticated, hasWallet]);
 
   const loadAccounts = async () => {
     try {
       setIsLoading(true);
-      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-      if (!tempUserId) {
-        throw new Error('No user ID found');
+      setError(null);
+
+      // First check if we have wallet data
+      const walletData = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletData) {
+        console.log('[WalletAccounts] No wallet data found');
+        setAccounts([]);
+        setCurrentAccount(null);
+        return;
       }
 
-      // Get user ID from auth_users table
-      const userData = await makeSupabaseRequest(
-        '/rest/v1/auth_users?select=id&temp_user_id=eq.' + tempUserId,
-        'GET'
-      );
-
-      if (!userData?.[0]?.id) {
-        throw new Error('User not found');
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (!userId) {
+        console.log('[WalletAccounts] No user ID found');
+        setAccounts([]);
+        setCurrentAccount(null);
+        return;
       }
-
-      const userId = userData[0].id;
 
       // Load all wallet accounts for this user
-      const walletData = await makeSupabaseRequest(
+      const walletAccounts = await makeSupabaseRequest(
         `/rest/v1/wallets?user_id=eq.${userId}&order=created_at.asc`,
         'GET'
       );
 
-      const loadedAccounts = walletData.map((wallet: any, index: number) => ({
+      const loadedAccounts = walletAccounts.map((wallet: any, index: number) => ({
         id: wallet.id,
         name: wallet.name || `Account ${index + 1}`,
         address: wallet.public_address,
@@ -122,12 +141,14 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
       }));
 
       setAccounts(loadedAccounts);
+      
+      // Set current account to primary or first account
       const primaryAccount = loadedAccounts.find((acc: WalletAccount) => acc.isPrimary) || loadedAccounts[0];
       if (primaryAccount) {
         setCurrentAccount(primaryAccount);
       }
     } catch (error) {
-      console.error('Error loading accounts:', error);
+      console.error('[WalletAccounts] Error loading accounts:', error);
       setError('Failed to load accounts');
     } finally {
       setIsLoading(false);
@@ -169,29 +190,25 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
   const addAccount = async (name?: string) => {
     try {
       setIsLoading(true);
-      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-      if (!tempUserId) {
-        throw new Error('No user ID found');
-      }
-
-      // Derive new account
       const { privateKey, address, accountIndex } = await deriveNewAccount();
+      
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (!userId) throw new Error('No user ID found');
 
-      // Create wallet in database
       const newWallet = await makeSupabaseRequest(
         '/rest/v1/wallets',
         'POST',
         {
-          temp_user_id: tempUserId,
+          user_id: userId,
           name: name || `Account ${accountIndex + 1}`,
           public_address: address,
-          encrypted_private_key: privateKey, // Note: In production, encrypt this
+          encrypted_private_key: privateKey,
           account_index: accountIndex,
           is_primary: accounts.length === 0
         }
       );
 
-      const newAccount: WalletAccount = {
+      const account: WalletAccount = {
         id: newWallet[0].id,
         name: newWallet[0].name,
         address: newWallet[0].public_address,
@@ -199,13 +216,14 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         isPrimary: newWallet[0].is_primary
       };
 
-      setAccounts(prev => [...prev, newAccount]);
+      setAccounts(prev => [...prev, account]);
       if (accounts.length === 0) {
-        setCurrentAccount(newAccount);
+        setCurrentAccount(account);
       }
     } catch (error) {
-      console.error('Error adding account:', error);
+      console.error('[WalletAccounts] Error adding account:', error);
       setError('Failed to add account');
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -214,30 +232,25 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
   const importPrivateKey = async (privateKey: string, name?: string) => {
     try {
       setIsLoading(true);
-      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-      if (!tempUserId) {
-        throw new Error('No user ID found');
-      }
-
-      // Create wallet from private key
       const wallet = new ethers.Wallet(privateKey);
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (!userId) throw new Error('No user ID found');
 
-      // Create wallet in database
       const newWallet = await makeSupabaseRequest(
         '/rest/v1/wallets',
         'POST',
         {
-          temp_user_id: tempUserId,
+          user_id: userId,
           name: name || `Imported Account ${accounts.length + 1}`,
           public_address: wallet.address,
-          encrypted_private_key: privateKey, // Note: In production, encrypt this
-          account_index: -1, // Use -1 to indicate imported account
+          encrypted_private_key: privateKey,
+          account_index: -1,
           is_primary: accounts.length === 0,
           imported: true
         }
       );
 
-      const newAccount: WalletAccount = {
+      const account: WalletAccount = {
         id: newWallet[0].id,
         name: newWallet[0].name,
         address: newWallet[0].public_address,
@@ -245,13 +258,14 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         isPrimary: newWallet[0].is_primary
       };
 
-      setAccounts(prev => [...prev, newAccount]);
+      setAccounts(prev => [...prev, account]);
       if (accounts.length === 0) {
-        setCurrentAccount(newAccount);
+        setCurrentAccount(account);
       }
     } catch (error) {
-      console.error('Error importing account:', error);
+      console.error('[WalletAccounts] Error importing account:', error);
       setError('Failed to import account');
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -277,21 +291,20 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         acc.id === accountId ? { ...acc, name: newName } : acc
       ));
     } catch (error) {
-      console.error('Error renaming account:', error);
+      console.error('[WalletAccounts] Error renaming account:', error);
       setError('Failed to rename account');
+      throw error;
     }
   };
 
   const setPrimaryAccount = async (accountId: string) => {
     try {
-      // Update all accounts to not primary
       await makeSupabaseRequest(
         '/rest/v1/wallets',
         'PATCH',
         { is_primary: false }
       );
 
-      // Set selected account as primary
       await makeSupabaseRequest(
         `/rest/v1/wallets?id=eq.${accountId}`,
         'PATCH',
@@ -309,8 +322,9 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_ADDRESS, newPrimary.address);
       }
     } catch (error) {
-      console.error('Error setting primary account:', error);
+      console.error('[WalletAccounts] Error setting primary account:', error);
       setError('Failed to set primary account');
+      throw error;
     }
   };
 
@@ -319,12 +333,10 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
       const account = accounts.find(acc => acc.id === accountId);
       if (!account) return;
 
-      // Don't allow removing the last account
       if (accounts.length === 1) {
         throw new Error('Cannot remove the last account');
       }
 
-      // Don't allow removing the primary account
       if (account.isPrimary) {
         throw new Error('Cannot remove the primary account');
       }
@@ -336,35 +348,60 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
 
       setAccounts(prev => prev.filter(acc => acc.id !== accountId));
     } catch (error) {
-      console.error('Error removing account:', error);
+      console.error('[WalletAccounts] Error removing account:', error);
       setError('Failed to remove account');
+      throw error;
     }
   };
 
+  const updateAccount = async (id: string, updates: Partial<WalletAccount>) => {
+    try {
+      setAccounts(prev => prev.map(acc => 
+        acc.id === id ? { ...acc, ...updates } : acc
+      ));
+      
+      if (currentAccount?.id === id) {
+        setCurrentAccount(prev => prev ? { ...prev, ...updates } : prev);
+      }
+    } catch (error) {
+      console.error('[WalletAccounts] Error updating account:', error);
+      setError('Failed to update account');
+    }
+  };
+
+  const deleteAccount = async (id: string) => {
+    try {
+      setAccounts(prev => prev.filter(acc => acc.id !== id));
+      if (currentAccount?.id === id) {
+        const remainingAccounts = accounts.filter(acc => acc.id !== id);
+        setCurrentAccount(remainingAccounts[0] || null);
+      }
+    } catch (error) {
+      console.error('[WalletAccounts] Error deleting account:', error);
+      setError('Failed to delete account');
+    }
+  };
+
+  const value = {
+    accounts,
+    currentAccount,
+    isLoading,
+    error,
+    loadAccounts,
+    setCurrentAccount,
+    addAccount,
+    importPrivateKey,
+    switchAccount,
+    renameAccount,
+    setPrimaryAccount,
+    removeAccount,
+    updateAccount,
+    deleteAccount
+  };
+
   return (
-    <WalletAccountsContext.Provider
-      value={{
-        accounts,
-        currentAccount,
-        isLoading,
-        error,
-        addAccount,
-        importPrivateKey,
-        switchAccount,
-        renameAccount,
-        setPrimaryAccount,
-        removeAccount,
-      }}
-    >
+    <WalletAccountsContext.Provider value={value}>
       {children}
     </WalletAccountsContext.Provider>
   );
-}
-
-export function useWalletAccounts() {
-  const context = useContext(WalletAccountsContext);
-  if (context === undefined) {
-    throw new Error('useWalletAccounts must be used within a WalletAccountsProvider');
-  }
-  return context;
 } 

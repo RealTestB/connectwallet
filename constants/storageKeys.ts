@@ -3,6 +3,7 @@ export const STORAGE_KEYS = {
   SETUP_STATE: 'wallet_setup_state',
   TEMP_SEED_PHRASE: 'temp_seed_phrase',
   TEMP_USER_ID: 'temp_user_id',
+  USER_ID: 'user_id',
 
   // Wallet Data
   WALLET_DATA: 'wallet_data',

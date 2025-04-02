@@ -85,24 +85,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const loadSettings = async () => {
     try {
       // Get user ID from SecureStore
-      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-      if (!tempUserId) {
-        console.error('No user ID found in SecureStore');
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (!userId) {
+        console.log('[Settings] No user ID found - normal for initial onboarding');
         return;
       }
-
-      // Get user ID from auth_users table
-      const userData = await makeSupabaseRequest(
-        '/rest/v1/auth_users?select=id&temp_user_id=eq.' + tempUserId,
-        'GET'
-      );
-
-      if (!userData?.[0]?.id) {
-        console.error('Error fetching user');
-        return;
-      }
-
-      const userId = userData[0].id;
 
       // Load settings from SecureStore
       const darkMode = (await SecureStore.getItemAsync(STORAGE_KEYS.SETTINGS.DARK_MODE)) === "true";
@@ -112,7 +99,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
       // Load settings from database
       const userPreferences = await makeSupabaseRequest(
-        '/rest/v1/user_preferences?select=*&user_id=eq.' + userId,
+        `/rest/v1/user_preferences?select=*&user_id=eq.${userId}`,
         'GET'
       );
 
@@ -124,7 +111,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         lastUsedNetwork: lastUsedNetwork,
       });
     } catch (error) {
-      console.error('Error loading settings:', error);
+      console.error('[Settings] Error loading settings:', error);
     }
   };
 
@@ -132,24 +119,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const updateSetting = async (key: string, value: any) => {
     try {
       // Get user ID from SecureStore
-      const tempUserId = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_USER_ID);
-      if (!tempUserId) {
-        console.error('No user ID found in SecureStore');
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (!userId) {
+        console.error('[Settings] No user ID found');
         return;
       }
-
-      // Get user ID from auth_users table
-      const userData = await makeSupabaseRequest(
-        '/rest/v1/auth_users?select=id&temp_user_id=eq.' + tempUserId,
-        'GET'
-      );
-
-      if (!userData?.[0]?.id) {
-        console.error('Error fetching user');
-        return;
-      }
-
-      const userId = userData[0].id;
 
       // Update SecureStore
       await SecureStore.setItemAsync(key, value.toString());
@@ -193,8 +167,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
       setSettings(prev => ({ ...prev, [key]: value }));
     } catch (error) {
-      console.error('Error updating setting:', error);
-      throw error; // Re-throw to allow handling by the UI
+      console.error('[Settings] Error updating setting:', error);
     }
   };
 

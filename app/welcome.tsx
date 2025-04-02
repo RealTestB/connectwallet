@@ -20,7 +20,10 @@ export default function Welcome() {
         {/* Create Wallet Card */}
         <TouchableOpacity 
           style={styles.card}
-          onPress={() => router.push('/create-password')}
+          onPress={() => router.push({
+            pathname: '/create-password',
+            params: { mode: 'new' }
+          })}
         >
           <LinearGradient
             colors={['rgba(106, 158, 255, 0.1)', 'rgba(106, 158, 255, 0.05)']}

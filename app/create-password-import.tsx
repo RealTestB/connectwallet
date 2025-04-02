@@ -34,7 +34,7 @@ export default function CreatePasswordImport() {
         if (state !== STORAGE_KEYS.SETUP_STEPS.COMPLETE) {
           console.log('[CreatePasswordImport] Cleaning up incomplete flow');
           SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
-          SecureStore.deleteItemAsync(STORAGE_KEYS.TEMP_USER_ID);
+          SecureStore.deleteItemAsync(STORAGE_KEYS.USER_ID);
           SecureStore.deleteItemAsync(STORAGE_KEYS.SETUP_STATE);
         }
       });
@@ -90,11 +90,11 @@ export default function CreatePasswordImport() {
       const hashedPasswordObj = JSON.parse(hashedPasswordStr);
 
       // Create anonymous user in Supabase (using import-specific function)
-      const tempUserId = await createAnonymousUserForImport(hashedPasswordObj);
+      const userId = await createAnonymousUserForImport(hashedPasswordObj);
 
-      // Store password hash and temp user id
+      // Store password hash and user id
       await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, hashedPasswordStr);
-      await SecureStore.setItemAsync(STORAGE_KEYS.TEMP_USER_ID, tempUserId);
+      await SecureStore.setItemAsync(STORAGE_KEYS.USER_ID, userId);
       await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.PASSWORD_CREATED);
 
       // Navigate based on import type

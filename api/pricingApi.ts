@@ -66,6 +66,52 @@ export interface CoinMarketCapResponse {
 }
 
 /**
+ * Make a request to CoinMarketCap API using XMLHttpRequest
+ */
+const makeCoinMarketCapRequest = (url: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.timeout = 30000; // 30 second timeout
+
+    xhr.addEventListener('readystatechange', () => {
+      if (xhr.readyState !== 4) return;
+
+      // Handle network errors
+      if (xhr.status === 0) {
+        reject(new Error('Network error occurred'));
+        return;
+      }
+
+      try {
+        const response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+
+        // Handle successful response
+        if (xhr.status >= 200 && xhr.status < 300 && response) {
+          resolve(response);
+        } else {
+          reject(new Error(response?.error || `HTTP error! status: ${xhr.status}`));
+        }
+      } catch (error) {
+        reject(new Error('Failed to parse response'));
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      reject(new Error('Request failed'));
+    });
+
+    xhr.addEventListener('timeout', () => {
+      reject(new Error('Request timed out'));
+    });
+
+    xhr.open('GET', url);
+    xhr.setRequestHeader('X-CMC_PRO_API_KEY', config.apiKeys.cmcKey);
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.send();
+  });
+};
+
+/**
  * Get token prices from CoinMarketCap
  */
 export const getTokenPrices = async (
@@ -76,20 +122,10 @@ export const getTokenPrices = async (
     const chainParam = network === Network.ETH_MAINNET ? 'ETH' : 'MATIC';
     const addressList = addresses.join(',');
 
-    const response = await fetch(
-      `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest?address=${addressList}&chain=${chainParam}`,
-      {
-        headers: {
-          'X-CMC_PRO_API_KEY': config.apiKeys.cmcKey
-        }
-      }
-    );
+    const data = await makeCoinMarketCapRequest(
+      `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest?address=${addressList}&chain=${chainParam}`
+    ) as CoinMarketCapResponse;
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch token prices');
-    }
-
-    const data = (await response.json()) as CoinMarketCapResponse;
     const prices: TokenPriceResponse = {};
 
     Object.values(data.data).forEach(token => {
@@ -126,20 +162,10 @@ export const getTokenPriceHistory = async (
     const chainParam = network === Network.ETH_MAINNET ? 'ETH' : 'MATIC';
     const interval = timeframe === '24h' ? '1h' : '1d';
 
-    const response = await fetch(
-      `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/historical?address=${address}&chain=${chainParam}&interval=${interval}&count=${timeframe === '24h' ? 24 : 30}`,
-      {
-        headers: {
-          'X-CMC_PRO_API_KEY': config.apiKeys.cmcKey
-        }
-      }
+    const data = await makeCoinMarketCapRequest(
+      `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/historical?address=${address}&chain=${chainParam}&interval=${interval}&count=${timeframe === '24h' ? 24 : 30}`
     );
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch token price history');
-    }
-
-    const data = await response.json();
     const quotes = data.data[Object.keys(data.data)[0]].quotes;
 
     const prices = quotes.map((quote: any) => ({
