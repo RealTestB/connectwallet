@@ -14,6 +14,7 @@ import config from '../api/config';
 import { COLORS } from '../styles/shared';
 import { TransactionProvider } from '../contexts/TransactionContext';
 import { clearSupabaseStorage } from '../lib/supabase';
+import { ChainProvider } from '../contexts/ChainContext';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -60,11 +61,11 @@ export default function RootLayout() {
   }
 
   return (
-    <TransactionProvider>
-      <SafeAreaProvider>
-        <WalletProvider>
-          <AuthProvider>
-            <SettingsProvider>
+    <ChainProvider>
+      <TransactionProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <WalletProvider>
               <WalletAccountsProvider>
                 <ProtectedRoute>
                   <Stack
@@ -241,11 +242,11 @@ export default function RootLayout() {
                   </Stack>
                 </ProtectedRoute>
               </WalletAccountsProvider>
-            </SettingsProvider>
-          </AuthProvider>
-        </WalletProvider>
-      </SafeAreaProvider>
-    </TransactionProvider>
+            </WalletProvider>
+          </SettingsProvider>
+        </AuthProvider>
+      </TransactionProvider>
+    </ChainProvider>
   );
 }
 

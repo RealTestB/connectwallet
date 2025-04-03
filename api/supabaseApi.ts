@@ -2,6 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 import { supabase, supabaseAdmin } from '../lib/supabase';
 import config from './config';
 import * as SecureStore from 'expo-secure-store';
+import { ethers } from "ethers";
+import { getTokenBalances } from "./tokensApi";
+import { encryptSeedPhrase } from "./securityApi";
+import { clearSupabaseStorage } from "../lib/supabase";
+import Constants from 'expo-constants';
 
 // Validate Supabase configuration
 if (!config.supabase?.url || !config.supabase?.anonKey) {
@@ -129,6 +134,14 @@ export interface Transaction {
   notes?: string;
   created_at: string;
   updated_at: string;
+}
+
+interface CreateWalletParams {
+  user_id: string;
+  public_address: string;
+  name?: string;
+  imported?: boolean;
+  chain_name?: string;
 }
 
 /**
@@ -596,62 +609,6 @@ export const resolveTempUserId = async (tempUserId: string): Promise<string | nu
 };
 
 /**
- * Create default token balances for a wallet
- */
-const createDefaultTokenBalances = async (walletId: string, publicAddress: string) => {
-  try {
-    console.log("Creating default token balances for wallet:", walletId);
-
-    // Insert default token balances
-    const { error } = await supabaseAdmin
-      .from("token_balances")
-      .insert([
-        {
-          wallet_id: walletId,
-          public_address: publicAddress,
-          token_address: "0x0000000000000000000000000000000000000000", // ETH
-          chain_id: 1,
-          symbol: "ETH",
-          name: "Ethereum",
-          decimals: 18,
-          balance: "0",
-          usd_value: "0",
-          timestamp: new Date().toISOString()
-        },
-        {
-          wallet_id: walletId,
-          public_address: publicAddress,
-          token_address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
-          chain_id: 1,
-          symbol: "WETH",
-          name: "Wrapped Ether",
-          decimals: 18,
-          balance: "0",
-          usd_value: "0",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-
-    if (error) {
-      console.error("❌ Failed to create default token balances:", error);
-      throw error;
-    }
-
-    console.log("✅ Default token balances created successfully");
-  } catch (error) {
-    console.error("❌ Failed to create default token balances:", error);
-    throw error;
-  }
-};
-
-interface CreateWalletParams {
-  user_id: string;
-  public_address: string;
-  chain_name: string;
-  imported?: boolean;
-}
-
-/**
  * Create a new wallet in the database
  */
 export const createWallet = async (params: CreateWalletParams): Promise<string> => {
@@ -667,18 +624,21 @@ export const createWallet = async (params: CreateWalletParams): Promise<string> 
       throw new Error("User ID is required to create a wallet");
     }
 
-    // Create the wallet with the provided user_id
+    // Create wallet entry with required fields
+    const walletEntry = {
+      user_id: params.user_id,
+      public_address: params.public_address.toLowerCase(),
+      name: params.name || 'My Wallet',
+      is_primary: true,
+      imported: params.imported || false,
+      chain_name: params.chain_name || 'ethereum'
+    };
+
+    // Insert wallet entry
     const { data, error } = await supabaseAdmin
       .from("wallets")
-      .insert([{
-        user_id: params.user_id,
-        public_address: params.public_address.toLowerCase(),
-        chain_name: params.chain_name,
-        imported: params.imported || false,
-        is_primary: true, // First wallet is primary
-        name: params.imported ? 'Imported Wallet' : 'My Wallet'
-      }])
-      .select('id, user_id, public_address, chain_name, imported, is_primary, name');
+      .insert([walletEntry])
+      .select('id');
 
     if (error) {
       console.error('❌ Error creating wallet:', error);
@@ -692,11 +652,11 @@ export const createWallet = async (params: CreateWalletParams): Promise<string> 
       throw new Error('No wallet ID returned from creation');
     }
 
-    console.log("✅ Wallet created successfully with ID:", walletData.id);
+    console.log("✅ Wallet created successfully:", walletData.id);
     return walletData.id;
-  } catch (error: any) {
+  } catch (error) {
     console.error("❌ Failed to create wallet:", error);
-    throw new Error(`Failed to create wallet: ${error?.message || 'Unknown error'}`);
+    throw error;
   }
 };
 
@@ -738,29 +698,8 @@ export const getWalletTokenBalances = async (publicAddress: string) => {
       throw error;
     }
 
-    // If no token balances found, create default ones
-    if (!data || data.length === 0) {
-      console.log("No token balances found, creating defaults...");
-      await createDefaultTokenBalances(wallet.id, publicAddress);
-      
-      // Fetch the newly created token balances
-      const { data: newData, error: newError } = await supabaseAdmin
-        .from("token_balances")
-        .select("*")
-        .eq("wallet_id", wallet.id)
-        .order("timestamp", { ascending: false });
-
-      if (newError) {
-        console.error("❌ Failed to fetch new token balances:", newError);
-        throw newError;
-      }
-
-      console.log("✅ Created and fetched default token balances:", newData?.length || 0);
-      return newData || [];
-    }
-
-    console.log("✅ Found token balances:", data.length);
-    return data;
+    console.log("✅ Found token balances:", data?.length || 0);
+    return data || [];
   } catch (error) {
     console.error("❌ Failed to fetch token balances:", error);
     throw error;

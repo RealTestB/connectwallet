@@ -1,57 +1,64 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image, Alert } from "react-native";
 import * as SecureStore from "expo-secure-store";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Ionicons } from "@expo/vector-icons";
 import { getStoredWallet } from "../../api/walletApi";
 import { BlurView } from "expo-blur";
 import { COLORS, SPACING } from "../../styles/shared";
+import { CHAINS, getChainById } from "../../constants/chains";
+import { getTokenLogo } from "../../utils/tokenUtils";
+import { useChain } from "../../contexts/ChainContext";
 
 interface Account {
   address: string;
   name?: string;
-  chainId?: number;
+  chainId: number;
 }
 
 interface WalletHeaderProps {
   onAccountChange: (account: Account) => void;
   pageName?: string;
+  onPress?: () => void;
 }
 
-export default function WalletHeader({ onAccountChange, pageName }: WalletHeaderProps): JSX.Element {
+export default function WalletHeader({ onAccountChange, pageName, onPress }: WalletHeaderProps): JSX.Element {
+  const { currentChainId, setChainId } = useChain();
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const [isChainDropdownOpen, setIsChainDropdownOpen] = useState<boolean>(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadAccounts();
-  }, []);
-
-  const loadAccounts = async (): Promise<void> => {
+  const loadAccounts = useCallback(async (): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
       const walletData = await getStoredWallet();
-      
-      if (walletData) {
-        const account: Account = {
-          address: walletData.address,
-          chainId: walletData.chainId
-        };
-        setAccounts([account]);
-        
-        if (!selectedAccount) {
-          handleAccountSelection(account);
-        }
+      if (!walletData) {
+        throw new Error('No wallet data found');
       }
+
+      const accountsList: Account[] = [
+        {
+          address: walletData.address,
+          chainId: currentChainId || 1
+        }
+      ];
+
+      setAccounts(accountsList);
+      setSelectedAccount(accountsList[0]);
     } catch (error) {
-      console.error('[WalletHeader] Error loading accounts:', error);
+      console.error('Error loading accounts:', error);
       setError('Failed to load accounts');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentChainId]);
+
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
 
   const formatAddress = useCallback((address: string | undefined): string => {
     if (!address || typeof address !== 'string' || address.length < 10) {
@@ -60,8 +67,14 @@ export default function WalletHeader({ onAccountChange, pageName }: WalletHeader
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   }, []);
 
+  const getChainName = useCallback((chainId: number): string => {
+    const chain = getChainById(chainId);
+    return chain?.name || 'Unknown Chain';
+  }, []);
+
   const formattedAddress = useMemo(() => {
-    return selectedAccount ? formatAddress(selectedAccount.address) : "Select Account";
+    if (!selectedAccount) return "Select Account";
+    return formatAddress(selectedAccount.address);
   }, [selectedAccount?.address, formatAddress]);
 
   const handleAccountSelection = useCallback((account: Account): void => {
@@ -69,6 +82,52 @@ export default function WalletHeader({ onAccountChange, pageName }: WalletHeader
     setIsDropdownOpen(false);
     onAccountChange(account);
   }, [onAccountChange]);
+
+  const handleChainSelection = useCallback(async (chainId: number): Promise<void> => {
+    console.log('[WalletHeader] Chain selection started:', {
+      newChainId: chainId,
+      currentChainId,
+      selectedAccount: selectedAccount?.address
+    });
+
+    try {
+      // Update chain ID in context (this will handle storage updates)
+      await setChainId(chainId);
+
+      // Update selected account with new chain
+      if (selectedAccount) {
+        const updatedAccount = { ...selectedAccount, chainId };
+        setSelectedAccount(updatedAccount);
+        onAccountChange(updatedAccount);
+      }
+    } catch (error) {
+      console.error('[WalletHeader] Error updating chain:', error);
+      Alert.alert('Error', 'Failed to update network. Please try again.');
+    }
+
+    setIsChainDropdownOpen(false);
+  }, [selectedAccount, onAccountChange, setChainId, currentChainId]);
+
+  // Update selectedAccount when currentChainId changes
+  useEffect(() => {
+    if (currentChainId && selectedAccount) {
+      const updatedAccount = { ...selectedAccount, chainId: currentChainId };
+      setSelectedAccount(updatedAccount);
+    }
+  }, [currentChainId]);
+
+  // Force re-render when chain changes
+  useEffect(() => {
+    console.log('[WalletHeader] Chain changed:', currentChainId);
+  }, [currentChainId]);
+
+  useEffect(() => {
+    console.log('[WalletHeader] Component mounted/updated:', {
+      currentChainId,
+      selectedAccount: selectedAccount?.address,
+      selectedAccountChainId: selectedAccount?.chainId
+    });
+  }, [currentChainId, selectedAccount]);
 
   return (
     <View style={styles.header}>
@@ -88,27 +147,107 @@ export default function WalletHeader({ onAccountChange, pageName }: WalletHeader
           </View>
         </View>
 
-        {/* Right Side - Account Selector */}
-        <TouchableOpacity 
-          style={[
-            styles.accountButton,
-            isLoading && styles.accountButtonDisabled,
-            error && styles.accountButtonError
-          ]}
-          onPress={() => !isLoading && setIsDropdownOpen(true)}
-          disabled={isLoading}
+        {/* Right Side - Chain and Account Selectors */}
+        <View style={styles.rightContainer}>
+          {/* Chain Selector */}
+          <TouchableOpacity 
+            style={styles.chainButton}
+            onPress={() => setIsChainDropdownOpen(true)}
+          >
+            <Image 
+              source={getTokenLogo('', '0x0000000000000000000000000000000000000000', selectedAccount?.chainId || currentChainId || 1)}
+              style={styles.chainIcon}
+              defaultSource={require('../../assets/favicon.png')}
+            />
+          </TouchableOpacity>
+
+          {/* Account Selector */}
+          <TouchableOpacity 
+            style={[
+              styles.accountButton,
+              isLoading && styles.accountButtonDisabled,
+              error && styles.accountButtonError
+            ]}
+            onPress={() => {
+              if (onPress) {
+                onPress();
+              } else if (!isLoading) {
+                setIsDropdownOpen(true);
+              }
+            }}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <Text style={styles.accountText}>Loading...</Text>
+            ) : error ? (
+              <Text style={styles.accountTextError}>Error</Text>
+            ) : (
+              <>
+                <Text style={styles.accountText}>{formattedAddress}</Text>
+                <Ionicons name="chevron-down" size={16} color="white" style={styles.dropdownIcon} />
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Chain Selection Modal */}
+        <Modal
+          visible={isChainDropdownOpen}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setIsChainDropdownOpen(false)}
         >
-          {isLoading ? (
-            <Text style={styles.accountText}>Loading...</Text>
-          ) : error ? (
-            <Text style={styles.accountTextError}>Error</Text>
-          ) : (
-            <>
-              <Text style={styles.accountText}>{formattedAddress}</Text>
-              <Ionicons name="chevron-down" size={16} color="white" style={styles.dropdownIcon} />
-            </>
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setIsChainDropdownOpen(false)}
+          >
+            <BlurView intensity={20} tint="dark" style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Network</Text>
+                <TouchableOpacity onPress={() => setIsChainDropdownOpen(false)}>
+                  <Ionicons name="close" size={24} color={COLORS.white} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.accountList}>
+                {[
+                  { id: 1, name: 'Ethereum' },
+                  { id: 137, name: 'Polygon' },
+                  { id: 42161, name: 'Arbitrum' },
+                  { id: 10, name: 'Optimism' },
+                  { id: 56, name: 'BSC' },
+                  { id: 43114, name: 'Avalanche' },
+                  { id: 8453, name: 'Base' }
+                ].map((chain) => (
+                  <TouchableOpacity
+                    key={chain.id}
+                    style={[
+                      styles.accountOption,
+                      (selectedAccount?.chainId || currentChainId) === chain.id && styles.selectedAccount
+                    ]}
+                    onPress={() => handleChainSelection(chain.id)}
+                  >
+                    <View style={styles.accountIcon}>
+                      <Image 
+                        source={getTokenLogo('', '0x0000000000000000000000000000000000000000', chain.id)}
+                        style={styles.chainIcon}
+                        defaultSource={require('../../assets/favicon.png')}
+                      />
+                    </View>
+                    <View style={styles.accountInfo}>
+                      <Text style={styles.accountName}>{chain.name}</Text>
+                    </View>
+                    {(selectedAccount?.chainId || currentChainId) === chain.id && (
+                      <View style={styles.selectedIndicator}>
+                        <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </BlurView>
+          </TouchableOpacity>
+        </Modal>
 
         {/* Account Selection Modal */}
         <Modal
@@ -144,7 +283,7 @@ export default function WalletHeader({ onAccountChange, pageName }: WalletHeader
                     </View>
                     <View style={styles.accountInfo}>
                       <Text style={styles.accountName}>
-                        {account.name || `Account ${index + 1}`}
+                        Account {index + 1}
                       </Text>
                       <Text style={styles.accountAddress}>
                         {formatAddress(account.address)}
@@ -204,6 +343,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6A9EFF",
   },
+  rightContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  chainButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chainIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
   accountButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -252,46 +409,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: SPACING.md,
-    borderRadius: 12,
+    borderRadius: 8,
     marginBottom: SPACING.sm,
     backgroundColor: "rgba(255, 255, 255, 0.05)",
   },
   selectedAccount: {
-    backgroundColor: "rgba(106, 158, 255, 0.1)",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
   },
   accountIcon: {
     width: 40,
     height: 40,
-    borderRadius: 12,
-    backgroundColor: "rgba(106, 158, 255, 0.1)",
-    alignItems: 'center',
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     justifyContent: 'center',
+    alignItems: 'center',
     marginRight: SPACING.md,
   },
   accountInfo: {
     flex: 1,
   },
   accountName: {
-    color: COLORS.white,
     fontSize: 16,
-    fontWeight: "500",
-    marginBottom: 4,
+    color: COLORS.white,
+    marginBottom: 2,
   },
   accountAddress: {
-    color: COLORS.primary,
     fontSize: 14,
+    color: "rgba(255, 255, 255, 0.6)",
   },
   selectedIndicator: {
     marginLeft: SPACING.md,
   },
   accountButtonDisabled: {
-    opacity: 0.7,
+    opacity: 0.5,
   },
   accountButtonError: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    backgroundColor: "rgba(255, 0, 0, 0.1)",
   },
   accountTextError: {
-    color: "#ef4444",
-    fontSize: 14,
-  },
+    color: "#FF4444",
+  }
 });

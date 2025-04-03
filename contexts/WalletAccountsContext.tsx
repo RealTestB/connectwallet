@@ -5,6 +5,7 @@ import { STORAGE_KEYS } from '../constants/storageKeys';
 import config from '../api/config';
 import { decryptSeedPhrase } from '../api/securityApi';
 import { useAuth } from './AuthContext';
+import Constants from 'expo-constants';
 
 interface WalletAccount {
   id: string;
@@ -339,6 +340,37 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
 
       if (account.isPrimary) {
         throw new Error('Cannot remove the primary account');
+      }
+
+      // Remove address from Alchemy webhook
+      try {
+        const supabaseUrl = Constants.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_URL;
+        const supabaseAnonKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+        if (!supabaseUrl || !supabaseAnonKey) {
+          throw new Error('Missing Supabase configuration');
+        }
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/manage-webhook`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseAnonKey}`
+          },
+          body: JSON.stringify({
+            action: 'remove',
+            address: account.address
+          })
+        });
+
+        if (!response.ok) {
+          console.error('❌ Failed to remove address from webhook:', await response.text());
+        } else {
+          console.log('✅ Removed address from Alchemy webhook');
+        }
+      } catch (webhookError) {
+        console.error('❌ Error removing address from webhook:', webhookError);
+        // Don't throw here - we still want to remove the account even if webhook fails
       }
 
       await makeSupabaseRequest(

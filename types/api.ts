@@ -8,6 +8,9 @@ export interface Token {
   price: number;
   change24h?: number;
   logoURI?: string;
+  chainName?: string;
+  chainLogoURI?: string;
+  blockExplorerUrl?: string;
 }
 
 export interface NFT {

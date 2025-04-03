@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { CHAINS, chainToNetworkConfig } from '../constants/chains';
 
 /**
  * Central configuration module that provides access to all environment variables
@@ -158,86 +159,13 @@ const getPublicFallbacks = (network: string): string[] => {
 };
 
 // Network configurations
-export const NETWORKS: { [key: string]: NetworkConfig } = {
-  ethereum: {
-    chainId: 1,
-    name: 'Ethereum Mainnet',
-    rpcUrl: extra?.ETHEREUM_MAINNET_URL || '',
-    fallbackUrls: extra?.ETHEREUM_MAINNET_FALLBACK_URLS || getPublicFallbacks('ethereum'),
-    blockExplorerUrl: 'https://etherscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  polygon: {
-    chainId: 137,
-    name: 'Polygon PoS',
-    rpcUrl: extra?.POLYGON_POS_MAINNET_URL || '',
-    fallbackUrls: extra?.POLYGON_POS_FALLBACK_URLS || getPublicFallbacks('polygon'),
-    blockExplorerUrl: 'https://polygonscan.com',
-    nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  arbitrum: {
-    chainId: 42161,
-    name: 'Arbitrum One',
-    rpcUrl: extra?.ARBITRUM_MAINNET_URL || '',
-    fallbackUrls: extra?.ARBITRUM_FALLBACK_URLS || getPublicFallbacks('arbitrum'),
-    blockExplorerUrl: 'https://arbiscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  optimism: {
-    chainId: 10,
-    name: 'Optimism',
-    rpcUrl: extra?.OPTIMISM_MAINNET_URL || '',
-    fallbackUrls: extra?.OPTIMISM_FALLBACK_URLS || getPublicFallbacks('optimism'),
-    blockExplorerUrl: 'https://optimistic.etherscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  'avalanche': {
-    chainId: 43114,
-    name: 'Avalanche C-Chain',
-    rpcUrl: extra?.AVALANCHE_MAINNET_URL || '',
-    fallbackUrls: extra?.AVALANCHE_FALLBACK_URLS || getPublicFallbacks('avalanche'),
-    blockExplorerUrl: 'https://snowtrace.io',
-    nativeCurrency: {
-      name: 'AVAX',
-      symbol: 'AVAX',
-      decimals: 18
-    },
-    isTestnet: false
-  },
-  'base': {
-    chainId: 8453,
-    name: 'Base',
-    rpcUrl: extra?.BASE_MAINNET_URL || '',
-    fallbackUrls: extra?.BASE_FALLBACK_URLS || getPublicFallbacks('base'),
-    blockExplorerUrl: 'https://basescan.org',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18
-    },
-    isTestnet: false
-  }
-};
+export const NETWORKS: { [key: string]: NetworkConfig } = Object.entries(CHAINS).reduce(
+  (acc, [key, chain]) => ({
+    ...acc,
+    [key]: chainToNetworkConfig(chain)
+  }),
+  {}
+);
 
 // Ethereum Mainnet configuration
 export const CHAIN_CONFIG: ChainConfig = {

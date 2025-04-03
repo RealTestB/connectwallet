@@ -697,7 +697,25 @@ export const transferToken = async ({
 export const getTokenBalance = async (contractAddress: string, ownerAddress: string): Promise<string> => {
   console.log('[TokensApi] Getting token balance:', { contractAddress, ownerAddress });
   try {
-    // Make both requests concurrently
+    // For native ETH, use eth_getBalance
+    if (contractAddress === '0x0000000000000000000000000000000000000000') {
+      const hexBalance = await makeAlchemyRequest('eth_getBalance', [ownerAddress, 'latest']);
+      console.log('[TokensApi] Raw ETH balance (hex):', hexBalance);
+      
+      // Convert hex balance to BigInt, then format to ETH
+      const balanceWei = BigInt(hexBalance);
+      const formattedBalance = ethers.formatEther(balanceWei);
+      
+      console.log('[TokensApi] ETH balance:', {
+        ownerAddress,
+        hexBalance,
+        balanceWei: balanceWei.toString(),
+        formattedBalance
+      });
+      return formattedBalance;
+    }
+
+    // For other tokens, use alchemy_getTokenBalances
     const [metadata, data] = await Promise.all([
       makeAlchemyRequest('alchemy_getTokenMetadata', [contractAddress])
         .catch(error => {
@@ -900,76 +918,8 @@ export const getWalletTokenBalances = async (walletId: string) => {
       throw tokenError;
     }
 
-    // If no tokens exist, create default ones
-    if (!existingTokens || existingTokens.length === 0) {
-      console.log("[TokensApi] No tokens found, creating defaults...");
-      
-      // Get wallet address first
-      const { data: wallet } = await supabaseAdmin
-        .from("wallets")
-        .select("public_address")
-        .eq("id", walletId)
-        .single();
-
-      if (!wallet) {
-        throw new Error("Wallet not found");
-      }
-      
-      const defaultTokens = [
-        {
-          wallet_id: walletId,
-          public_address: wallet.public_address,
-          token_address: "0x0000000000000000000000000000000000000000",
-          chain_id: 1,
-          symbol: "ETH",
-          name: "Ethereum",
-          decimals: 18,
-          balance: "0",
-          usd_value: "0",
-          timestamp: new Date().toISOString()
-        },
-        {
-          wallet_id: walletId,
-          public_address: wallet.public_address,
-          token_address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-          chain_id: 1,
-          symbol: "WETH",
-          name: "Wrapped Ethereum",
-          decimals: 18,
-          balance: "0",
-          usd_value: "0",
-          timestamp: new Date().toISOString()
-        },
-        {
-          wallet_id: walletId,
-          public_address: wallet.public_address,
-          token_address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
-          chain_id: 1,
-          symbol: "WBTC",
-          name: "Wrapped Bitcoin",
-          decimals: 8,
-          balance: "0",
-          usd_value: "0",
-          timestamp: new Date().toISOString()
-        }
-      ];
-
-      const { data: newTokens, error: insertTokenError } = await supabaseAdmin
-        .from("token_balances")
-        .insert(defaultTokens)
-        .select();
-
-      if (insertTokenError) {
-        console.error("[TokensApi] Failed to create default tokens:", insertTokenError);
-        throw insertTokenError;
-      }
-
-      console.log("[TokensApi] Created default tokens:", newTokens?.length || 0);
-      return newTokens || [];
-    }
-
-    console.log("[TokensApi] Found token balances:", existingTokens.length);
-    return existingTokens;
+    console.log("[TokensApi] Found token balances:", existingTokens?.length || 0);
+    return existingTokens || [];
   } catch (error) {
     console.error("[TokensApi] Failed to fetch token balances:", error);
     throw error;

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Image, Modal, TouchableWithoutFeedback, Animated, Dimensions } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Image, Modal, TouchableWithoutFeedback, Animated, Dimensions, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,6 +8,8 @@ import BottomNav from "../components/ui/BottomNav";
 import { COLORS, SPACING, sharedStyles } from '../styles/shared';
 import { useSettings } from '../contexts/SettingsContext';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import { NETWORKS } from '../api/config';
+import * as SecureStore from 'expo-secure-store';
 
 const MODAL_HEIGHT = Dimensions.get('window').height * 0.7;
 
@@ -35,6 +37,7 @@ export default function SettingsScreen() {
   const [showNetworkPicker, setShowNetworkPicker] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const slideAnim = React.useRef(new Animated.Value(MODAL_HEIGHT)).current;
+  const [isChainDropdownOpen, setIsChainDropdownOpen] = useState(false);
 
   React.useEffect(() => {
     if ((showLanguagePicker || showCurrencyPicker || showNetworkPicker) && !isClosing) {
@@ -61,19 +64,42 @@ export default function SettingsScreen() {
     });
   }, []);
 
+  const handleAccountChange = (account: { address: string; chainId?: number }) => {
+    // Handle account change
+  };
+
+  const handleChainChange = useCallback(async (chainId: number) => {
+    console.log('[Settings] Chain changed:', chainId);
+    try {
+      // 1. Convert chain ID to network key
+      const networkKey = Object.keys(NETWORKS).find(key => 
+        NETWORKS[key].chainId === chainId
+      ) || 'ethereum';
+      
+      console.log('[Settings] Saving network key:', networkKey);
+      
+      // 2. Save to settings context
+      await saveLastUsedNetwork(networkKey);
+      
+      // 3. Update wallet data with new chain
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (walletDataStr) {
+        const walletData = JSON.parse(walletDataStr);
+        walletData.chainId = chainId;
+        await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
+      }
+    } catch (error) {
+      console.error('[Settings] Error saving chain:', error);
+      Alert.alert('Error', 'Failed to save network settings');
+    }
+  }, [saveLastUsedNetwork]);
+
   const settingsGroups: SettingGroup[] = [
     {
       title: "General",
       items: [
         {
-          icon: "moon",
-          label: "Dark Mode",
-          type: "toggle",
-          value: settings.darkMode,
-          onChange: (value) => updateSetting(STORAGE_KEYS.SETTINGS.DARK_MODE, value),
-        },
-        {
-          icon: "globe",
+          icon: "language",
           label: "Language",
           type: "select",
           value: settings.language,
@@ -83,7 +109,13 @@ export default function SettingsScreen() {
             { value: "es", label: "Español" },
             { value: "fr", label: "Français" },
             { value: "de", label: "Deutsch" },
-          ],
+            { value: "it", label: "Italiano" },
+            { value: "pt", label: "Português" },
+            { value: "ru", label: "Русский" },
+            { value: "zh", label: "中文" },
+            { value: "ja", label: "日本語" },
+            { value: "ko", label: "한국어" }
+          ]
         },
         {
           icon: "cash",
@@ -96,79 +128,32 @@ export default function SettingsScreen() {
             { value: "EUR", label: "EUR" },
             { value: "GBP", label: "GBP" },
             { value: "JPY", label: "JPY" },
-          ],
+            { value: "CNY", label: "CNY" },
+            { value: "KRW", label: "KRW" }
+          ]
         },
-      ],
+        {
+          icon: "moon",
+          label: "Dark Mode",
+          type: "toggle",
+          value: settings.darkMode,
+          onChange: (value) => updateSetting(STORAGE_KEYS.SETTINGS.DARK_MODE, value)
+        }
+      ]
     },
     {
-      title: "Network",
+      title: "About",
       items: [
         {
-          icon: "git-network",
-          label: "Default Network",
-          type: "select",
-          value: settings.lastUsedNetwork,
-          onChange: (value) => saveLastUsedNetwork(value),
-          options: [
-            { value: "ethereum", label: "Ethereum" },
-            { value: "polygon", label: "Polygon" },
-            { value: "arbitrum", label: "Arbitrum" },
-            { value: "optimism", label: "Optimism" },
-          ],
-        },
-      ],
-    },
-    {
-      title: "Security",
-      items: [
-        {
-          icon: "wallet",
-          label: "Manage Accounts",
+          icon: "information-circle",
+          label: "Version",
           type: "button",
-          onClick: () => router.push('/manage-accounts'),
-        },
-        {
-          icon: "lock-closed",
-          label: "Change Password",
-          type: "button",
-          onClick: () => router.push('/change-password'),
-        },
-        {
-          icon: "shield",
-          label: "Two-Factor Authentication",
-          type: "button",
-          onClick: () => {},
-        },
-        {
-          icon: "key",
-          label: "Recovery Phrase",
-          type: "button",
-          onClick: () => {},
-        },
-      ],
-    },
-    {
-      title: "Support",
-      items: [
-        {
-          icon: "help-circle",
-          label: "Help Center",
-          type: "button",
-          onClick: () => {},
-        },
-        {
-          icon: "paper-plane",
-          label: "Contact Support",
-          type: "button",
-          onClick: () => {},
-        },
-      ],
-    },
+          value: "1.0.0",
+          onClick: () => {}
+        }
+      ]
+    }
   ];
-
-  const handleAccountChange = (account: { address: string; chainId?: number }) => {
-    // Handle account change
-  };
 
   const renderSettingItem = (item: SettingItem) => (
     <View style={styles.settingItem}>
@@ -192,7 +177,6 @@ export default function SettingsScreen() {
           onPress={() => {
             if (item.label === "Language") setShowLanguagePicker(true);
             if (item.label === "Currency") setShowCurrencyPicker(true);
-            if (item.label === "Default Network") setShowNetworkPicker(true);
           }}
         >
           <Text style={styles.selectButtonText}>
@@ -210,7 +194,7 @@ export default function SettingsScreen() {
   );
 
   return (
-    <View style={sharedStyles.container}>
+    <View style={[sharedStyles.container, { paddingTop: insets.top }]}>
       <Image 
         source={require('../assets/background.png')} 
         style={sharedStyles.backgroundImage}
@@ -219,6 +203,7 @@ export default function SettingsScreen() {
       <WalletHeader 
         onAccountChange={handleAccountChange}
         pageName="Settings"
+        onChainChange={handleChainChange}
       />
 
       <ScrollView 
@@ -248,7 +233,7 @@ export default function SettingsScreen() {
 
       <Modal
         transparent
-        visible={(showLanguagePicker || showCurrencyPicker || showNetworkPicker) || isClosing}
+        visible={(showLanguagePicker || showCurrencyPicker) || isClosing}
         onRequestClose={handleCloseModal}
       >
         <TouchableWithoutFeedback onPress={handleCloseModal}>
@@ -286,7 +271,7 @@ export default function SettingsScreen() {
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.modalListContent}
                 >
-                  {showLanguagePicker && settingsGroups[0].items[1].options?.map((option) => (
+                  {showLanguagePicker && settingsGroups[0].items[0].options?.map((option) => (
                     <TouchableOpacity
                       key={option.value}
                       style={[
@@ -310,7 +295,7 @@ export default function SettingsScreen() {
                     </TouchableOpacity>
                   ))}
 
-                  {showCurrencyPicker && settingsGroups[0].items[2].options?.map((option) => (
+                  {showCurrencyPicker && settingsGroups[0].items[1].options?.map((option) => (
                     <TouchableOpacity
                       key={option.value}
                       style={[
@@ -329,30 +314,6 @@ export default function SettingsScreen() {
                         {option.label}
                       </Text>
                       {settings.currency === option.value && (
-                        <Ionicons name="checkmark" size={20} color={COLORS.primary} />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-
-                  {showNetworkPicker && settingsGroups[1].items[0].options?.map((option) => (
-                    <TouchableOpacity
-                      key={option.value}
-                      style={[
-                        styles.modalOption,
-                        settings.lastUsedNetwork === option.value && styles.modalOptionSelected
-                      ]}
-                      onPress={() => {
-                        saveLastUsedNetwork(option.value);
-                        handleCloseModal();
-                      }}
-                    >
-                      <Text style={[
-                        styles.modalOptionText,
-                        settings.lastUsedNetwork === option.value && styles.modalOptionTextSelected
-                      ]}>
-                        {option.label}
-                      </Text>
-                      {settings.lastUsedNetwork === option.value && (
                         <Ionicons name="checkmark" size={20} color={COLORS.primary} />
                       )}
                     </TouchableOpacity>

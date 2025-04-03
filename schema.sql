@@ -12,63 +12,13 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 
-CREATE EXTENSION IF NOT EXISTS "pg_net" WITH SCHEMA "extensions";
+CREATE SCHEMA IF NOT EXISTS "public";
 
 
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pgsodium";
-
-
-
-
+ALTER SCHEMA "public" OWNER TO "postgres";
 
 
 COMMENT ON SCHEMA "public" IS 'standard public schema';
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pg_graphql" WITH SCHEMA "graphql";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pgjwt" WITH SCHEMA "extensions";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
-
-
-
 
 
 
@@ -92,49 +42,143 @@ CREATE OR REPLACE FUNCTION "public"."create_default_token_balances"() RETURNS "t
     LANGUAGE "plpgsql"
     AS $$
 BEGIN
-  -- Only add default balances for non-imported wallets
-  IF NOT NEW.imported THEN
-    -- Insert ETH balance with ONLY public_address
-    INSERT INTO token_balances (
-      public_address,
-      token_address,
-      balance,
-      usd_value,
-      timestamp,
-      chain_id
-    ) VALUES (
-      NEW.public_address,
-      '0x0000000000000000000000000000000000000000',
-      '0',
-      '0',
-      NOW(),
-      1
-    );
+    -- Only add default balances for non-imported wallets
+    IF NOT NEW.imported THEN
+        -- Insert ETH balance
+        INSERT INTO token_balances (
+            wallet_id,
+            user_id,
+            public_address,
+            token_address,
+            balance,
+            usd_value,
+            timestamp,
+            chain_id,
+            symbol,
+            name,
+            decimals
+        ) VALUES (
+            NEW.id,
+            NEW.user_id,
+            NEW.public_address,
+            '0x0000000000000000000000000000000000000000',
+            '0',
+            '0',
+            NOW(),
+            1,
+            'ETH',
+            'Ethereum',
+            18
+        );
 
-    -- Insert WETH balance with ONLY public_address
-    INSERT INTO token_balances (
-      public_address,
-      token_address,
-      balance,
-      usd_value,
-      timestamp,
-      chain_id
-    ) VALUES (
-      NEW.public_address,
-      '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-      '0',
-      '0',
-      NOW(),
-      1
-    );
-  END IF;
+        -- Insert WETH balance
+        INSERT INTO token_balances (
+            wallet_id,
+            user_id,
+            public_address,
+            token_address,
+            balance,
+            usd_value,
+            timestamp,
+            chain_id,
+            symbol,
+            name,
+            decimals
+        ) VALUES (
+            NEW.id,
+            NEW.user_id,
+            NEW.public_address,
+            '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+            '0',
+            '0',
+            NOW(),
+            1,
+            'WETH',
+            'Wrapped Ether',
+            18
+        );
 
-  RETURN NEW;
+        -- Insert WBTC balance
+        INSERT INTO token_balances (
+            wallet_id,
+            user_id,
+            public_address,
+            token_address,
+            balance,
+            usd_value,
+            timestamp,
+            chain_id,
+            symbol,
+            name,
+            decimals
+        ) VALUES (
+            NEW.id,
+            NEW.user_id,
+            NEW.public_address,
+            '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+            '0',
+            '0',
+            NOW(),
+            1,
+            'WBTC',
+            'Wrapped Bitcoin',
+            8
+        );
+    END IF;
+
+    RETURN NEW;
 END;
 $$;
 
 
 ALTER FUNCTION "public"."create_default_token_balances"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+    INSERT INTO token_balances (
+        wallet_id, 
+        public_address, 
+        token_address, 
+        chain_id, 
+        symbol, 
+        name, 
+        decimals, 
+        balance, 
+        usd_value, 
+        timestamp
+    ) VALUES 
+    (
+        wallet_id, 
+        public_address, 
+        '0x0000000000000000000000000000000000000000', 
+        1, 
+        'ETH', 
+        'Ethereum', 
+        18, 
+        '0', 
+        '0', 
+        NOW()
+    ),
+    (
+        wallet_id, 
+        public_address, 
+        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', 
+        1, 
+        'WETH', 
+        'Wrapped Ether', 
+        18, 
+        '0', 
+        '0', 
+        NOW()
+    );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_user_by_email"("user_email" "text") RETURNS "jsonb"
@@ -853,205 +897,10 @@ CREATE POLICY "service_manage_wallets" ON "public"."wallets" TO "service_role" U
 
 
 
-
-
-ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
-
-
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."wallets";
-
-
-
-
-
-
-GRANT USAGE ON SCHEMA "public" TO "postgres";
-GRANT USAGE ON SCHEMA "public" TO "anon";
-GRANT USAGE ON SCHEMA "public" TO "authenticated";
-GRANT USAGE ON SCHEMA "public" TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+REVOKE USAGE ON SCHEMA "public" FROM PUBLIC;
+GRANT ALL ON SCHEMA "public" TO "anon";
+GRANT ALL ON SCHEMA "public" TO "authenticated";
+GRANT ALL ON SCHEMA "public" TO "service_role";
 
 
 
@@ -1064,6 +913,12 @@ GRANT ALL ON FUNCTION "public"."add_transaction"("wallet_id" "uuid", "hash" "tex
 GRANT ALL ON FUNCTION "public"."create_default_token_balances"() TO "anon";
 GRANT ALL ON FUNCTION "public"."create_default_token_balances"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_default_token_balances"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "service_role";
 
 
 
@@ -1082,21 +937,6 @@ GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "anon";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1192,9 +1032,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQ
 
 
 
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS  TO "postgres";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS  TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS  TO "authenticated";
@@ -1202,40 +1039,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUN
 
 
 
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES  TO "postgres";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES  TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES  TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES  TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
