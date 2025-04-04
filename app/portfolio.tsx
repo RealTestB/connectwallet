@@ -1,12 +1,12 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Image, ActivityIndicator, Dimensions, ImageBackground, Alert, Modal, TouchableWithoutFeedback, Animated } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Image, ActivityIndicator, Dimensions, ImageBackground, Alert, Modal, TouchableWithoutFeedback, Animated, ImageSourcePropType } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING } from '../styles/shared';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import BottomNav from "../components/ui/BottomNav";
 import WalletHeader from "../components/ui/WalletHeader";
-import { getNativeBalance, getTokenBalance } from '../api/tokensApi';
-import { getTokenPrice, getTokenPriceHistory } from '../api/coingeckoApi';
+import { getNativeBalance, getTokenBalance, getTokenBalances } from '../api/tokensApi';
+import { getTokenPrice, getTokenPriceHistory, CHAIN_TO_PLATFORM, NATIVE_TOKEN_IDS, COINGECKO_BASE_URL, COINGECKO_API_KEY } from '../api/coingeckoApi';
 import { getStoredWallet } from '../api/walletApi';
 import { Network } from 'alchemy-sdk';
 import * as SecureStore from 'expo-secure-store';
@@ -19,7 +19,10 @@ import { getWalletTokenBalances } from '../api/tokensApi';
 import { supabaseAdmin } from '../lib/supabase';
 import { calculateTokenBalanceUSD } from "../utils/tokenUtils";
 import { useRouter } from 'expo-router';
-import { CHAINS, getChainById } from '../constants/chains';
+import { CHAINS, getChainById, ChainId } from '../constants/chains';
+import { TokenBalanceResult, TokenMetadata } from '../types/tokens';
+import { useChain } from '../contexts/ChainContext';
+import { getTokenInfo } from '../api/coingeckoApi';
 
 interface PriceHistoryResponse {
   prices: [number, number][];
@@ -27,29 +30,41 @@ interface PriceHistoryResponse {
   total_volumes: [number, number][];
 }
 
+interface TokenLogo {
+  hasLogo: boolean;
+  logoUri?: string;
+  lastUpdated?: number;
+  error?: string;
+}
+
 interface Token {
+  address: string;
+  chain_id: number;
   symbol: string;
   name: string;
-  address: string;
   decimals: number;
   balance: string;
   balanceUSD: string;
   priceUSD: string;
   priceChange24h: number;
-  logo: string;
-  lastUpdate: string;
+  logo?: { uri: string };
   isNative: boolean;
-  chain_id: number;
+  lastUpdate: string;
   priceHistory: {
-    prices: [number, number][];
-    market_caps: [number, number][];
-    total_volumes: [number, number][];
+    prices: Array<[number, number]>;
+    market_caps: Array<[number, number]>;
+    total_volumes: Array<[number, number]>;
   };
+}
+
+interface TokenLogos {
+  [key: string]: TokenLogo;
 }
 
 interface Account {
   address: string;
-  chainId?: number;
+  chainId: number;
+  name?: string;
 }
 
 interface WalletData {
@@ -66,18 +81,56 @@ interface ChartData {
   priceChange24h: number;
 }
 
-const MODAL_HEIGHT = Dimensions.get('window').height * 0.7;
-
-// Storage functions
-const savePortfolioData = async (data: {
+interface PortfolioData {
   tokens: Token[];
   totalValue: string;
   lastUpdate: number;
   chainId: number;
-}) => {
+}
+
+interface StorageToken {
+  symbol: string;
+  address: string;
+  balance: string;
+  balanceUSD: string;
+  isNative: boolean;
+  chain_id: number;
+  name?: string;
+  decimals?: number;
+}
+
+interface StorageData {
+  tokens: StorageToken[];
+  totalValue: string;
+  lastUpdate: number;
+  chainId: number;
+}
+
+const MODAL_HEIGHT = Dimensions.get('window').height * 0.7;
+
+const CHAIN_LOGOS: { [key: number]: string } = {
+  1: 'ethereum',
+  137: 'matic-network',
+  42161: 'arbitrum',
+  10: 'optimistic-ethereum',
+  56: 'binancecoin',
+  43114: 'avalanche-2',
+  8453: 'base'
+};
+
+// Add cache expiration time (5 minutes)
+const LOGO_CACHE_EXPIRY = 5 * 60 * 1000;
+
+// Default images for different scenarios
+const DEFAULT_TOKEN_LOGO = require('../assets/images/default-token.png');
+const DEFAULT_LOADING_LOGO = require('../assets/images/loading-token.png');
+const DEFAULT_ERROR_LOGO = require('../assets/images/error-token.png');
+
+// Storage functions
+const savePortfolioData = async (data: PortfolioData): Promise<void> => {
   try {
     // Create a minimal version of the data for storage
-    const storageData = {
+    const storageData: StorageData = {
       tokens: data.tokens.map(token => ({
         symbol: token.symbol,
         address: token.address,
@@ -100,10 +153,13 @@ const savePortfolioData = async (data: {
       dataSize: dataString.length
     });
     
+    // Save chain-specific portfolio data
+    const chainKey = `${STORAGE_KEYS.PORTFOLIO_DATA}_${data.chainId}`;
+    
     if (dataString.length > 2000) {
       console.warn('[Portfolio] Data size exceeds recommended limit, saving only total value');
       await SecureStore.setItemAsync(
-        STORAGE_KEYS.PORTFOLIO_DATA,
+        chainKey,
         JSON.stringify({
           totalValue: data.totalValue,
           lastUpdate: data.lastUpdate,
@@ -111,24 +167,29 @@ const savePortfolioData = async (data: {
         })
       );
     } else {
-      await SecureStore.setItemAsync(
-        STORAGE_KEYS.PORTFOLIO_DATA,
-        dataString
-      );
+      await SecureStore.setItemAsync(chainKey, dataString);
     }
+    
+    // Save last used network
+    await SecureStore.setItemAsync(STORAGE_KEYS.SETTINGS.LAST_USED_NETWORK, data.chainId.toString());
     
     console.log('[Portfolio] Successfully saved portfolio data to SecureStore');
   } catch (error) {
     console.error('[Portfolio] Error saving portfolio data:', error);
+    throw error;
   }
 };
 
-const loadPortfolioData = async (chainId: number) => {
+const loadPortfolioData = async (chainId: number): Promise<PortfolioData | null> => {
   try {
     console.log('[Portfolio] Loading portfolio data from SecureStore...', { chainId });
-    const data = await SecureStore.getItemAsync(STORAGE_KEYS.PORTFOLIO_DATA);
+    
+    // Try to load chain-specific data first
+    const chainKey = `${STORAGE_KEYS.PORTFOLIO_DATA}_${chainId}`;
+    const data = await SecureStore.getItemAsync(chainKey);
+    
     if (data) {
-      const parsed = JSON.parse(data);
+      const parsed = JSON.parse(data) as StorageData;
       
       // If we only have total value, return minimal data
       if (!parsed.tokens) {
@@ -140,18 +201,19 @@ const loadPortfolioData = async (chainId: number) => {
         };
       }
       
-      // Filter tokens by chain ID
-      const chainTokens = parsed.tokens.filter((token: any) => token.chain_id === chainId);
-      
       // Initialize minimal token data
-      const tokensWithDefaults = chainTokens.map((token: any) => ({
-        ...token,
+      const tokensWithDefaults = parsed.tokens.map((token: StorageToken): Token => ({
+        symbol: token.symbol,
         name: token.name || token.symbol,
+        address: token.address,
         decimals: token.decimals || 18,
+        balance: token.balance,
+        balanceUSD: token.balanceUSD,
         priceUSD: "0",
         priceChange24h: 0,
-        logo: getTokenLogo(token.symbol, token.address, chainId), // Use the provided chainId
-        lastUpdate: parsed.lastUpdate,
+        lastUpdate: new Date(parsed.lastUpdate).toISOString(),
+        isNative: token.isNative,
+        chain_id: token.chain_id,
         priceHistory: {
           prices: [],
           market_caps: [],
@@ -162,7 +224,7 @@ const loadPortfolioData = async (chainId: number) => {
       console.log('[Portfolio] Successfully loaded portfolio data:', {
         chainId,
         totalValue: parsed.totalValue,
-        tokenCount: chainTokens.length,
+        tokenCount: tokensWithDefaults.length,
         lastUpdate: new Date(parsed.lastUpdate).toISOString()
       });
       
@@ -170,13 +232,14 @@ const loadPortfolioData = async (chainId: number) => {
         tokens: tokensWithDefaults,
         totalValue: parsed.totalValue,
         lastUpdate: parsed.lastUpdate,
-        chainId // Always use the provided chainId
+        chainId
       };
     } else {
-      console.log('[Portfolio] No saved portfolio data found');
+      console.log('[Portfolio] No saved portfolio data found for chain:', chainId);
     }
   } catch (error) {
     console.error('[Portfolio] Error loading portfolio data:', error);
+    throw error;
   }
   return null;
 };
@@ -200,52 +263,15 @@ const getChainPath = (chainId: number): string => {
   }
 };
 
-const getTokenLogo = (symbol: string, tokenAddress: string, chainId: number = 1): string => {
-  const chainPath = getChainPath(chainId);
-  
-  // For native tokens
-  if (tokenAddress === "0x0000000000000000000000000000000000000000") {
-    switch (chainId) {
-      case 137:
-        return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png";
-      case 42161:
-        return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png";
-      case 10:
-        return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png";
-      case 56:
-        return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png";
-      case 43114:
-        return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanche/info/logo.png";
-      default:
-        return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png";
-    }
-  }
-
-  // Try multiple sources in order of reliability
-  const sources = [
-    // 1. 1inch Protocol Token Logo API (most reliable for verified tokens)
-    chainId === 1 ? `https://tokens.1inch.io/${tokenAddress.toLowerCase()}.png` : 
-    chainId === 137 ? `https://tokens.1inch.io/polygon/${tokenAddress.toLowerCase()}.png` :
-    chainId === 42161 ? `https://tokens.1inch.io/arbitrum/${tokenAddress.toLowerCase()}.png` :
-    chainId === 10 ? `https://tokens.1inch.io/optimism/${tokenAddress.toLowerCase()}.png` :
-    `https://tokens.1inch.io/${tokenAddress.toLowerCase()}.png`,
-    
-    // 2. Trustwallet Assets (fallback for verified tokens)
-    `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chainPath}/assets/${tokenAddress}/logo.png`,
-    
-    // 3. Default chain-specific placeholder
-    `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chainPath}/info/logo.png`
-  ];
-
-  // Return the first source - the Image component will naturally fall back to the next source if one fails
-  return sources[0];
-};
-
 export default function Portfolio(): JSX.Element {
+  const { currentChainId, setChainId } = useChain();
   const [tokens, setTokens] = useState<Token[]>([]);
+  const [tokenLogos, setTokenLogos] = useState<TokenLogos>({});
   const [totalValue, setTotalValue] = useState<string>("0");
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [currentChainId, setCurrentChainId] = useState<number>(1);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isChainSwitching, setIsChainSwitching] = useState(false);
+  const [isLoadingPrices, setIsLoadingPrices] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
   const [lastRefreshTime, setLastRefreshTime] = useState(0);
   const REFRESH_COOLDOWN = 5000; // 5 seconds cooldown between manual refreshes
@@ -260,113 +286,207 @@ export default function Portfolio(): JSX.Element {
   const router = useRouter();
   const [showWalletSelector, setShowWalletSelector] = useState(false);
   const [availableWallets, setAvailableWallets] = useState<Array<{id: string, public_address: string, chain_name: string}>>([]);
+  const [isAccountSwitching, setIsAccountSwitching] = useState(false);
 
-  // Load initial chain ID from storage
-  useEffect(() => {
-    const loadInitialChain = async () => {
-      try {
-        // First try to get from wallet data
-        const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
-        if (walletDataStr) {
-          const walletData = JSON.parse(walletDataStr);
-          if (walletData.chainId) {
-            console.log('[Portfolio] Loading chain ID from wallet data:', walletData.chainId);
-            setCurrentChainId(walletData.chainId);
-            return;
+  // Helper function to get the appropriate logo source
+  const getLogoSource = useCallback((address: string, chainId: number): ImageSourcePropType | undefined => {
+    // For all tokens, try the cached logo first
+    const logoKey = `${address}-${chainId}`;
+    const logoData = tokenLogos[logoKey];
+
+    if (!logoData || !logoData.hasLogo || logoData.error) {
+      return undefined;
+    }
+
+    return { uri: logoData.logoUri };
+  }, [tokenLogos]);
+
+  const loadTokenLogo = useCallback(async (token: Token) => {
+    try {
+      const logoKey = `${token.address}-${token.chain_id}`;
+      
+      // Check if logo is already loaded and not expired
+      const currentLogo = tokenLogos[logoKey];
+      if (currentLogo?.hasLogo && currentLogo?.lastUpdated && 
+          Date.now() - currentLogo.lastUpdated < LOGO_CACHE_EXPIRY) {
+        return;
+      }
+
+      // Get token info from CoinGecko
+      const tokenInfo = await getTokenInfo(token.address, token.chain_id as ChainId);
+      
+      if (tokenInfo?.image?.thumb) {
+        // Update logo state with cache timestamp
+        setTokenLogos((prev: TokenLogos) => ({
+          ...prev,
+          [logoKey]: {
+            hasLogo: true,
+            logoUri: tokenInfo.image.thumb,
+            lastUpdated: Date.now()
           }
-        }
+        }));
 
-        // If not in wallet data, try settings
-        const lastUsedNetwork = await SecureStore.getItemAsync(STORAGE_KEYS.SETTINGS.LAST_USED_NETWORK);
-        if (lastUsedNetwork && CHAINS[lastUsedNetwork]) {
-          console.log('[Portfolio] Loading chain ID from settings:', CHAINS[lastUsedNetwork].chainId);
-          setCurrentChainId(CHAINS[lastUsedNetwork].chainId);
-          return;
-        }
+        // Update token with logo
+        setTokens((prev: Token[]) => 
+          prev.map((t: Token) => 
+            t.address === token.address && t.chain_id === token.chain_id ? 
+            { ...t, logo: { uri: tokenInfo.image.thumb } } : 
+            t
+          )
+        );
+      }
+    } catch (error) {
+      console.error('[Portfolio] Error loading logo:', {
+        symbol: token.symbol,
+        address: token.address,
+        chainId: token.chain_id,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }, [tokenLogos]);
 
-        // Default to Ethereum mainnet if nothing found
-        console.log('[Portfolio] No stored chain ID found, defaulting to Ethereum mainnet');
-        setCurrentChainId(1);
-      } catch (error) {
-        console.error('[Portfolio] Error loading initial chain ID:', error);
-        setCurrentChainId(1); // Default to Ethereum mainnet on error
+  // Add effect to load logos for new tokens with debouncing
+  useEffect(() => {
+    const loadLogos = async () => {
+      const tokensToLoad = tokens.filter(token => !token.logo);
+      
+      // Process tokens in batches of 5 to prevent too many simultaneous requests
+      for (let i = 0; i < tokensToLoad.length; i += 5) {
+        const batch = tokensToLoad.slice(i, i + 5);
+        await Promise.all(batch.map(token => loadTokenLogo(token)));
+        // Add a small delay between batches
+        if (i + 5 < tokensToLoad.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
     };
 
-    loadInitialChain();
-  }, []);
+    loadLogos();
+  }, [tokens, loadTokenLogo]);
 
-  const handleTokenPress = (token: Token): void => {
-    console.log('Token pressed:', token.symbol);
-  };
-
-  const handleAccountChange = useCallback(async (account: Account) => {
-    if (account?.address && currentAccount?.address !== account.address) {
-      console.log('[Portfolio] Account changed:', account.address);
-      setCurrentAccount(account);
-    }
-  }, [currentAccount?.address]);
+  // Add effect to clear logo cache when chain changes
+  useEffect(() => {
+    setTokenLogos({});
+  }, [currentChainId]);
 
   // Simple close modal function for wallet selector
   const handleCloseModal = useCallback(() => {
     setShowWalletSelector(false);
   }, []);
 
-  // Manual refresh function
-  const handleRefresh = async () => {
+  const handleTokenPress = (token: Token): void => {
+    console.log('Token pressed:', token.symbol);
+  };
+
+  const handleRefresh = useCallback(async () => {
     try {
+      // Only check if already refreshing, remove initialization check
+      if (isRefreshing) {
+        console.log('[Portfolio] Skipping refresh - already refreshing');
+        return;
+      }
+
+      // Check refresh cooldown
+      const now = Date.now();
+      if (now - lastRefreshTime < REFRESH_COOLDOWN) {
+        console.log('[Portfolio] Skipping refresh - within cooldown period');
+        return;
+      }
+
       setIsRefreshing(true);
+      setError(null);
 
-      // Get stored wallet data
-      const storedWalletData = await getStoredWallet();
-      if (!storedWalletData?.address) {
-        throw new Error("No wallet address found");
+      // Get current wallet data
+      const walletData = await getStoredWallet();
+      if (!walletData?.address) {
+        setError("No wallet connected");
+        return;
       }
 
-      // Get token balances for the current chain and wallet address
-      const { data: tokenBalances, error: tokenError } = await supabaseAdmin
-        .from("token_balances")
-        .select("*")
-        .eq("public_address", storedWalletData.address.toLowerCase())
-        .eq("chain_id", currentChainId);
+      // Ensure we have both account and chain
+      const effectiveAccount = currentAccount || { 
+        address: walletData.address, 
+        chainId: currentChainId 
+      };
 
-      if (tokenError) {
-        throw new Error("Failed to fetch token balances");
+      if (!effectiveAccount.address || !currentChainId) {
+        console.log('[Portfolio] Missing required data:', {
+          address: effectiveAccount.address,
+          chainId: currentChainId
+        });
+        setError("No account or chain selected");
+        return;
       }
 
-      // Map and update tokens with fresh data
+      console.log('[Portfolio] Starting refresh:', {
+        address: effectiveAccount.address,
+        chainId: currentChainId
+      });
+
+      // Get token balances for the current chain
+      const tokenBalances = await getTokenBalances(effectiveAccount.address, currentChainId);
+      
+      if (!tokenBalances || tokenBalances.length === 0) {
+        console.log('[Portfolio] No token balances found');
+        setTokens([]);
+        setTotalValue("0");
+        return;
+      }
+
+      // Process each token balance
       const updatedTokens = await Promise.all(
-        tokenBalances.map(async (token) => {
+        tokenBalances.map(async (balance: TokenBalanceResult) => {
           try {
-            const balance = await getTokenBalance(token.token_address, storedWalletData.address);
-            const priceData = await getTokenPrice(token.token_address, token.chain_id);
-            const priceHistory = await getTokenPriceHistory(token.token_address, token.chain_id);
+            // Skip tokens with errors
+            if (balance.error) {
+              console.warn('[Portfolio] Token balance error:', {
+                address: balance.contractAddress,
+                error: balance.error
+              });
+              return null;
+            }
+
+            // Get price data
+            const priceData = await getTokenPrice(balance.contractAddress, currentChainId as ChainId);
+            const priceHistory = await getTokenPriceHistory(balance.contractAddress, currentChainId as ChainId);
+            
+            // Calculate USD value
             const balanceUSD = calculateTokenBalanceUSD(
-              balance || "0",
+              balance.formattedBalance,
               priceData?.price?.toString() || "0",
-              token.decimals
+              balance.metadata?.decimals || 18
             );
 
-            return {
-              symbol: token.symbol,
-              name: token.name,
-              address: token.token_address,
-              decimals: token.decimals || 18,
-              balance: balance || "0",
+            // Use metadata from balance for native token
+            const isNative = balance.contractAddress === "0x0000000000000000000000000000000000000000";
+            const symbol = isNative ? balance.metadata?.symbol || 'UNKNOWN' : balance.metadata?.symbol || 'UNKNOWN';
+            const name = isNative ? balance.metadata?.name || 'Unknown Token' : balance.metadata?.name || 'Unknown Token';
+
+            const token: Token = {
+              symbol,
+              name,
+              address: balance.contractAddress,
+              decimals: balance.metadata?.decimals || 18,
+              balance: balance.formattedBalance,
               balanceUSD: balanceUSD,
               priceUSD: priceData?.price?.toString() || "0",
               priceChange24h: priceData?.change24h || 0,
-              logo: getTokenLogo(token.symbol, token.token_address, token.chain_id),
               lastUpdate: new Date().toISOString(),
-              isNative: token.token_address === "0x0000000000000000000000000000000000000000",
+              isNative,
               priceHistory: priceHistory || {
                 prices: [],
                 market_caps: [],
                 total_volumes: []
               },
-              chain_id: token.chain_id
+              chain_id: currentChainId
             };
+
+            return token;
           } catch (error) {
+            console.error('[Portfolio] Error processing token:', {
+              address: balance.contractAddress,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
             return null;
           }
         })
@@ -376,7 +496,7 @@ export default function Portfolio(): JSX.Element {
       const validTokens = updatedTokens.filter((token): token is Token => token !== null);
 
       // Calculate total value
-      const totalValue = validTokens.reduce((sum, token) => {
+      const totalValue = validTokens.reduce((sum: number, token: Token) => {
         return sum + parseFloat(token.balanceUSD || "0");
       }, 0);
 
@@ -392,12 +512,66 @@ export default function Portfolio(): JSX.Element {
         chainId: currentChainId
       });
 
+      console.log('[Portfolio] Refresh completed:', {
+        tokenCount: validTokens.length,
+        totalValue: totalValue.toFixed(2)
+      });
+
+      // Update last refresh time
+      setLastRefreshTime(Date.now());
     } catch (error) {
-      Alert.alert("Error", "Failed to refresh portfolio");
+      console.error('[Portfolio] Error refreshing portfolio:', error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to refresh portfolio";
+      setError(errorMessage);
+      Alert.alert("Error", errorMessage);
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [currentAccount?.address, currentChainId, isRefreshing, lastRefreshTime]);
+
+  const handleAccountChange = useCallback(async (account: Account) => {
+    console.log('[Portfolio] Account change received:', {
+      address: account.address,
+      chainId: account.chainId,
+      currentAccount: currentAccount?.address
+    });
+
+    try {
+      setIsAccountSwitching(true);
+      setError(null);
+
+      // Validate account
+      if (!account.address) {
+        throw new Error('Invalid account address');
+      }
+
+      // 1. Update current account
+      setCurrentAccount(account);
+      
+      // 2. Clear existing data
+      setTokens(current => 
+        current.map(t => ({ ...t, logo: undefined }))
+      );
+      setTokens([]);
+      setTotalValue("0");
+      
+      // 3. Load and save portfolio data for the new account
+      const savedData = await loadPortfolioData(currentChainId);
+      if (savedData) {
+        setTokens(savedData.tokens);
+        setTotalValue(savedData.totalValue);
+      }
+
+      // 4. Trigger a refresh to get fresh data
+      await handleRefresh();
+    } catch (error) {
+      console.error('[Portfolio] Error handling account change:', error);
+      setError(error instanceof Error ? error.message : 'Failed to update portfolio for new account');
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update portfolio for new account');
+    } finally {
+      setIsAccountSwitching(false);
+    }
+  }, [currentAccount, handleRefresh, currentChainId]);
 
   const handleChainChange = useCallback(async (chainId: number) => {
     console.log('[Portfolio] Chain change received:', {
@@ -407,8 +581,16 @@ export default function Portfolio(): JSX.Element {
     });
     
     try {
-      // 1. Update current chain ID
-      setCurrentChainId(chainId);
+      setIsChainSwitching(true);
+      setError(null);
+
+      // Validate chain ID
+      if (!getChainById(chainId)) {
+        throw new Error(`Unsupported chain ID: ${chainId}`);
+      }
+
+      // 1. Update chain ID in context
+      await setChainId(chainId);
       
       // 2. Update current account with new chain ID
       if (currentAccount) {
@@ -417,6 +599,9 @@ export default function Portfolio(): JSX.Element {
       }
       
       // 3. Clear existing data
+      setTokens(current => 
+        current.map(t => ({ ...t, logo: undefined }))
+      );
       setTokens([]);
       setTotalValue("0");
       
@@ -425,167 +610,90 @@ export default function Portfolio(): JSX.Element {
       if (savedData) {
         setTokens(savedData.tokens);
         setTotalValue(savedData.totalValue);
-        
-        // Save updated portfolio data with new chain
-        await savePortfolioData({
-          tokens: savedData.tokens,
-          totalValue: savedData.totalValue,
-          lastUpdate: Date.now(),
-          chainId
-        });
       }
+
+      // 5. Trigger a refresh to get fresh data
+      await handleRefresh();
     } catch (error) {
       console.error('[Portfolio] Error handling chain change:', error);
-      Alert.alert('Error', 'Failed to update portfolio for new network');
+      setError(error instanceof Error ? error.message : 'Failed to update portfolio for new network');
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update portfolio for new network');
+    } finally {
+      setIsChainSwitching(false);
     }
-  }, [currentChainId, currentAccount]);
+  }, [currentAccount, handleRefresh, setChainId]);
 
-  // Add effect to handle chain changes
+  // Update initialization effect to use ChainContext
   useEffect(() => {
-    if (currentChainId) {
-      console.log('[Portfolio] Chain changed, reloading data:', currentChainId);
-      loadPortfolioData(currentChainId);
-    }
-  }, [currentChainId]);
+    let isMounted = true;
+    let initializationTimeout: NodeJS.Timeout;
 
-  useEffect(() => {
     const init = async () => {
       try {
-        // Load saved data first for current chain
-        const savedData = await loadPortfolioData(currentChainId);
-        if (savedData) {
-          setTokens(savedData.tokens);
-          setTotalValue(savedData.totalValue);
-        }
+        setIsInitializing(true);
+        console.log('[Portfolio] Starting initialization...');
 
-        // Check for wallet data only if we don't have an account
-        if (!currentAccount?.address) {
-          const walletData = await getStoredWallet();
-          if (walletData?.address) {
-            handleAccountChange({ address: walletData.address });
+        // Get stored wallet data first
+        const walletData = await getStoredWallet();
+        
+        if (walletData?.address) {
+          // Use chain ID from context
+          console.log('[Portfolio] Found wallet data:', {
+            address: walletData.address,
+            chainId: currentChainId
+          });
+          
+          // Set current account with the chain ID from context
+          const account = { 
+            address: walletData.address,
+            chainId: currentChainId
+          };
+          
+          if (isMounted) {
+            setCurrentAccount(account);
+            
+            // Load saved data for the current chain ID
+            console.log('[Portfolio] Loading portfolio data for chain:', currentChainId);
+            const savedData = await loadPortfolioData(currentChainId);
+            if (savedData && isMounted) {
+              setTokens(savedData.tokens);
+              setTotalValue(savedData.totalValue);
+            }
+
+            // Set a timeout to trigger refresh after initialization
+            initializationTimeout = setTimeout(() => {
+              if (isMounted) {
+                handleRefresh();
+              }
+            }, 1000); // Wait 1 second before refreshing
+          }
+        } else {
+          console.log('[Portfolio] No wallet data found');
+          if (isMounted) {
+            setError("No wallet connected");
           }
         }
       } catch (error) {
         console.error('[Portfolio] Error during initialization:', error);
-        Alert.alert(
-          "Error",
-          "Failed to initialize app. Please try again.",
-          [{ text: "OK" }]
-        );
+        if (isMounted) {
+          setError(error instanceof Error ? error.message : "Failed to initialize app");
+        }
+      } finally {
+        if (isMounted) {
+          setIsInitializing(false);
+        }
       }
     };
 
     init();
-  }, []); // Remove currentChainId dependency
 
-  // Separate effect for chain changes - only trigger when chain actually changes
-  useEffect(() => {
-    const loadChainData = async () => {
-      try {
-        console.log('[Portfolio] Starting to load chain data:', {
-          chainId: currentChainId,
-          currentAccount: currentAccount?.address
-        });
-        
-        setIsRefreshing(true);
-        // Get stored wallet data
-        const storedWalletData = await getStoredWallet();
-        if (!storedWalletData?.address) {
-          throw new Error("No wallet address found");
-        }
-
-        console.log('[Portfolio] Fetching token balances for:', {
-          address: storedWalletData.address,
-          chainId: currentChainId
-        });
-
-        // Get token balances for the current chain and wallet address
-        const { data: tokenBalances, error: tokenError } = await supabaseAdmin
-          .from("token_balances")
-          .select("*")
-          .eq("public_address", storedWalletData.address.toLowerCase())
-          .eq("chain_id", currentChainId);
-
-        if (tokenError) {
-          console.error('[Portfolio] Error fetching token balances:', tokenError);
-          throw new Error("Failed to fetch token balances");
-        }
-
-        console.log('[Portfolio] Token balances fetched:', {
-          count: tokenBalances?.length || 0,
-          chainId: currentChainId
-        });
-
-        // Map and update tokens with fresh data
-        const updatedTokens = await Promise.all(
-          tokenBalances.map(async (token) => {
-            try {
-              const balance = await getTokenBalance(token.token_address, storedWalletData.address);
-              const priceData = await getTokenPrice(token.token_address, token.chain_id);
-              const priceHistory = await getTokenPriceHistory(token.token_address, token.chain_id);
-              const balanceUSD = calculateTokenBalanceUSD(
-                balance || "0",
-                priceData?.price?.toString() || "0",
-                token.decimals
-              );
-
-              return {
-                symbol: token.symbol,
-                name: token.name,
-                address: token.token_address,
-                decimals: token.decimals || 18,
-                balance: balance || "0",
-                balanceUSD: balanceUSD,
-                priceUSD: priceData?.price?.toString() || "0",
-                priceChange24h: priceData?.change24h || 0,
-                logo: getTokenLogo(token.symbol, token.token_address, token.chain_id),
-                lastUpdate: new Date().toISOString(),
-                isNative: token.token_address === "0x0000000000000000000000000000000000000000",
-                priceHistory: priceHistory || {
-                  prices: [],
-                  market_caps: [],
-                  total_volumes: []
-                },
-                chain_id: token.chain_id
-              };
-            } catch (error) {
-              return null;
-            }
-          })
-        );
-
-        // Filter out failed token updates
-        const validTokens = updatedTokens.filter((token): token is Token => token !== null);
-
-        // Calculate total value
-        const totalValue = validTokens.reduce((sum, token) => {
-          return sum + parseFloat(token.balanceUSD || "0");
-        }, 0);
-
-        // Update state
-        setTokens(validTokens);
-        setTotalValue(totalValue.toFixed(2));
-
-        // Save to storage
-        await savePortfolioData({
-          tokens: validTokens,
-          totalValue: totalValue.toFixed(2),
-          lastUpdate: Date.now(),
-          chainId: currentChainId
-        });
-      } catch (error) {
-        console.error("Error loading chain data:", error);
-        Alert.alert("Error", "Failed to load chain data");
-      } finally {
-        setIsRefreshing(false);
+    return () => {
+      isMounted = false;
+      if (initializationTimeout) {
+        clearTimeout(initializationTimeout);
       }
     };
-
-    // Only load data when chain changes
-    if (currentChainId) {
-      loadChainData();
-    }
-  }, [currentChainId]); // Remove showNetworkPicker from dependencies
+  }, [currentChainId]); // Only depend on currentChainId
 
   // Memoize chart data preparation
   const prepareChartData = useCallback((token: Token) => {
@@ -608,30 +716,26 @@ export default function Portfolio(): JSX.Element {
     const formattedBalanceUSD = token.balanceUSD ? `$${parseFloat(token.balanceUSD).toFixed(2)}` : '$0.00';
     const formattedPriceChange = (token.priceChange24h || 0).toFixed(2);
 
+    const logoSource = getLogoSource(token.address, token.chain_id);
+
     return (
       <TouchableOpacity 
-        key={token.address}
+        key={`${token.address}-${token.chain_id}`}
         style={styles.tokenCard}
         onPress={() => handleTokenPress(token)}
       >
         <View style={[styles.cardBlur, { backgroundColor: 'rgba(41, 40, 40, 0.25)' }]}>
           <View style={styles.cardContent}>
-            {/* Top row */}
             <View style={styles.topRow}>
-              {/* Left side - Token info */}
               <View style={styles.tokenHeader}>
                 <View style={styles.tokenIconContainer}>
-                  <Image 
-                    source={{ uri: token.logo }} 
-                    style={[styles.tokenIcon]}
-                    resizeMode="contain"
-                    onError={(error) => {
-                      console.log(`Failed to load logo for ${token.symbol}:`, error);
-                      // The Image component will automatically try the next source
-                    }}
-                    defaultSource={require('../assets/favicon.png')}
-                  />
-                  <View style={styles.tokenIconOverlay} />
+                  {logoSource && (
+                    <Image 
+                      source={logoSource}
+                      style={styles.chainIcon}
+                      resizeMode="contain"
+                    />
+                  )}
                 </View>
                 <View style={styles.tokenDetails}>
                   <View style={styles.tokenTitleRow}>
@@ -644,7 +748,6 @@ export default function Portfolio(): JSX.Element {
                 </View>
               </View>
 
-              {/* Right side - Values */}
               <View style={styles.valueContainer}>
                 <View style={styles.balanceRow}>
                   <Text style={styles.tokenBalance}>{formattedBalance} {token.symbol}</Text>
@@ -654,22 +757,13 @@ export default function Portfolio(): JSX.Element {
               </View>
             </View>
 
-            {/* Chart */}
             <View style={styles.chartWrapper}>
               <View style={styles.chartContainer}>
                 {chartPoints.length > 0 ? (
                   <GestureHandlerRootView style={{ flex: 1 }}>
-                    <LineChart.Provider 
-                      data={chartPoints}
-                    >
-                      <LineChart 
-                        height={80} 
-                        width={chartWidth}
-                      >
-                        <LineChart.Path 
-                          color={priceChangeColor} 
-                          width={2}
-                        >
+                    <LineChart.Provider data={chartPoints}>
+                      <LineChart height={80} width={chartWidth}>
+                        <LineChart.Path color={priceChangeColor} width={2}>
                           <LineChart.Gradient />
                         </LineChart.Path>
                         <LineChart.CursorCrosshair />
@@ -687,7 +781,7 @@ export default function Portfolio(): JSX.Element {
         </View>
       </TouchableOpacity>
     );
-  }, [prepareChartData]);
+  }, [getLogoSource, handleTokenPress]);
 
   const loadAvailableWallets = async () => {
     try {
@@ -728,12 +822,26 @@ export default function Portfolio(): JSX.Element {
     });
   }, [tokens]);
 
+  // Update wallet selection handler
+  const handleWalletSelect = useCallback(async (wallet: { id: string, public_address: string, chain_name: string }) => {
+    try {
+      console.log('[Portfolio] Wallet selected:', wallet);
+      handleAccountChange({ 
+        address: wallet.public_address,
+        chainId: currentChainId
+      });
+      handleCloseModal();
+    } catch (error) {
+      console.error('[Portfolio] Error selecting wallet:', error);
+      Alert.alert('Error', 'Failed to select wallet');
+    }
+  }, [currentChainId, handleAccountChange, handleCloseModal]);
+
   return (
     <GestureHandlerRootView style={styles.container}>
       <WalletHeader 
         onAccountChange={handleAccountChange}
         pageName="Portfolio"
-        currentChainId={currentChainId}
         onChainChange={handleChainChange}
       />
       <ImageBackground 
@@ -753,18 +861,21 @@ export default function Portfolio(): JSX.Element {
           {/* Portfolio Value */}
           <View style={styles.portfolioValue}>
             <Text style={styles.valueLabel}>Total Value</Text>
-            <Text style={styles.valueAmount}>${totalValue}</Text>
+            <Text style={styles.valueAmount}>
+              {isInitializing ? 'Loading...' : isChainSwitching ? 'Switching...' : `$${totalValue}`}
+            </Text>
             <View style={styles.headerButtons}>
               <TouchableOpacity 
                 style={styles.swapButton}
                 onPress={() => router.push('/swap')}
+                disabled={isInitializing || isChainSwitching}
               >
                 <Ionicons name="swap-horizontal" size={24} color={COLORS.primary} />
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.refreshButton}
                 onPress={handleRefresh}
-                disabled={isRefreshing || !currentAccount?.address}
+                disabled={isInitializing || isRefreshing || isChainSwitching || !currentAccount?.address}
               >
                 {isRefreshing ? (
                   <ActivityIndicator color={COLORS.primary} size="small" />
@@ -780,7 +891,33 @@ export default function Portfolio(): JSX.Element {
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
           >
-            {sortedTokens.map(renderTokenCard)}
+            {isInitializing ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={styles.loadingText}>Loading portfolio...</Text>
+              </View>
+            ) : isChainSwitching ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={styles.loadingText}>Switching network...</Text>
+              </View>
+            ) : error ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity 
+                  style={styles.retryButton}
+                  onPress={handleRefresh}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : sortedTokens.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No tokens found</Text>
+              </View>
+            ) : (
+              sortedTokens.map(renderTokenCard)
+            )}
           </ScrollView>
 
           {/* Wallet Selection Modal */}
@@ -820,8 +957,7 @@ export default function Portfolio(): JSX.Element {
                             currentAccount?.address === wallet.public_address && styles.modalOptionSelected
                           ]}
                           onPress={() => {
-                            handleAccountChange({ address: wallet.public_address });
-                            handleCloseModal();
+                            handleWalletSelect(wallet);
                           }}
                         >
                           <View style={styles.chainSelectContent}>
@@ -947,14 +1083,16 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
-  tokenIcon: {
-    width: '70%',
-    height: '70%',
+  chainIcon: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
   },
   tokenIconOverlay: {
     position: 'absolute',
@@ -962,7 +1100,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(59, 130, 246, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tokenDetails: {
     gap: 2,
@@ -1122,5 +1262,60 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     padding: SPACING.lg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  loadingText: {
+    color: COLORS.white,
+    marginTop: SPACING.md,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  errorText: {
+    color: COLORS.error,
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+    fontSize: 16,
+  },
+  retryButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  emptyText: {
+    color: COLORS.white,
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 }); 

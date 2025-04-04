@@ -1,7 +1,9 @@
+import { ChainId } from '../constants/chains';
+
 interface CoinGeckoResponse {
   [key: string]: {
     usd: number;
-    usd_24hr_change: number;
+    usd_24h_change: number;
     usd_24hr_vol?: number;
   };
 }
@@ -23,8 +25,24 @@ interface PriceHistoryResponse {
   total_volumes: [number, number][];
 }
 
-const COINGECKO_API_KEY = 'CG-VCXZAmb9rowc8iR9nmbeMvkE';
-const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
+interface CoinGeckoTokenInfo {
+  id: string;
+  symbol: string;
+  name: string;
+  image: {
+    thumb: string;
+    small: string;
+    large: string;
+  };
+  description?: {
+    en?: string;
+  };
+  links?: {
+    homepage?: string[];
+    blockchain_site?: string[];
+  };
+}
+
 const TIMEOUT_MS = 30000; // 30 second timeout
 
 const makeCoinGeckoRequest = (url: string): Promise<any> => {
@@ -90,93 +108,198 @@ const makeCoinGeckoRequest = (url: string): Promise<any> => {
   });
 };
 
-export const getTokenPrice = async (address: string, chainId: number): Promise<TokenPrice | null> => {
-  try {
-    // Only fetch prices for Ethereum mainnet tokens
-    if (chainId !== 1) {
-      console.log(`[CoinGeckoAPI] Skipping price fetch for token ${address} on chain ${chainId}`);
-      return null;
-    }
+// Map of chain IDs to CoinGecko platform IDs
+export const CHAIN_TO_PLATFORM: Record<ChainId, string> = {
+  1: 'ethereum',
+  137: 'polygon-pos',
+  42161: 'arbitrum-one',
+  10: 'optimistic-ethereum',
+  56: 'binance-smart-chain',
+  43114: 'avalanche',
+  8453: 'base'
+};
 
-    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
+// Map of native token IDs for each chain
+export const NATIVE_TOKEN_IDS: Record<ChainId, string> = {
+  1: 'ethereum',
+  137: 'matic-network',
+  42161: 'ethereum',
+  10: 'ethereum',
+  56: 'binancecoin',
+  43114: 'avalanche-2',
+  8453: 'ethereum'
+};
+
+// Map of wrapped native token addresses for each chain
+const WRAPPED_NATIVE_ADDRESSES: Record<ChainId, string> = {
+  1: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
+  137: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', // WMATIC
+  42161: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', // WETH
+  10: '0x4200000000000000000000000000000000000006', // WETH
+  56: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', // WBNB
+  43114: '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7', // WAVAX
+  8453: '0x4200000000000000000000000000000000000006'  // WETH
+};
+
+export const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
+export const COINGECKO_API_KEY = 'CG-VCXZAmb9rowc8iR9nmbeMvkE';
+
+export const getTokenPrice = async (contractAddress: string, chainId: ChainId): Promise<TokenPrice | null> => {
+  try {
+    console.log('[CoinGeckoAPI] Getting token price:', { contractAddress, chainId });
+    const platform = CHAIN_TO_PLATFORM[chainId];
+    console.log('[CoinGeckoAPI] Using platform:', platform);
     
-    // For native ETH, use the ethereum endpoint
-    if (isNativeEth) {
-      const url = `${COINGECKO_BASE_URL}/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true`;
-      const data = await makeCoinGeckoRequest(url);
+    // Handle native token
+    if (contractAddress === '0x0000000000000000000000000000000000000000') {
+      const tokenId = NATIVE_TOKEN_IDS[chainId];
+      console.log('[CoinGeckoAPI] Getting native token price for:', { tokenId, chainId });
       
-      if (!data?.ethereum?.usd) {
-        console.error('[CoinGeckoAPI] No ETH price data in response:', data);
+      if (!tokenId) {
+        console.error('[CoinGeckoAPI] No token ID found for chain:', chainId);
         return null;
       }
+
+      const url = `${COINGECKO_BASE_URL}/simple/price?ids=${tokenId}&vs_currencies=usd&include_24hr_change=true`;
+      console.log('[CoinGeckoAPI] Making native token price request:', url);
+      
+      const response = await makeCoinGeckoRequest(url);
+      console.log('[CoinGeckoAPI] Native token price response:', response);
+
+      if (!response[tokenId]?.usd) {
+        console.error('[CoinGeckoAPI] No token price data in response:', response);
+        return null;
+      }
+
       return {
-        price: data.ethereum.usd,
-        change24h: data.ethereum.usd_24h_change || 0
+        price: response[tokenId].usd,
+        change24h: response[tokenId].usd_24h_change || 0
       };
     }
 
-    // For all other tokens, use the contract price endpoint
-    const url = `${COINGECKO_BASE_URL}/simple/token_price/ethereum?contract_addresses=${address}&vs_currencies=usd&include_24hr_change=true`;
-    const data = await makeCoinGeckoRequest(url);
-    
-    const tokenData = data[address.toLowerCase()];
-    if (!tokenData?.usd) {
-      console.error('[CoinGeckoAPI] No token price data in response:', data);
+    // Handle wrapped native token (like WETH) - use native token price
+    if (WRAPPED_NATIVE_ADDRESSES[chainId]?.toLowerCase() === contractAddress.toLowerCase()) {
+      const tokenId = NATIVE_TOKEN_IDS[chainId];
+      console.log('[CoinGeckoAPI] Getting wrapped native token price for:', { tokenId, chainId });
+      
+      if (!tokenId) {
+        console.error('[CoinGeckoAPI] No token ID found for wrapped token on chain:', chainId);
+        return null;
+      }
+
+      const url = `${COINGECKO_BASE_URL}/simple/price?ids=${tokenId}&vs_currencies=usd&include_24hr_change=true`;
+      console.log('[CoinGeckoAPI] Making wrapped token price request:', url);
+      
+      const response = await makeCoinGeckoRequest(url);
+      console.log('[CoinGeckoAPI] Wrapped token price response:', response);
+
+      if (!response[tokenId]?.usd) {
+        console.error('[CoinGeckoAPI] No token price data in response:', response);
+        return null;
+      }
+
+      return {
+        price: response[tokenId].usd,
+        change24h: response[tokenId].usd_24h_change || 0
+      };
+    }
+
+    // Handle other tokens
+    if (!platform) {
+      console.error('[CoinGeckoAPI] No platform found for chain:', chainId);
       return null;
     }
+
+    const url = `${COINGECKO_BASE_URL}/simple/token_price/${platform}?contract_addresses=${contractAddress}&vs_currencies=usd&include_24hr_change=true`;
+    console.log('[CoinGeckoAPI] Making token price request:', url);
+    
+    const response = await makeCoinGeckoRequest(url);
+    console.log('[CoinGeckoAPI] Token price response:', response);
+
+    if (!response[contractAddress.toLowerCase()]) {
+      console.error('[CoinGeckoAPI] No token price data in response:', response);
+      return null;
+    }
+
     return {
-      price: tokenData.usd,
-      change24h: tokenData.usd_24h_change || 0
+      price: response[contractAddress.toLowerCase()].usd,
+      change24h: response[contractAddress.toLowerCase()].usd_24h_change || 0
     };
   } catch (error) {
-    console.error('[CoinGeckoAPI] Error in price request:', error);
+    console.error('[CoinGeckoAPI] Error fetching token price:', error);
     return null;
   }
 };
 
-export const getTokenPriceHistory = async (address: string, chainId: number): Promise<PriceHistoryResponse> => {
+export const getTokenPriceHistory = async (contractAddress: string, chainId: ChainId): Promise<PriceHistoryResponse> => {
   try {
-    // Only fetch price history for Ethereum mainnet tokens
-    if (chainId !== 1) {
-      console.log(`[CoinGeckoAPI] Skipping price history fetch for token ${address} on chain ${chainId}`);
-      return {
+    const platform = CHAIN_TO_PLATFORM[chainId];
+
+    // Handle native token
+    if (contractAddress === '0x0000000000000000000000000000000000000000') {
+      const tokenId = NATIVE_TOKEN_IDS[chainId];
+      if (!tokenId) return {
         prices: [],
         market_caps: [],
         total_volumes: []
       };
-    }
 
-    const isNativeEth = address === '0x0000000000000000000000000000000000000000';
-    
-    // For native ETH, use the ethereum endpoint
-    if (isNativeEth) {
-      const url = `${COINGECKO_BASE_URL}/coins/ethereum/market_chart?vs_currency=usd&days=1`;
-      const data = await makeCoinGeckoRequest(url);
+      const url = `${COINGECKO_BASE_URL}/coins/${tokenId}/market_chart?vs_currency=usd&days=1`;
+      const response = await makeCoinGeckoRequest(url);
       
-      if (!data?.prices?.length) {
-        console.error('[CoinGeckoAPI] No ETH price history data found:', data);
+      if (!response?.prices?.length) {
+        console.error('[CoinGeckoAPI] No native token price history data found:', response);
         return {
           prices: [],
           market_caps: [],
           total_volumes: []
         };
       }
-      return data as PriceHistoryResponse;
+      return response as PriceHistoryResponse;
     }
 
-    // For all other tokens, use the contract endpoint
-    const url = `${COINGECKO_BASE_URL}/coins/ethereum/contract/${address}/market_chart?vs_currency=usd&days=1`;
-    const data = await makeCoinGeckoRequest(url);
+    // Handle wrapped native token (like WETH) - use native token price history
+    if (WRAPPED_NATIVE_ADDRESSES[chainId]?.toLowerCase() === contractAddress.toLowerCase()) {
+      const tokenId = NATIVE_TOKEN_IDS[chainId];
+      if (!tokenId) return {
+        prices: [],
+        market_caps: [],
+        total_volumes: []
+      };
+
+      const url = `${COINGECKO_BASE_URL}/coins/${tokenId}/market_chart?vs_currency=usd&days=1`;
+      const response = await makeCoinGeckoRequest(url);
+      
+      if (!response?.prices?.length) {
+        console.error('[CoinGeckoAPI] No native token price history data found:', response);
+        return {
+          prices: [],
+          market_caps: [],
+          total_volumes: []
+        };
+      }
+      return response as PriceHistoryResponse;
+    }
+
+    // Handle other tokens
+    if (!platform) return {
+      prices: [],
+      market_caps: [],
+      total_volumes: []
+    };
+
+    const url = `${COINGECKO_BASE_URL}/coins/${platform}/contract/${contractAddress}/market_chart?vs_currency=usd&days=1`;
+    const response = await makeCoinGeckoRequest(url);
     
-    if (!data?.prices?.length) {
-      console.error('[CoinGeckoAPI] No token price history data found:', data);
+    if (!response?.prices?.length) {
+      console.error('[CoinGeckoAPI] No token price history data found:', response);
       return {
         prices: [],
         market_caps: [],
         total_volumes: []
       };
     }
-    return data as PriceHistoryResponse;
+    return response as PriceHistoryResponse;
   } catch (error) {
     console.error('[CoinGeckoAPI] Error in history request:', error);
     return {
@@ -184,5 +307,57 @@ export const getTokenPriceHistory = async (address: string, chainId: number): Pr
       market_caps: [],
       total_volumes: []
     };
+  }
+};
+
+export const getTokenInfo = async (contractAddress: string, chainId: ChainId): Promise<CoinGeckoTokenInfo | null> => {
+  try {
+    console.log('[CoinGeckoAPI] Getting token info:', { contractAddress, chainId });
+    const platform = CHAIN_TO_PLATFORM[chainId];
+    
+    // Handle native token
+    if (contractAddress === '0x0000000000000000000000000000000000000000') {
+      const tokenId = NATIVE_TOKEN_IDS[chainId];
+      if (!tokenId) {
+        console.error('[CoinGeckoAPI] No token ID found for chain:', chainId);
+        return null;
+      }
+
+      const url = `${COINGECKO_BASE_URL}/coins/${tokenId}`;
+      console.log('[CoinGeckoAPI] Making native token info request:', url);
+      
+      const response = await makeCoinGeckoRequest(url);
+      return response as CoinGeckoTokenInfo;
+    }
+
+    // Handle wrapped native token
+    if (WRAPPED_NATIVE_ADDRESSES[chainId]?.toLowerCase() === contractAddress.toLowerCase()) {
+      const tokenId = NATIVE_TOKEN_IDS[chainId];
+      if (!tokenId) {
+        console.error('[CoinGeckoAPI] No token ID found for wrapped token on chain:', chainId);
+        return null;
+      }
+
+      const url = `${COINGECKO_BASE_URL}/coins/${tokenId}`;
+      console.log('[CoinGeckoAPI] Making wrapped token info request:', url);
+      
+      const response = await makeCoinGeckoRequest(url);
+      return response as CoinGeckoTokenInfo;
+    }
+
+    // Handle other tokens
+    if (!platform) {
+      console.error('[CoinGeckoAPI] No platform found for chain:', chainId);
+      return null;
+    }
+
+    const url = `${COINGECKO_BASE_URL}/coins/${platform}/contract/${contractAddress}`;
+    console.log('[CoinGeckoAPI] Making token info request:', url);
+    
+    const response = await makeCoinGeckoRequest(url);
+    return response as CoinGeckoTokenInfo;
+  } catch (error) {
+    console.error('[CoinGeckoAPI] Error fetching token info:', error);
+    return null;
   }
 }; 

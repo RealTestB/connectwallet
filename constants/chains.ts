@@ -1,4 +1,7 @@
 import { NetworkConfig } from '../api/config';
+import Constants from 'expo-constants';
+
+export type ChainId = 1 | 137 | 42161 | 10 | 56 | 43114 | 8453;
 
 export interface ChainInfo {
   chainId: number;
@@ -41,7 +44,7 @@ export const CHAINS: { [key: string]: ChainInfo } = {
       decimals: 18
     },
     blockExplorerUrl: 'https://etherscan.io',
-    rpcUrl: process.env.ETHEREUM_MAINNET_URL || '',
+    rpcUrl: Constants.expoConfig?.extra?.ETHEREUM_MAINNET_URL || '',
     isTestnet: false
   },
   polygon: {
@@ -54,7 +57,7 @@ export const CHAINS: { [key: string]: ChainInfo } = {
       decimals: 18
     },
     blockExplorerUrl: 'https://polygonscan.com',
-    rpcUrl: process.env.POLYGON_POS_MAINNET_URL || '',
+    rpcUrl: Constants.expoConfig?.extra?.POLYGON_POS_MAINNET_URL || '',
     isTestnet: false
   },
   arbitrum: {
@@ -67,7 +70,7 @@ export const CHAINS: { [key: string]: ChainInfo } = {
       decimals: 18
     },
     blockExplorerUrl: 'https://arbiscan.io',
-    rpcUrl: process.env.ARBITRUM_MAINNET_URL || '',
+    rpcUrl: Constants.expoConfig?.extra?.ARBITRUM_MAINNET_URL || '',
     isTestnet: false
   },
   optimism: {
@@ -80,7 +83,20 @@ export const CHAINS: { [key: string]: ChainInfo } = {
       decimals: 18
     },
     blockExplorerUrl: 'https://optimistic.etherscan.io',
-    rpcUrl: process.env.OP_MAINNET_URL || '',
+    rpcUrl: Constants.expoConfig?.extra?.OPTIMISM_MAINNET_URL || '',
+    isTestnet: false
+  },
+  bsc: {
+    chainId: 56,
+    name: 'BNB Smart Chain',
+    key: 'bsc',
+    nativeCurrency: {
+      name: 'BNB',
+      symbol: 'BNB',
+      decimals: 18
+    },
+    blockExplorerUrl: 'https://bscscan.com',
+    rpcUrl: Constants.expoConfig?.extra?.BNB_SMART_CHAIN_MAINNET_URL || '',
     isTestnet: false
   },
   avalanche: {
@@ -93,7 +109,7 @@ export const CHAINS: { [key: string]: ChainInfo } = {
       decimals: 18
     },
     blockExplorerUrl: 'https://snowtrace.io',
-    rpcUrl: process.env.AVALANCHE_MAINNET_URL || '',
+    rpcUrl: Constants.expoConfig?.extra?.AVALANCHE_MAINNET_URL || '',
     isTestnet: false
   },
   base: {
@@ -106,7 +122,7 @@ export const CHAINS: { [key: string]: ChainInfo } = {
       decimals: 18
     },
     blockExplorerUrl: 'https://basescan.org',
-    rpcUrl: process.env.BASE_MAINNET_URL || '',
+    rpcUrl: Constants.expoConfig?.extra?.BASE_MAINNET_URL || '',
     isTestnet: false
   }
 };

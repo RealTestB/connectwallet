@@ -2,6 +2,14 @@ import { Alchemy, Network, AlchemySettings } from 'alchemy-sdk';
 import { ethers } from 'ethers';
 import config from './config';
 import { TokenBalance, TokenMetadata } from '../types/tokens';
+import { NETWORKS } from './config';
+import { CHAIN_TO_NETWORK } from './tokensApi';
+
+// Update TokenBalance interface to match Alchemy's response structure
+interface AlchemyTokenBalance {
+  contractAddress: string;
+  tokenBalance: string;
+}
 
 interface AlchemyInstances {
   [key: string]: Alchemy;
@@ -9,8 +17,24 @@ interface AlchemyInstances {
 
 const TIMEOUT_MS = 5000; // 5 second timeout for better UX
 
-const ALCHEMY_BASE_URL = 'https://eth-mainnet.g.alchemy.com/v2';
-const ALCHEMY_NFT_BASE_URL = 'https://eth-mainnet.g.alchemy.com/nft/v3';
+// Get the Alchemy URL for a specific network
+const getAlchemyUrl = (chainId: number = 1): string => {
+  const networkKey = CHAIN_TO_NETWORK[chainId];
+  if (!networkKey) {
+    throw new Error(`Chain ID ${chainId} not supported`);
+  }
+  return NETWORKS[networkKey]?.rpcUrl || '';
+};
+
+// Get the Alchemy NFT URL for a specific network
+const getAlchemyNFTUrl = (chainId: number = 1): string => {
+  const networkKey = CHAIN_TO_NETWORK[chainId];
+  if (!networkKey) {
+    throw new Error(`Chain ID ${chainId} not supported`);
+  }
+  const baseUrl = NETWORKS[networkKey]?.rpcUrl || '';
+  return baseUrl.replace('/v2/', '/nft/v3/');
+};
 
 interface AlchemyResponse {
   jsonrpc: string;
@@ -30,7 +54,7 @@ interface AlchemyError {
 /**
  * Make a request to Alchemy API using XMLHttpRequest
  */
-export function makeAlchemyRequest(method: string, params: any[]): Promise<any> {
+export function makeAlchemyRequest(method: string, params: any[], chainId: number = 1): Promise<any> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.timeout = 30000; // 30 second timeout
@@ -74,7 +98,10 @@ export function makeAlchemyRequest(method: string, params: any[]): Promise<any> 
       reject(new Error('Request timed out'));
     });
 
-    xhr.open('POST', `${ALCHEMY_BASE_URL}/${config.apiKeys.alchemyKey}`);
+    const url = getAlchemyUrl(chainId);
+    console.log('[AlchemyAPI] Making request to:', { url, method, chainId });
+
+    xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('Accept', 'application/json');
 
@@ -92,7 +119,7 @@ export function makeAlchemyRequest(method: string, params: any[]): Promise<any> 
 /**
  * Make a request to Alchemy NFT API v3 using XMLHttpRequest
  */
-export function makeAlchemyNFTRequest(endpoint: string, queryParams: Record<string, any> = {}): Promise<any> {
+export function makeAlchemyNFTRequest(endpoint: string, queryParams: Record<string, any> = {}, chainId: number = 1): Promise<any> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.timeout = 30000; // 30 second timeout
@@ -133,7 +160,10 @@ export function makeAlchemyNFTRequest(endpoint: string, queryParams: Record<stri
       .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
       .join('&');
 
-    const url = `${ALCHEMY_NFT_BASE_URL}/${config.apiKeys.alchemyKey}/${endpoint}${queryString ? `?${queryString}` : ''}`;
+    const baseUrl = getAlchemyNFTUrl(chainId);
+    const url = `${baseUrl}/${endpoint}${queryString ? `?${queryString}` : ''}`;
+    
+    console.log('[AlchemyAPI] Making NFT request to:', { url, chainId });
     
     xhr.open('GET', url);
     xhr.setRequestHeader('Accept', 'application/json');
@@ -145,26 +175,40 @@ let alchemyInstances: AlchemyInstances = {};
 let provider: ethers.JsonRpcProvider | null = null;
 
 /**
- * Get or create Alchemy instance
+ * Get or create Alchemy instance for a specific chain
  */
-export function getAlchemyInstance(): Alchemy {
-  const settings: AlchemySettings = {
-    apiKey: config.apiKeys.alchemyKey,
-    network: Network.ETH_MAINNET
-  };
-  return new Alchemy(settings);
+export function getAlchemyInstance(chainId: number = 1): Alchemy {
+  const networkKey = CHAIN_TO_NETWORK[chainId];
+  if (!networkKey) {
+    throw new Error(`Chain ID ${chainId} not supported`);
+  }
+
+  if (!alchemyInstances[networkKey]) {
+    const settings: AlchemySettings = {
+      apiKey: config.apiKeys.alchemyKey,
+      network: Network[networkKey.toUpperCase() as keyof typeof Network] || Network.ETH_MAINNET
+    };
+    alchemyInstances[networkKey] = new Alchemy(settings);
+  }
+  return alchemyInstances[networkKey];
 }
 
 /**
- * Get or create ethers provider instance
+ * Get or create ethers provider instance for a specific chain
  */
-export const getProvider = (): ethers.JsonRpcProvider => {
+export const getProvider = (chainId: number = 1): ethers.JsonRpcProvider => {
+  const networkKey = CHAIN_TO_NETWORK[chainId];
+  if (!networkKey) {
+    throw new Error(`Chain ID ${chainId} not supported`);
+  }
+
   if (!provider) {
     try {
-      provider = new ethers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${config.apiKeys.alchemyKey}`);
+      const url = getAlchemyUrl(chainId);
+      provider = new ethers.JsonRpcProvider(url);
     } catch (error) {
       console.error('Failed to create provider:', error);
-      throw new Error('Failed to initialize Ethereum provider');
+      throw new Error('Failed to initialize provider');
     }
   }
   return provider;
@@ -252,7 +296,7 @@ export async function getEthBalance(address: string): Promise<string> {
 /**
  * Get token balances for an address
  */
-export async function getTokenBalances(address: string): Promise<TokenBalance[]> {
+export async function getTokenBalances(address: string): Promise<AlchemyTokenBalance[]> {
   return makeAlchemyRequest('alchemy_getTokenBalances', [address]);
 }
 
@@ -293,7 +337,7 @@ export const resetInstances = () => {
  */
 export async function fetchWalletTokens(address: string): Promise<{
   ethBalance: string;
-  tokens: (TokenBalance & TokenMetadata)[];
+  tokens: (AlchemyTokenBalance & TokenMetadata)[];
 }> {
   try {
     // Get ETH balance and token balances in parallel

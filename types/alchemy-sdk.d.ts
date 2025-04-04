@@ -8,7 +8,10 @@ declare module 'alchemy-sdk' {
     ARB_MAINNET = 'arb-mainnet',
     ARB_GOERLI = 'arb-goerli',
     OPT_MAINNET = 'opt-mainnet',
-    OPT_GOERLI = 'opt-goerli'
+    OPT_GOERLI = 'opt-goerli',
+    BNB_MAINNET = 'bnb-mainnet',
+    AVALANCHE_MAINNET = 'avalanche-mainnet',
+    BASE_MAINNET = 'base-mainnet'
   }
 
   export interface AlchemySettings {

@@ -46,7 +46,7 @@ export const importClassicWalletFromPrivateKey = async (privateKey: string): Pro
     });
 
     // Fetch token balances
-    const tokenBalances = await getTokenBalances(address);
+    const tokenBalances = await getTokenBalances(address, 1); // Use Ethereum mainnet for initial import
     if (!Array.isArray(tokenBalances)) {
       throw new Error("Failed to fetch token balances");
     }
@@ -75,8 +75,7 @@ export const importClassicWalletFromPrivateKey = async (privateKey: string): Pro
 
     return { 
       address, 
-      type: "classic",
-      chainId: config.chain.chainId
+      type: "classic"
     };
   } catch (error) {
     console.error("Failed to import wallet from private key:", error);
@@ -119,7 +118,7 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
     });
 
     // Fetch token balances
-    const tokenBalances = await getTokenBalances(address);
+    const tokenBalances = await getTokenBalances(address, 1); // Use Ethereum mainnet for initial import
     if (!Array.isArray(tokenBalances)) {
       throw new Error("Failed to fetch token balances");
     }
@@ -148,8 +147,7 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
 
     return { 
       address, 
-      type: "classic",
-      chainId: config.chain.chainId
+      type: "classic"
     };
   } catch (error) {
     console.error("Failed to import wallet from seed phrase:", error);
@@ -204,7 +202,6 @@ export const createClassicWallet = async (password?: string): Promise<WalletData
     return { 
       address, 
       type: "classic",
-      chainId: config.chain.chainId,
       hasPassword: !!password
     };
   } catch (error) {
@@ -224,8 +221,7 @@ export const getStoredWallet = async (): Promise<WalletData | null> => {
     const walletData = JSON.parse(walletDataStr);
     return {
       address: walletData.address,
-      type: "classic",
-      chainId: config.chain.chainId
+      type: "classic"
     };
   } catch (error) {
     console.error("Failed to get stored wallet:", error);

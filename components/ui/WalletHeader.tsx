@@ -1,13 +1,23 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image, Alert, ImageSourcePropType } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
 import { getStoredWallet } from "../../api/walletApi";
 import { BlurView } from "expo-blur";
 import { COLORS, SPACING } from "../../styles/shared";
 import { CHAINS, getChainById } from "../../constants/chains";
-import { getTokenLogo } from "../../utils/tokenUtils";
 import { useChain } from "../../contexts/ChainContext";
+
+// Add chain logo mapping
+const CHAIN_LOGOS: { [key: number]: any } = {
+  1: require('../../assets/images/ethereum.png'),
+  137: require('../../assets/images/polygon.png'),
+  42161: require('../../assets/images/arbitrum.png'),
+  10: require('../../assets/images/Optimism.png'),
+  56: require('../../assets/images/bnb.png'),
+  43114: require('../../assets/images/avalanche.png'),
+  8453: require('../../assets/images/base.png')
+};
 
 interface Account {
   address: string;
@@ -19,9 +29,10 @@ interface WalletHeaderProps {
   onAccountChange: (account: Account) => void;
   pageName?: string;
   onPress?: () => void;
+  onChainChange?: (chainId: number) => Promise<void>;
 }
 
-export default function WalletHeader({ onAccountChange, pageName, onPress }: WalletHeaderProps): JSX.Element {
+export default function WalletHeader({ onAccountChange, pageName, onPress, onChainChange }: WalletHeaderProps): JSX.Element {
   const { currentChainId, setChainId } = useChain();
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [isChainDropdownOpen, setIsChainDropdownOpen] = useState<boolean>(false);
@@ -100,13 +111,18 @@ export default function WalletHeader({ onAccountChange, pageName, onPress }: Wal
         setSelectedAccount(updatedAccount);
         onAccountChange(updatedAccount);
       }
+
+      // Call onChainChange if provided
+      if (onChainChange) {
+        await onChainChange(chainId);
+      }
     } catch (error) {
       console.error('[WalletHeader] Error updating chain:', error);
       Alert.alert('Error', 'Failed to update network. Please try again.');
     }
 
     setIsChainDropdownOpen(false);
-  }, [selectedAccount, onAccountChange, setChainId, currentChainId]);
+  }, [selectedAccount, onAccountChange, setChainId, currentChainId, onChainChange]);
 
   // Update selectedAccount when currentChainId changes
   useEffect(() => {
@@ -155,9 +171,9 @@ export default function WalletHeader({ onAccountChange, pageName, onPress }: Wal
             onPress={() => setIsChainDropdownOpen(true)}
           >
             <Image 
-              source={getTokenLogo('', '0x0000000000000000000000000000000000000000', selectedAccount?.chainId || currentChainId || 1)}
+              source={CHAIN_LOGOS[selectedAccount?.chainId || currentChainId || 1]}
               style={styles.chainIcon}
-              defaultSource={require('../../assets/favicon.png')}
+              resizeMode="contain"
             />
           </TouchableOpacity>
 
@@ -229,9 +245,9 @@ export default function WalletHeader({ onAccountChange, pageName, onPress }: Wal
                   >
                     <View style={styles.accountIcon}>
                       <Image 
-                        source={getTokenLogo('', '0x0000000000000000000000000000000000000000', chain.id)}
+                        source={CHAIN_LOGOS[chain.id]}
                         style={styles.chainIcon}
-                        defaultSource={require('../../assets/favicon.png')}
+                        resizeMode="contain"
                       />
                     </View>
                     <View style={styles.accountInfo}>

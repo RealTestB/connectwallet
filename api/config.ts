@@ -26,6 +26,7 @@ interface ExpoManifest {
     BASE_MAINNET_URL?: string;
     BASE_FALLBACK_URLS?: string[];
     BASE_SEPOLIA_URL?: string;
+    BNB_SMART_CHAIN_MAINNET_URL?: string;
     ALCHEMY_ETH_MAINNET_KEY?: string;
     EXPO_PUBLIC_SUPABASE_URL?: string;
     EXPO_PUBLIC_SUPABASE_ANON_KEY?: string;
