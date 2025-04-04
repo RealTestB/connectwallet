@@ -1,5 +1,3 @@
-
-
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -1047,3 +1045,68 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 RESET ALL;
+
+CREATE OR REPLACE FUNCTION "public"."manage_account_index"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+    -- For imported private key wallets, set index to -1
+    IF NEW.imported THEN
+        NEW.account_index := -1;
+        RETURN NEW;
+    END IF;
+
+    -- For all other wallets (new or seed phrase), set index to 0
+    NEW.account_index := 0;
+    RETURN NEW;
+END;
+$$;
+
+ALTER FUNCTION "public"."manage_account_index"() OWNER TO "postgres";
+
+-- Make sure the trigger exists
+DROP TRIGGER IF EXISTS "manage_account_index_trigger" ON "public"."wallets";
+CREATE TRIGGER "manage_account_index_trigger"
+    BEFORE INSERT ON "public"."wallets"
+    FOR EACH ROW
+    EXECUTE FUNCTION "public"."manage_account_index"();
+
+CREATE OR REPLACE FUNCTION "public"."update_existing_account_indices"() RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    current_index INTEGER;
+BEGIN
+    -- For each unique public address
+    FOR wallet_record IN 
+        SELECT DISTINCT public_address 
+        FROM wallets 
+        WHERE NOT imported 
+        ORDER BY public_address, created_at
+    LOOP
+        current_index := -1;
+        
+        -- Update each wallet for this address with incrementing indices
+        FOR wallet_record IN 
+            SELECT id 
+            FROM wallets 
+            WHERE public_address = wallet_record.public_address 
+            AND NOT imported 
+            ORDER BY created_at
+        LOOP
+            current_index := current_index + 1;
+            UPDATE wallets 
+            SET account_index = current_index 
+            WHERE id = wallet_record.id;
+        END LOOP;
+    END LOOP;
+END;
+$$;
+
+ALTER FUNCTION "public"."update_existing_account_indices"() OWNER TO "postgres";
+
+-- Add unique constraint for account_index per public_address
+ALTER TABLE "public"."wallets" 
+ADD CONSTRAINT "unique_account_index_per_address" 
+UNIQUE ("public_address", "account_index");

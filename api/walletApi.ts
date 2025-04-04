@@ -109,12 +109,12 @@ export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Pro
       throw new Error("No user ID found");
     }
 
-    // Store wallet in database with imported flag
+    // Store wallet in database (NOT as imported since it's from seed phrase)
     const walletId = await createWallet({
       user_id: userId,
       public_address: address,
       chain_name: "ethereum",
-      imported: true
+      imported: false // Changed from true to false since seed phrase wallets aren't "imported"
     });
 
     // Fetch token balances

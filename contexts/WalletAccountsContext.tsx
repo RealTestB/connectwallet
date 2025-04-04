@@ -133,11 +133,11 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         'GET'
       );
 
-      const loadedAccounts = walletAccounts.map((wallet: any, index: number) => ({
+      const loadedAccounts = walletAccounts.map((wallet: any) => ({
         id: wallet.id,
-        name: wallet.name || `Account ${index + 1}`,
+        name: wallet.name || `Account ${wallet.account_index + 1}`,
         address: wallet.public_address,
-        accountIndex: wallet.account_index ?? index,
+        accountIndex: wallet.account_index,
         isPrimary: wallet.is_primary
       }));
 
@@ -169,18 +169,14 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
       // Decrypt the seed phrase
       const seedPhrase = await decryptSeedPhrase(encryptedSeedPhrase, password);
 
-      // Get the next account index
-      const nextIndex = accounts.length;
-
       // Derive the new account
       const hdNode = ethers.HDNodeWallet.fromPhrase(seedPhrase);
-      const path = `m/44'/60'/0'/0/${nextIndex}`;
-      const account = hdNode.derivePath(path);
+      const account = hdNode.derivePath("m/44'/60'/0'/0/0");
 
       return {
         privateKey: account.privateKey,
         address: account.address,
-        accountIndex: nextIndex
+        accountIndex: 0
       };
     } catch (error) {
       console.error('Error deriving new account:', error);
@@ -191,7 +187,7 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
   const addAccount = async (name?: string) => {
     try {
       setIsLoading(true);
-      const { privateKey, address, accountIndex } = await deriveNewAccount();
+      const { privateKey, address } = await deriveNewAccount();
       
       const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
       if (!userId) throw new Error('No user ID found');
@@ -201,10 +197,9 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         'POST',
         {
           user_id: userId,
-          name: name || `Account ${accountIndex + 1}`,
+          name: name || 'New Account',
           public_address: address,
           encrypted_private_key: privateKey,
-          account_index: accountIndex,
           is_primary: accounts.length === 0
         }
       );
@@ -245,7 +240,6 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
           name: name || `Imported Account ${accounts.length + 1}`,
           public_address: wallet.address,
           encrypted_private_key: privateKey,
-          account_index: -1,
           is_primary: accounts.length === 0,
           imported: true
         }
