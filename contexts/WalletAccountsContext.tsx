@@ -161,22 +161,32 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
       // Get the encrypted seed phrase and password
       const encryptedSeedPhrase = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE);
       const password = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
       
-      if (!encryptedSeedPhrase || !password) {
-        throw new Error('No seed phrase or password found');
+      if (!encryptedSeedPhrase || !password || !userId) {
+        throw new Error('Missing required wallet data');
       }
+
+      // Get the highest account index from the database for non-imported wallets
+      const existingWallets = await makeSupabaseRequest(
+        `/rest/v1/wallets?user_id=eq.${userId}&imported=eq.false&order=account_index.desc&limit=1`,
+        'GET'
+      );
+
+      // Determine next index (if no wallets found, start at 0)
+      const nextIndex = existingWallets.length > 0 ? (existingWallets[0].account_index + 1) : 0;
 
       // Decrypt the seed phrase
       const seedPhrase = await decryptSeedPhrase(encryptedSeedPhrase, password);
 
-      // Derive the new account
+      // Derive the new account using the next index
       const hdNode = ethers.HDNodeWallet.fromPhrase(seedPhrase);
-      const account = hdNode.derivePath("m/44'/60'/0'/0/0");
+      const account = hdNode.derivePath(`m/44'/60'/0'/0/${nextIndex}`);
 
       return {
         privateKey: account.privateKey,
         address: account.address,
-        accountIndex: 0
+        accountIndex: nextIndex
       };
     } catch (error) {
       console.error('Error deriving new account:', error);
@@ -187,7 +197,7 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
   const addAccount = async (name?: string) => {
     try {
       setIsLoading(true);
-      const { privateKey, address } = await deriveNewAccount();
+      const { privateKey, address, accountIndex } = await deriveNewAccount();
       
       const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
       if (!userId) throw new Error('No user ID found');
@@ -197,10 +207,11 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         'POST',
         {
           user_id: userId,
-          name: name || 'New Account',
+          name: name || `Account ${accountIndex + 1}`,
           public_address: address,
           encrypted_private_key: privateKey,
-          is_primary: accounts.length === 0
+          is_primary: accounts.length === 0,
+          account_index: accountIndex // Use the index from derivation
         }
       );
 
@@ -208,7 +219,7 @@ export function WalletAccountsProvider({ children }: { children: React.ReactNode
         id: newWallet[0].id,
         name: newWallet[0].name,
         address: newWallet[0].public_address,
-        accountIndex: newWallet[0].account_index,
+        accountIndex: accountIndex, // Use the index from derivation
         isPrimary: newWallet[0].is_primary
       };
 

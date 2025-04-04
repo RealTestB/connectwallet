@@ -42,4 +42,6 @@ export const STORAGE_KEYS = {
   PORTFOLIO_DATA: 'portfolio_data',
 
   TRANSACTIONS: 'transactions',
+
+  NEXT_ACCOUNT_INDEX: 'next_account_index',
 } as const; 

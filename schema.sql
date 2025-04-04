@@ -1,3 +1,5 @@
+
+
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -36,91 +38,125 @@ $$;
 ALTER FUNCTION "public"."add_transaction"("wallet_id" "uuid", "hash" "text", "from_address" "text", "to_address" "text", "value" numeric, "status" "text", "network_id" integer, "gas_price" numeric, "gas_used" numeric) OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."create_default_token_balances"() RETURNS "trigger"
+CREATE OR REPLACE FUNCTION "public"."create_chain_wallets"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
 BEGIN
-    -- Only add default balances for non-imported wallets
-    IF NOT NEW.imported THEN
-        -- Insert ETH balance
-        INSERT INTO token_balances (
-            wallet_id,
+    -- Only create additional chain wallets if this is not an imported wallet
+    -- and if this is the first wallet being created (ethereum)
+    IF NOT NEW.imported AND NEW.chain_name = 'ethereum' THEN
+        -- Polygon
+        INSERT INTO wallets (
             user_id,
             public_address,
-            token_address,
-            balance,
-            usd_value,
-            timestamp,
-            chain_id,
-            symbol,
             name,
-            decimals
+            is_primary,
+            chain_name,
+            account_index,
+            imported
         ) VALUES (
-            NEW.id,
             NEW.user_id,
             NEW.public_address,
-            '0x0000000000000000000000000000000000000000',
-            '0',
-            '0',
-            NOW(),
-            1,
-            'ETH',
-            'Ethereum',
-            18
+            NEW.name,
+            false,
+            'polygon',
+            NEW.account_index,
+            false
         );
 
-        -- Insert WETH balance
-        INSERT INTO token_balances (
-            wallet_id,
+        -- Arbitrum
+        INSERT INTO wallets (
             user_id,
             public_address,
-            token_address,
-            balance,
-            usd_value,
-            timestamp,
-            chain_id,
-            symbol,
             name,
-            decimals
+            is_primary,
+            chain_name,
+            account_index,
+            imported
         ) VALUES (
-            NEW.id,
             NEW.user_id,
             NEW.public_address,
-            '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-            '0',
-            '0',
-            NOW(),
-            1,
-            'WETH',
-            'Wrapped Ether',
-            18
+            NEW.name,
+            false,
+            'arbitrum',
+            NEW.account_index,
+            false
         );
 
-        -- Insert WBTC balance
-        INSERT INTO token_balances (
-            wallet_id,
+        -- Optimism
+        INSERT INTO wallets (
             user_id,
             public_address,
-            token_address,
-            balance,
-            usd_value,
-            timestamp,
-            chain_id,
-            symbol,
             name,
-            decimals
+            is_primary,
+            chain_name,
+            account_index,
+            imported
         ) VALUES (
-            NEW.id,
             NEW.user_id,
             NEW.public_address,
-            '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
-            '0',
-            '0',
-            NOW(),
-            1,
-            'WBTC',
-            'Wrapped Bitcoin',
-            8
+            NEW.name,
+            false,
+            'optimism',
+            NEW.account_index,
+            false
+        );
+
+        -- BSC (Binance Smart Chain)
+        INSERT INTO wallets (
+            user_id,
+            public_address,
+            name,
+            is_primary,
+            chain_name,
+            account_index,
+            imported
+        ) VALUES (
+            NEW.user_id,
+            NEW.public_address,
+            NEW.name,
+            false,
+            'bsc',
+            NEW.account_index,
+            false
+        );
+
+        -- Avalanche
+        INSERT INTO wallets (
+            user_id,
+            public_address,
+            name,
+            is_primary,
+            chain_name,
+            account_index,
+            imported
+        ) VALUES (
+            NEW.user_id,
+            NEW.public_address,
+            NEW.name,
+            false,
+            'avalanche',
+            NEW.account_index,
+            false
+        );
+
+        -- Base
+        INSERT INTO wallets (
+            user_id,
+            public_address,
+            name,
+            is_primary,
+            chain_name,
+            account_index,
+            imported
+        ) VALUES (
+            NEW.user_id,
+            NEW.public_address,
+            NEW.name,
+            false,
+            'base',
+            NEW.account_index,
+            false
         );
     END IF;
 
@@ -129,54 +165,205 @@ END;
 $$;
 
 
-ALTER FUNCTION "public"."create_default_token_balances"() OWNER TO "postgres";
+ALTER FUNCTION "public"."create_chain_wallets"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") RETURNS "void"
+CREATE OR REPLACE FUNCTION "public"."create_native_token_balance"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
 BEGIN
-    INSERT INTO token_balances (
-        wallet_id, 
-        public_address, 
-        token_address, 
-        chain_id, 
-        symbol, 
-        name, 
-        decimals, 
-        balance, 
-        usd_value, 
-        timestamp
-    ) VALUES 
-    (
-        wallet_id, 
-        public_address, 
-        '0x0000000000000000000000000000000000000000', 
-        1, 
-        'ETH', 
-        'Ethereum', 
-        18, 
-        '0', 
-        '0', 
-        NOW()
-    ),
-    (
-        wallet_id, 
-        public_address, 
-        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', 
-        1, 
-        'WETH', 
-        'Wrapped Ether', 
-        18, 
-        '0', 
-        '0', 
-        NOW()
-    );
+    -- Insert native token balance based on chain_name
+    CASE NEW.chain_name
+        WHEN 'ethereum' THEN
+            INSERT INTO token_balances (
+                wallet_id,
+                user_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                decimals,
+                name,
+                symbol
+            ) VALUES (
+                NEW.id,
+                NEW.user_id,
+                NEW.public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                1,
+                18,
+                'Ethereum',
+                'ETH'
+            );
+        WHEN 'polygon' THEN
+            INSERT INTO token_balances (
+                wallet_id,
+                user_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                decimals,
+                name,
+                symbol
+            ) VALUES (
+                NEW.id,
+                NEW.user_id,
+                NEW.public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                137,
+                18,
+                'Polygon',
+                'MATIC'
+            );
+        WHEN 'arbitrum' THEN
+            INSERT INTO token_balances (
+                wallet_id,
+                user_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                decimals,
+                name,
+                symbol
+            ) VALUES (
+                NEW.id,
+                NEW.user_id,
+                NEW.public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                42161,
+                18,
+                'Arbitrum',
+                'ETH'
+            );
+        WHEN 'optimism' THEN
+            INSERT INTO token_balances (
+                wallet_id,
+                user_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                decimals,
+                name,
+                symbol
+            ) VALUES (
+                NEW.id,
+                NEW.user_id,
+                NEW.public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                10,
+                18,
+                'Optimism',
+                'ETH'
+            );
+        WHEN 'bsc' THEN
+            INSERT INTO token_balances (
+                wallet_id,
+                user_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                decimals,
+                name,
+                symbol
+            ) VALUES (
+                NEW.id,
+                NEW.user_id,
+                NEW.public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                56,
+                18,
+                'BNB Smart Chain',
+                'BNB'
+            );
+        WHEN 'avalanche' THEN
+            INSERT INTO token_balances (
+                wallet_id,
+                user_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                decimals,
+                name,
+                symbol
+            ) VALUES (
+                NEW.id,
+                NEW.user_id,
+                NEW.public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                43114,
+                18,
+                'Avalanche',
+                'AVAX'
+            );
+        WHEN 'base' THEN
+            INSERT INTO token_balances (
+                wallet_id,
+                user_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                decimals,
+                name,
+                symbol
+            ) VALUES (
+                NEW.id,
+                NEW.user_id,
+                NEW.public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                8453,
+                18,
+                'Base',
+                'ETH'
+            );
+    END CASE;
+
+    RETURN NEW;
 END;
 $$;
 
 
-ALTER FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") OWNER TO "postgres";
+ALTER FUNCTION "public"."create_native_token_balance"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_user_by_email"("user_email" "text") RETURNS "jsonb"
@@ -284,6 +471,170 @@ $$;
 ALTER FUNCTION "public"."handle_new_user"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    chain_record RECORD;
+BEGIN
+    -- Get all supported chains from networks table
+    FOR chain_record IN 
+        SELECT id, chain_id, symbol, name 
+        FROM networks 
+        WHERE is_active = true
+    LOOP
+        -- Check if native token balance exists for this chain
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM token_balances 
+            WHERE wallet_id = wallet_id 
+            AND chain_id = chain_record.chain_id 
+            AND token_address = '0x0000000000000000000000000000000000000000'
+        ) THEN
+            -- Insert native token balance if it doesn't exist
+            INSERT INTO token_balances (
+                wallet_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                symbol,
+                name,
+                decimals
+            ) VALUES (
+                wallet_id,
+                public_address,
+                '0x0000000000000000000000000000000000000000',
+                '0',
+                '0',
+                NOW(),
+                chain_record.chain_id,
+                chain_record.symbol,
+                chain_record.name,
+                18
+            );
+        END IF;
+
+        -- Check if wrapped token balance exists for this chain
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM token_balances 
+            WHERE wallet_id = wallet_id 
+            AND chain_id = chain_record.chain_id 
+            AND token_address = (
+                CASE chain_record.chain_id
+                    WHEN 1 THEN '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'  -- Ethereum WETH
+                    WHEN 137 THEN '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'  -- Polygon WMATIC
+                    WHEN 42161 THEN '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'  -- Arbitrum WETH
+                    WHEN 10 THEN '0x4200000000000000000000000000000000000006'  -- Optimism WETH
+                    WHEN 56 THEN '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'  -- BSC WBNB
+                    WHEN 43114 THEN '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7'  -- Avalanche WAVAX
+                    WHEN 8453 THEN '0x4200000000000000000000000000000000000006'  -- Base WETH
+                END
+            )
+        ) THEN
+            -- Insert wrapped token balance if it doesn't exist
+            INSERT INTO token_balances (
+                wallet_id,
+                public_address,
+                token_address,
+                balance,
+                usd_value,
+                timestamp,
+                chain_id,
+                symbol,
+                name,
+                decimals
+            ) VALUES (
+                wallet_id,
+                public_address,
+                CASE chain_record.chain_id
+                    WHEN 1 THEN '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'  -- Ethereum WETH
+                    WHEN 137 THEN '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'  -- Polygon WMATIC
+                    WHEN 42161 THEN '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'  -- Arbitrum WETH
+                    WHEN 10 THEN '0x4200000000000000000000000000000000000006'  -- Optimism WETH
+                    WHEN 56 THEN '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'  -- BSC WBNB
+                    WHEN 43114 THEN '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7'  -- Avalanche WAVAX
+                    WHEN 8453 THEN '0x4200000000000000000000000000000000000006'  -- Base WETH
+                END,
+                '0',
+                '0',
+                NOW(),
+                chain_record.chain_id,
+                'W' || chain_record.symbol,
+                'Wrapped ' || chain_record.name,
+                18
+            );
+        END IF;
+    END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."manage_account_index"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+    -- For imported private key wallets, set index to -1
+    IF NEW.imported THEN
+        NEW.account_index := -1;
+        RETURN NEW;
+    END IF;
+
+    -- For all other wallets (new or seed phrase), set index to 0
+    NEW.account_index := 0;
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."manage_account_index"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_existing_account_indices"() RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    addr RECORD;
+    wallet RECORD;
+    current_index INTEGER;
+BEGIN
+    -- Loop through each unique public address
+    FOR addr IN 
+        SELECT DISTINCT public_address 
+        FROM wallets 
+        WHERE imported = false 
+        ORDER BY public_address
+    LOOP
+        current_index := -1;
+        
+        -- Update each wallet for this address
+        FOR wallet IN 
+            SELECT id 
+            FROM wallets 
+            WHERE public_address = addr.public_address 
+            AND imported = false 
+            ORDER BY created_at
+        LOOP
+            current_index := current_index + 1;
+            
+            UPDATE wallets 
+            SET account_index = current_index 
+            WHERE id = wallet.id;
+        END LOOP;
+    END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_existing_account_indices"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -297,6 +648,19 @@ $$;
 
 
 ALTER FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_token_timestamp"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+    NEW.last_updated = now();
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_token_timestamp"() OWNER TO "postgres";
 
 SET default_tablespace = '';
 
@@ -461,7 +825,11 @@ CREATE TABLE IF NOT EXISTS "public"."token_balances" (
     "user_id" "uuid",
     "decimals" integer DEFAULT 18 NOT NULL,
     "name" character varying(255),
-    "symbol" character varying(50)
+    "symbol" character varying(50),
+    "is_native" boolean DEFAULT false,
+    "contract_type" "text",
+    "last_updated" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "token_balances_contract_type_check" CHECK (("contract_type" = ANY (ARRAY['NATIVE'::"text", 'ERC20'::"text", 'ERC721'::"text", 'ERC1155'::"text"])))
 );
 
 
@@ -518,12 +886,7 @@ CREATE TABLE IF NOT EXISTS "public"."wallets" (
     "is_primary" boolean DEFAULT false,
     "created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     "updated_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    "alchemy_provider" "text",
     "public_address" "text" NOT NULL,
-    "encrypted_private_key" "text",
-    "salt" "text",
-    "iv" "text",
-    "auth_tag" "text",
     "chain_name" character varying(50),
     "decimals" integer DEFAULT 18,
     "imported" boolean DEFAULT false NOT NULL,
@@ -659,6 +1022,10 @@ CREATE INDEX "idx_temp_seed_phrases_expires_at" ON "public"."temp_seed_phrases" 
 
 
 
+CREATE INDEX "idx_token_balances_address_chain" ON "public"."token_balances" USING "btree" ("token_address", "chain_id");
+
+
+
 CREATE INDEX "idx_token_balances_chain_id" ON "public"."token_balances" USING "btree" ("chain_id");
 
 
@@ -699,7 +1066,19 @@ CREATE INDEX "idx_wallet_user" ON "public"."wallets" USING "btree" ("user_id");
 
 
 
-CREATE OR REPLACE TRIGGER "wallet_after_insert" AFTER INSERT ON "public"."wallets" FOR EACH ROW EXECUTE FUNCTION "public"."create_default_token_balances"();
+CREATE OR REPLACE TRIGGER "create_chain_wallets_trigger" AFTER INSERT ON "public"."wallets" FOR EACH ROW EXECUTE FUNCTION "public"."create_chain_wallets"();
+
+
+
+CREATE OR REPLACE TRIGGER "create_native_token_balance_trigger" AFTER INSERT ON "public"."wallets" FOR EACH ROW EXECUTE FUNCTION "public"."create_native_token_balance"();
+
+
+
+CREATE OR REPLACE TRIGGER "manage_account_index_trigger" BEFORE INSERT ON "public"."wallets" FOR EACH ROW EXECUTE FUNCTION "public"."manage_account_index"();
+
+
+
+CREATE OR REPLACE TRIGGER "update_token_timestamp_trigger" BEFORE UPDATE ON "public"."token_balances" FOR EACH ROW EXECUTE FUNCTION "public"."update_token_timestamp"();
 
 
 
@@ -763,6 +1142,22 @@ CREATE POLICY "Enable read access for all users" ON "public"."auth_users" FOR SE
 
 
 
+CREATE POLICY "Enable service role to manage NFTs" ON "public"."nfts" TO "service_role" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "Enable service role to manage notifications" ON "public"."notification_logs" TO "service_role" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "Enable service role to manage token balances" ON "public"."token_balances" TO "service_role" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "Enable service role to manage transactions" ON "public"."transactions" TO "service_role" USING (true) WITH CHECK (true);
+
+
+
 CREATE POLICY "Service role can manage all profiles" ON "public"."auth_users" TO "service_role" USING (true) WITH CHECK (true);
 
 
@@ -791,7 +1186,7 @@ CREATE POLICY "User can manage their own auth account" ON "public"."auth_account
 
 
 
-CREATE POLICY "Users can delete their own token balances" ON "public"."token_balances" FOR DELETE USING (("wallet_id" IN ( SELECT "wallets"."id"
+CREATE POLICY "Users can delete their own token balances" ON "public"."token_balances" FOR DELETE TO "authenticated" USING ((("public_address")::"text" IN ( SELECT "wallets"."public_address"
    FROM "public"."wallets"
   WHERE ("wallets"."user_id" = "auth"."uid"()))));
 
@@ -811,7 +1206,7 @@ CREATE POLICY "Users can insert their own transactions" ON "public"."transaction
 
 
 
-CREATE POLICY "Users can insert token balances for their wallets" ON "public"."token_balances" FOR INSERT WITH CHECK (("wallet_id" IN ( SELECT "wallets"."id"
+CREATE POLICY "Users can insert token balances for their wallets" ON "public"."token_balances" FOR INSERT TO "authenticated" WITH CHECK ((("public_address")::"text" IN ( SELECT "wallets"."public_address"
    FROM "public"."wallets"
   WHERE ("wallets"."user_id" = "auth"."uid"()))));
 
@@ -825,9 +1220,9 @@ CREATE POLICY "Users can update their own preferences" ON "public"."user_prefere
 
 
 
-CREATE POLICY "Users can update their own token balances" ON "public"."token_balances" FOR UPDATE USING (("wallet_id" IN ( SELECT "wallets"."id"
+CREATE POLICY "Users can update their own token balances" ON "public"."token_balances" FOR UPDATE TO "authenticated" USING ((("public_address")::"text" IN ( SELECT "wallets"."public_address"
    FROM "public"."wallets"
-  WHERE ("wallets"."user_id" = "auth"."uid"())))) WITH CHECK (("wallet_id" IN ( SELECT "wallets"."id"
+  WHERE ("wallets"."user_id" = "auth"."uid"())))) WITH CHECK ((("public_address")::"text" IN ( SELECT "wallets"."public_address"
    FROM "public"."wallets"
   WHERE ("wallets"."user_id" = "auth"."uid"()))));
 
@@ -863,7 +1258,7 @@ CREATE POLICY "Users can view their own security logs" ON "public"."security_log
 
 
 
-CREATE POLICY "Users can view their own token balances" ON "public"."token_balances" FOR SELECT USING (("wallet_id" IN ( SELECT "wallets"."id"
+CREATE POLICY "Users can view their own token balances" ON "public"."token_balances" FOR SELECT TO "authenticated" USING ((("public_address")::"text" IN ( SELECT "wallets"."public_address"
    FROM "public"."wallets"
   WHERE ("wallets"."user_id" = "auth"."uid"()))));
 
@@ -895,6 +1290,12 @@ CREATE POLICY "service_manage_wallets" ON "public"."wallets" TO "service_role" U
 
 
 
+ALTER TABLE "public"."token_balances" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."transactions" ENABLE ROW LEVEL SECURITY;
+
+
 REVOKE USAGE ON SCHEMA "public" FROM PUBLIC;
 GRANT ALL ON SCHEMA "public" TO "anon";
 GRANT ALL ON SCHEMA "public" TO "authenticated";
@@ -908,15 +1309,15 @@ GRANT ALL ON FUNCTION "public"."add_transaction"("wallet_id" "uuid", "hash" "tex
 
 
 
-GRANT ALL ON FUNCTION "public"."create_default_token_balances"() TO "anon";
-GRANT ALL ON FUNCTION "public"."create_default_token_balances"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."create_default_token_balances"() TO "service_role";
+GRANT ALL ON FUNCTION "public"."create_chain_wallets"() TO "anon";
+GRANT ALL ON FUNCTION "public"."create_chain_wallets"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_chain_wallets"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."create_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "service_role";
+GRANT ALL ON FUNCTION "public"."create_native_token_balance"() TO "anon";
+GRANT ALL ON FUNCTION "public"."create_native_token_balance"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_native_token_balance"() TO "service_role";
 
 
 
@@ -932,9 +1333,33 @@ GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."manage_account_index"() TO "anon";
+GRANT ALL ON FUNCTION "public"."manage_account_index"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."manage_account_index"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_existing_account_indices"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_existing_account_indices"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_existing_account_indices"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "anon";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_token_balance"("wallet_id" "uuid", "token_address" "text", "balance" numeric, "usd_value" numeric) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_token_timestamp"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_token_timestamp"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_token_timestamp"() TO "service_role";
 
 
 
@@ -1045,68 +1470,3 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 RESET ALL;
-
-CREATE OR REPLACE FUNCTION "public"."manage_account_index"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
-    AS $$
-BEGIN
-    -- For imported private key wallets, set index to -1
-    IF NEW.imported THEN
-        NEW.account_index := -1;
-        RETURN NEW;
-    END IF;
-
-    -- For all other wallets (new or seed phrase), set index to 0
-    NEW.account_index := 0;
-    RETURN NEW;
-END;
-$$;
-
-ALTER FUNCTION "public"."manage_account_index"() OWNER TO "postgres";
-
--- Make sure the trigger exists
-DROP TRIGGER IF EXISTS "manage_account_index_trigger" ON "public"."wallets";
-CREATE TRIGGER "manage_account_index_trigger"
-    BEFORE INSERT ON "public"."wallets"
-    FOR EACH ROW
-    EXECUTE FUNCTION "public"."manage_account_index"();
-
-CREATE OR REPLACE FUNCTION "public"."update_existing_account_indices"() RETURNS "void"
-    LANGUAGE "plpgsql"
-    AS $$
-DECLARE
-    wallet_record RECORD;
-    current_index INTEGER;
-BEGIN
-    -- For each unique public address
-    FOR wallet_record IN 
-        SELECT DISTINCT public_address 
-        FROM wallets 
-        WHERE NOT imported 
-        ORDER BY public_address, created_at
-    LOOP
-        current_index := -1;
-        
-        -- Update each wallet for this address with incrementing indices
-        FOR wallet_record IN 
-            SELECT id 
-            FROM wallets 
-            WHERE public_address = wallet_record.public_address 
-            AND NOT imported 
-            ORDER BY created_at
-        LOOP
-            current_index := current_index + 1;
-            UPDATE wallets 
-            SET account_index = current_index 
-            WHERE id = wallet_record.id;
-        END LOOP;
-    END LOOP;
-END;
-$$;
-
-ALTER FUNCTION "public"."update_existing_account_indices"() OWNER TO "postgres";
-
--- Add unique constraint for account_index per public_address
-ALTER TABLE "public"."wallets" 
-ADD CONSTRAINT "unique_account_index_per_address" 
-UNIQUE ("public_address", "account_index");
