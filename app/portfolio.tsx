@@ -23,6 +23,7 @@ import { CHAINS, getChainById, ChainId } from '../constants/chains';
 import { TokenBalanceResult, TokenMetadata } from '../types/tokens';
 import { useChain } from '../contexts/ChainContext';
 import { getTokenInfo } from '../api/coingeckoApi';
+import { supabase } from '../lib/supabase';
 
 interface PriceHistoryResponse {
   prices: [number, number][];
@@ -287,6 +288,12 @@ export default function Portfolio(): JSX.Element {
   const [showWalletSelector, setShowWalletSelector] = useState(false);
   const [availableWallets, setAvailableWallets] = useState<Array<{id: string, public_address: string, chain_name: string}>>([]);
   const [isAccountSwitching, setIsAccountSwitching] = useState(false);
+  const [activeSubscriptions, setActiveSubscriptions] = useState<{
+    token?: ReturnType<typeof supabase.channel>;
+    transaction?: ReturnType<typeof supabase.channel>;
+    nft?: ReturnType<typeof supabase.channel>;
+    notification?: ReturnType<typeof supabase.channel>;
+  }>({});
 
   // Helper function to get the appropriate logo source
   const getLogoSource = useCallback((address: string, chainId: number): ImageSourcePropType | undefined => {
@@ -836,6 +843,129 @@ export default function Portfolio(): JSX.Element {
       Alert.alert('Error', 'Failed to select wallet');
     }
   }, [currentChainId, handleAccountChange, handleCloseModal]);
+
+  // Add subscription effect
+  useEffect(() => {
+    if (!currentAccount?.address) return;
+
+    // Subscribe to changes in token balances and transactions for current wallet
+    const tokenBalanceSubscription = supabase
+      .channel('token_balance_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'token_balances',
+          filter: `public_address=eq.${currentAccount.address}`
+        },
+        (payload) => {
+          console.log('Token balance changed:', payload);
+          handleRefresh();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to changes in transactions for current wallet (both incoming and outgoing)
+    const transactionSubscription = supabase
+      .channel('transaction_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions',
+          filter: `from_address=eq.${currentAccount.address.toLowerCase()}`
+        },
+        (payload) => {
+          console.log('Outgoing transaction changed:', payload);
+          handleRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions',
+          filter: `to_address=eq.${currentAccount.address.toLowerCase()}`
+        },
+        (payload) => {
+          console.log('Incoming transaction changed:', payload);
+          handleRefresh();
+        }
+      )
+      .subscribe();
+
+    // Get the current user's session
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        // Subscribe to NFT changes for current wallet
+        const nftSubscription = supabase
+          .channel('nft_changes')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'nfts',
+              filter: `wallet_id.in.(select id from wallets where public_address=eq.${currentAccount.address.toLowerCase()})`
+            },
+            (payload) => {
+              console.log('NFT collection changed:', payload);
+              // Here you would typically update NFT state
+              // For now just refresh everything
+              handleRefresh();
+            }
+          )
+          .subscribe();
+
+        // Subscribe to notification changes for current user
+        const notificationSubscription = supabase
+          .channel('notification_changes')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'notification_logs',
+              filter: `user_id=eq.${session.user.id}`
+            },
+            (payload) => {
+              console.log('New notification:', payload);
+              // Here you would typically update notification state or show a toast
+              // For now just log it
+            }
+          )
+          .subscribe();
+
+        // Store subscriptions for cleanup
+        setActiveSubscriptions(prev => ({
+          ...prev,
+          nft: nftSubscription,
+          notification: notificationSubscription
+        }));
+      }
+    };
+
+    // Initialize NFT and notification subscriptions
+    getSession();
+
+    // Store token and transaction subscriptions
+    setActiveSubscriptions(prev => ({
+      ...prev,
+      token: tokenBalanceSubscription,
+      transaction: transactionSubscription
+    }));
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      Object.values(activeSubscriptions).forEach(subscription => {
+        if (subscription) subscription.unsubscribe();
+      });
+    };
+  }, [currentAccount?.address, handleRefresh]);
 
   return (
     <GestureHandlerRootView style={styles.container}>
