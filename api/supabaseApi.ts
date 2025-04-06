@@ -661,6 +661,109 @@ export const createWallet = async (params: CreateWalletParams): Promise<string> 
 };
 
 /**
+ * Create a new wallet in the database specifically for import flow
+ * This function is designed to handle wallet creation during the import process
+ */
+export async function createImportedWallet(params: {
+  public_address: string;
+  user_id: string;
+  name?: string;
+  chain_name?: string;
+}): Promise<string> {
+  try {
+    // Validate required fields
+    if (!params.public_address || !params.user_id) {
+      throw new Error("Missing required fields for wallet creation");
+    }
+
+    // First, check if any wallets exist with this address (just for our information)
+    const { data: existingWallets, error: checkError } = await supabaseAdmin
+      .from("wallets")
+      .select('*')
+      .eq('public_address', params.public_address.toLowerCase());
+
+    if (checkError) {
+      console.error("Error checking for existing wallets:", checkError);
+      throw checkError;
+    }
+
+    // Log what we found for debugging
+    if (existingWallets && existingWallets.length > 0) {
+      console.log(`Found ${existingWallets.length} existing wallets for address ${params.public_address}`);
+      // If we have multiple wallets, note the Ethereum one
+      const ethereumWallet = existingWallets.find(w => w.chain_name === 'ethereum');
+      if (ethereumWallet) {
+        console.log("Found existing Ethereum wallet:", ethereumWallet);
+      }
+    }
+
+    // ALWAYS create wallet entry to trigger DB functions
+    const walletEntry = {
+      user_id: params.user_id,
+      public_address: params.public_address.toLowerCase(),
+      name: params.name || 'Imported Wallet',
+      is_primary: true,
+      imported: true,
+      chain_name: params.chain_name || 'ethereum'
+    };
+
+    // Insert wallet entry - this will trigger DB functions that handle:
+    // - Duplicate wallet checks
+    // - User management (merging/deleting)
+    // - All other complex logic
+    const { data: newWallets, error } = await supabaseAdmin
+      .from("wallets")
+      .insert([walletEntry])
+      .select();
+
+    if (error) {
+      console.error("Error in wallet creation:", error);
+      throw error;
+    }
+
+    if (!newWallets || newWallets.length === 0) {
+      // If we got no response, try to fetch the wallet that should have been created/merged
+      const { data: checkWallets, error: fetchError } = await supabaseAdmin
+        .from("wallets")
+        .select('*')
+        .eq('public_address', params.public_address.toLowerCase())
+        .eq('chain_name', 'ethereum');
+
+      if (fetchError) throw fetchError;
+      if (!checkWallets || checkWallets.length === 0) {
+        // Try one more time without the chain_name filter
+        const { data: finalCheck, error: finalError } = await supabaseAdmin
+          .from("wallets")
+          .select('*')
+          .eq('public_address', params.public_address.toLowerCase());
+
+        if (finalError) throw finalError;
+        if (!finalCheck || finalCheck.length === 0) {
+          throw new Error("No wallet ID returned from database");
+        }
+
+        // Return the Ethereum wallet if exists, otherwise first wallet
+        const ethWallet = finalCheck.find((w: WalletData) => w.chain_name === 'ethereum');
+        return ethWallet ? ethWallet.id : finalCheck[0].id;
+      }
+
+      // Return the Ethereum wallet ID
+      return checkWallets[0].id;
+    }
+
+    // If we got wallets back, prefer the Ethereum one
+    const ethereumWallet = newWallets.find((w: WalletData) => w.chain_name === 'ethereum');
+    const walletToUse = ethereumWallet || newWallets[0];
+
+    console.log("✅ Wallet creation completed:", walletToUse);
+    return walletToUse.id;
+  } catch (error) {
+    console.error("Error in createImportedWallet:", error);
+    throw error;
+  }
+}
+
+/**
  * Get token balances for a wallet
  */
 export const getWalletTokenBalances = async (publicAddress: string) => {

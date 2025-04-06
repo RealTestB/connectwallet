@@ -56,8 +56,15 @@ export default function ImportSeedPhraseScreen() {
         throw new Error(validation.error || "Invalid seed phrase");
       }
 
+      console.log("🔄 Starting wallet import process...");
+      
       // Import the wallet using the seed phrase
       const { address } = await importClassicWalletFromSeedPhrase(seedPhrase);
+      console.log(`✅ Wallet imported successfully with address: ${address}`);
+      
+      // Store the seed phrase securely
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, seedPhrase);
+      console.log("✅ Seed phrase stored securely");
       
       // Navigate to success page with the address
       router.push({

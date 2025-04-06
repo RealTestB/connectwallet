@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import config from "./config";
-import { createWallet } from "./supabaseApi";
+import { createWallet, createImportedWallet } from "./supabaseApi";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { getTokenBalances } from "./tokensApi";
 import { supabaseAdmin } from "../lib/supabase";
@@ -20,65 +20,84 @@ export interface WalletData {
  */
 export const importClassicWalletFromPrivateKey = async (privateKey: string): Promise<WalletData> => {
   try {
+    console.log("🔄 Importing wallet from private key...");
+    
     const wallet = new ethers.Wallet(privateKey);
     const address = await wallet.getAddress();
-
-    // Store wallet data as a single object for auth
-    const walletData = {
-      address,
-      privateKey: wallet.privateKey,
-      lastActive: Date.now().toString()
-    };
-    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
+    console.log(`✅ Wallet created with address: ${address}`);
 
     // Get user ID from SecureStore
     const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
     if (!userId) {
       throw new Error("No user ID found");
     }
+    console.log(`✅ Found user ID: ${userId}`);
 
-    // Store wallet in database with imported flag
-    const walletId = await createWallet({
+    // Store wallet in database with imported flag using the new function
+    console.log("📡 Creating wallet in database...");
+    const walletId = await createImportedWallet({
       user_id: userId,
       public_address: address,
       chain_name: "ethereum",
-      imported: true
+      name: "Imported Wallet"
     });
+    console.log(`✅ Wallet created in database with ID: ${walletId}`);
 
     // Fetch token balances
+    console.log("📡 Fetching token balances...");
     const tokenBalances = await getTokenBalances(address, 1); // Use Ethereum mainnet for initial import
     if (!Array.isArray(tokenBalances)) {
-      throw new Error("Failed to fetch token balances");
-    }
+      console.warn("⚠️ Failed to fetch token balances, continuing without them");
+    } else {
+      console.log(`✅ Found ${tokenBalances.length} token balances`);
+      
+      // Store token balances in database
+      if (tokenBalances.length > 0) {
+        try {
+          const balancesToStore = tokenBalances.map(token => ({
+            wallet_id: walletId,
+            token_address: token.contractAddress,
+            chain_id: 1, // Ethereum mainnet
+            symbol: token.metadata?.symbol || "UNKNOWN",
+            name: token.metadata?.name || "Unknown Token",
+            decimals: token.metadata?.decimals || 18,
+            balance: token.formattedBalance,
+            usd_value: '0', // Default to '0' to satisfy not-null constraint
+            timestamp: new Date().toISOString()
+          }));
 
-    // Store token balances in database
-    const balancesToInsert = tokenBalances.map(token => ({
-      wallet_id: walletId,
-      token_address: token.contractAddress,
-      chain_id: 1, // Ethereum mainnet
-      symbol: token.metadata?.symbol || "UNKNOWN",
-      name: token.metadata?.name || "Unknown Token",
-      decimals: token.metadata?.decimals || 18,
-      balance: token.formattedBalance,
-      timestamp: new Date().toISOString()
-    }));
+          const { error: storeError } = await supabaseAdmin
+            .from("token_balances")
+            .insert(balancesToStore);
 
-    if (balancesToInsert.length > 0) {
-      const { error } = await supabaseAdmin
-        .from("token_balances")
-        .insert(balancesToInsert);
-
-      if (error) {
-        console.error("Failed to store token balances:", error);
+          if (storeError) {
+            console.warn("⚠️ Failed to store token balances:", storeError);
+            // Don't throw - allow process to continue
+          } else {
+            console.log("✅ Token balances stored successfully");
+          }
+        } catch (error) {
+          console.warn("⚠️ Error storing token balances:", error);
+          // Don't throw - allow process to continue
+        }
       }
     }
+
+    // Store wallet data in SecureStore for authentication
+    const walletData = {
+      address,
+      privateKey: wallet.privateKey,
+      lastActive: Date.now().toString()
+    };
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
+    console.log("✅ Stored wallet data in SecureStore");
 
     return { 
       address, 
       type: "classic"
     };
   } catch (error) {
-    console.error("Failed to import wallet from private key:", error);
+    console.error("❌ Failed to import wallet from private key:", error);
     throw error;
   }
 };
@@ -88,69 +107,85 @@ export const importClassicWalletFromPrivateKey = async (privateKey: string): Pro
  */
 export const importClassicWalletFromSeedPhrase = async (seedPhrase: string): Promise<WalletData> => {
   try {
+    console.log("🔄 Importing wallet from seed phrase...");
+    
+    // Create wallet from seed phrase
     const wallet = ethers.Wallet.fromPhrase(seedPhrase);
     const address = await wallet.getAddress();
-
-    // Store wallet data as a single object for auth
-    const walletData = {
-      address,
-      privateKey: wallet.privateKey,
-      lastActive: Date.now().toString()
-    };
-    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
-
-    // Store seed phrase securely
-    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, seedPhrase);
-    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, wallet.privateKey);
+    console.log(`✅ Wallet created with address: ${address}`);
 
     // Get user ID from SecureStore
     const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
     if (!userId) {
       throw new Error("No user ID found");
     }
+    console.log(`✅ Found user ID: ${userId}`);
 
-    // Store wallet in database (NOT as imported since it's from seed phrase)
-    const walletId = await createWallet({
+    // Store wallet in database with imported flag using the new function
+    console.log("📡 Creating wallet in database...");
+    const walletId = await createImportedWallet({
       user_id: userId,
       public_address: address,
       chain_name: "ethereum",
-      imported: false // Changed from true to false since seed phrase wallets aren't "imported"
+      name: "Imported Wallet"
     });
+    console.log(`✅ Wallet created in database with ID: ${walletId}`);
 
     // Fetch token balances
+    console.log("📡 Fetching token balances...");
     const tokenBalances = await getTokenBalances(address, 1); // Use Ethereum mainnet for initial import
     if (!Array.isArray(tokenBalances)) {
-      throw new Error("Failed to fetch token balances");
-    }
+      console.warn("⚠️ Failed to fetch token balances, continuing without them");
+    } else {
+      console.log(`✅ Found ${tokenBalances.length} token balances`);
+      
+      // Store token balances in database
+      if (tokenBalances.length > 0) {
+        try {
+          const balancesToStore = tokenBalances.map(token => ({
+            wallet_id: walletId,
+            token_address: token.contractAddress,
+            chain_id: 1, // Ethereum mainnet
+            symbol: token.metadata?.symbol || "UNKNOWN",
+            name: token.metadata?.name || "Unknown Token",
+            decimals: token.metadata?.decimals || 18,
+            balance: token.formattedBalance,
+            usd_value: '0', // Default to '0' to satisfy not-null constraint
+            timestamp: new Date().toISOString()
+          }));
 
-    // Store token balances in database
-    const balancesToInsert = tokenBalances.map(token => ({
-      wallet_id: walletId,
-      token_address: token.contractAddress,
-      chain_id: 1, // Ethereum mainnet
-      symbol: token.metadata?.symbol || "UNKNOWN",
-      name: token.metadata?.name || "Unknown Token",
-      decimals: token.metadata?.decimals || 18,
-      balance: token.formattedBalance,
-      timestamp: new Date().toISOString()
-    }));
+          const { error: storeError } = await supabaseAdmin
+            .from("token_balances")
+            .insert(balancesToStore);
 
-    if (balancesToInsert.length > 0) {
-      const { error } = await supabaseAdmin
-        .from("token_balances")
-        .insert(balancesToInsert);
-
-      if (error) {
-        console.error("Failed to store token balances:", error);
+          if (storeError) {
+            console.warn("⚠️ Failed to store token balances:", storeError);
+            // Don't throw - allow process to continue
+          } else {
+            console.log("✅ Token balances stored successfully");
+          }
+        } catch (error) {
+          console.warn("⚠️ Error storing token balances:", error);
+          // Don't throw - allow process to continue
+        }
       }
     }
+
+    // Store wallet data in SecureStore for authentication
+    const walletData = {
+      address,
+      privateKey: wallet.privateKey,
+      lastActive: Date.now().toString()
+    };
+    await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_DATA, JSON.stringify(walletData));
+    console.log("✅ Stored wallet data in SecureStore");
 
     return { 
       address, 
       type: "classic"
     };
   } catch (error) {
-    console.error("Failed to import wallet from seed phrase:", error);
+    console.error("❌ Failed to import wallet from seed phrase:", error);
     throw error;
   }
 };

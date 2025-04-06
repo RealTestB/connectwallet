@@ -84,14 +84,18 @@ export default function ImportPrivateKey() {
     setError(null);
 
     try {
+      console.log("🔄 Starting wallet import process...");
+      
       const { address } = await importClassicWalletFromPrivateKey(privateKey);
+      console.log(`✅ Wallet imported successfully with address: ${address}`);
+      
       router.push({
         pathname: "/import-success",
         params: { type: "import", address }
       });
     } catch (err) {
       console.error('[ImportPrivateKey] Import failed:', err);
-      setError("Failed to import wallet. Please check your private key.");
+      setError(err instanceof Error ? err.message : "Failed to import wallet. Please check your private key.");
     } finally {
       setIsProcessing(false);
     }

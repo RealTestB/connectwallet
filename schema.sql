@@ -386,84 +386,115 @@ $$;
 ALTER FUNCTION "public"."get_user_by_email"("user_email" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+CREATE OR REPLACE FUNCTION "public"."handle_existing_wallet"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
     AS $$
+DECLARE
+  existing_user_id UUID;
+  new_user_password_hash JSONB;
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.auth_users WHERE id = NEW.id) THEN
-    -- Profile exists, update last_active
-    UPDATE public.auth_users
-    SET last_active = CURRENT_TIMESTAMP
-    WHERE id = NEW.id;
-    
-    INSERT INTO public.security_logs (
-      user_id,
-      event_type,
-      error_code,
-      metadata
-    ) VALUES (
-      NEW.id,
-      'PROFILE_UPDATE',
-      'SUCCESS',
-      jsonb_build_object(
-        'action', 'update_existing',
-        'email', NEW.email
-      )
-    );
-  ELSE
-    -- Create new profile
-    INSERT INTO public.auth_users (
-      id,
-      email,
-      setup_completed,
-      setup_step,
-      wallet_created,
-      wallet_encrypted,
-      last_active
-    ) VALUES (
-      NEW.id,
-      NEW.email,
-      false,
-      'PASSWORD_CREATED',
-      false,
-      false,
-      CURRENT_TIMESTAMP
-    );
-    
-    INSERT INTO public.security_logs (
-      user_id,
-      event_type,
-      error_code,
-      metadata
-    ) VALUES (
-      NEW.id,
-      'PROFILE_CREATION',
-      'SUCCESS',
-      jsonb_build_object(
-        'action', 'create_new',
-        'email', NEW.email
-      )
-    );
+  -- Add debug logging
+  RAISE NOTICE 'Checking wallet: address=%, new_user_id=%', NEW.public_address, NEW.user_id;
+
+  -- Check if this wallet address exists under a DIFFERENT user
+  SELECT user_id INTO existing_user_id
+  FROM wallets
+  WHERE public_address = NEW.public_address
+    AND user_id != NEW.user_id
+  LIMIT 1;
+
+  -- Add debug logging
+  RAISE NOTICE 'Found existing user_id: %', existing_user_id;
+
+  -- Only proceed if we found the wallet under a different user
+  IF existing_user_id IS NOT NULL THEN
+    -- Get the new user's password hash
+    SELECT password_hash INTO new_user_password_hash
+    FROM auth_users
+    WHERE id = NEW.user_id;
+
+    -- Add debug logging
+    RAISE NOTICE 'New user password hash: %', new_user_password_hash;
+
+    -- Only update existing user's password if we found a new password
+    IF new_user_password_hash IS NOT NULL THEN
+      UPDATE auth_users
+      SET 
+        password_hash = new_user_password_hash,
+        last_active = CURRENT_TIMESTAMP
+      WHERE id = existing_user_id;
+      
+      RAISE NOTICE 'Updated existing user password';
+    END IF;
+
+    -- Delete the new user
+    DELETE FROM auth_users WHERE id = NEW.user_id;
+    RAISE NOTICE 'Deleted new user: %', NEW.user_id;
+
+    -- Update the wallet to use the existing user_id
+    NEW.user_id := existing_user_id;
+    RAISE NOTICE 'Updated wallet user_id to: %', existing_user_id;
   END IF;
 
   RETURN NEW;
-EXCEPTION WHEN OTHERS THEN
-  INSERT INTO public.security_logs (
-    user_id,
-    event_type,
-    error_code,
-    metadata
-  ) VALUES (
-    NEW.id,
-    'PROFILE_ERROR',
-    SQLSTATE,
-    jsonb_build_object(
-      'error', SQLERRM,
-      'email', NEW.email
-    )
-  );
-  RAISE;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."handle_existing_wallet"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  existing_user_id UUID;
+  new_user_password_hash JSONB;
+BEGIN
+  -- Add logging to debug
+  RAISE NOTICE 'handle_new_user triggered with NEW.public_address: %, NEW.user_id: %', NEW.public_address, NEW.user_id;
+
+  -- Check if wallet exists with a different user_id
+  SELECT user_id INTO existing_user_id
+  FROM wallets
+  WHERE public_address = NEW.public_address
+  LIMIT 1;
+
+  -- Add logging for existing user
+  RAISE NOTICE 'Found existing_user_id: %', existing_user_id;
+
+  -- If we found an existing wallet with a different user
+  IF existing_user_id IS NOT NULL THEN
+    -- Get the new user's password hash
+    SELECT password_hash INTO new_user_password_hash
+    FROM auth_users
+    WHERE id = NEW.user_id;
+
+    -- Add logging for password hash
+    RAISE NOTICE 'Found password_hash for new user: %', new_user_password_hash;
+
+    -- Update the existing user's password with the new user's password
+    -- and update last_active timestamp
+    UPDATE auth_users
+    SET 
+      password_hash = COALESCE(new_user_password_hash, password_hash),
+      last_active = CURRENT_TIMESTAMP
+    WHERE id = existing_user_id;
+
+    -- Delete the new user since we'll use the existing one
+    DELETE FROM auth_users WHERE id = NEW.user_id;
+    
+    -- Add logging for deletion
+    RAISE NOTICE 'Deleted user with id: %', NEW.user_id;
+
+    -- Update the wallet to use the existing user_id
+    NEW.user_id := existing_user_id;
+    
+    -- Add logging for wallet update
+    RAISE NOTICE 'Updated wallet user_id to: %', existing_user_id;
+  END IF;
+
+  RETURN NEW;
 END;
 $$;
 
@@ -972,6 +1003,11 @@ ALTER TABLE ONLY "public"."token_balances"
 
 
 
+ALTER TABLE ONLY "public"."wallets"
+    ADD CONSTRAINT "unique_wallet_address_chain" UNIQUE ("public_address", "chain_name");
+
+
+
 ALTER TABLE ONLY "public"."user_preferences"
     ADD CONSTRAINT "user_preferences_pkey" PRIMARY KEY ("user_id");
 
@@ -1071,6 +1107,10 @@ CREATE OR REPLACE TRIGGER "create_chain_wallets_trigger" AFTER INSERT ON "public
 
 
 CREATE OR REPLACE TRIGGER "create_native_token_balance_trigger" AFTER INSERT ON "public"."wallets" FOR EACH ROW EXECUTE FUNCTION "public"."create_native_token_balance"();
+
+
+
+CREATE OR REPLACE TRIGGER "handle_existing_wallet_trigger" BEFORE INSERT ON "public"."wallets" FOR EACH ROW EXECUTE FUNCTION "public"."handle_existing_wallet"();
 
 
 
@@ -1290,9 +1330,6 @@ CREATE POLICY "service_manage_wallets" ON "public"."wallets" TO "service_role" U
 
 
 
-ALTER TABLE "public"."token_balances" ENABLE ROW LEVEL SECURITY;
-
-
 ALTER TABLE "public"."transactions" ENABLE ROW LEVEL SECURITY;
 
 
@@ -1324,6 +1361,12 @@ GRANT ALL ON FUNCTION "public"."create_native_token_balance"() TO "service_role"
 GRANT ALL ON FUNCTION "public"."get_user_by_email"("user_email" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_user_by_email"("user_email" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_user_by_email"("user_email" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."handle_existing_wallet"() TO "anon";
+GRANT ALL ON FUNCTION "public"."handle_existing_wallet"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."handle_existing_wallet"() TO "service_role";
 
 
 

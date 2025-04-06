@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Image } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
+import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
 
 type IconName = 'checkmark-circle' | 'wallet' | 'shield' | 'refresh';
 
@@ -98,10 +98,11 @@ export default function ImportSuccessScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={["#1A2F6C", "#0A1B3F"]}
-      style={styles.container}
-    >
+    <View style={sharedStyles.container}>
+      <Image 
+        source={require("../assets/images/background.png")}
+        style={sharedStyles.backgroundImage}
+      />
       <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.contentContainer}
@@ -115,7 +116,7 @@ export default function ImportSuccessScreen() {
             },
           ]}
         >
-          <Ionicons name={message.icon} size={48} color="#4ade80" />
+          <Ionicons name={message.icon} size={48} color={COLORS.success} />
         </Animated.View>
 
         <Animated.View
@@ -127,8 +128,8 @@ export default function ImportSuccessScreen() {
             },
           ]}
         >
-          <Text style={styles.title}>{message.title}</Text>
-          <Text style={styles.description}>{message.description}</Text>
+          <Text style={[FONTS.h1, styles.title]}>{message.title}</Text>
+          <Text style={[FONTS.body, { color: COLORS.textSecondary }]}>{message.description}</Text>
         </Animated.View>
 
         {message.tips && (
@@ -141,23 +142,23 @@ export default function ImportSuccessScreen() {
               },
             ]}
           >
-            <Text style={styles.tipsTitle}>Important Security Tips:</Text>
+            <Text style={[FONTS.caption, styles.tipsTitle]}>Important Security Tips:</Text>
             <View style={styles.tipsList}>
               <View style={styles.tipItem}>
-                <Ionicons name="shield-outline" size={16} color="#93c5fd" style={styles.tipIcon} />
-                <Text style={styles.tipText}>
+                <Ionicons name="shield-outline" size={16} color={COLORS.primary} style={styles.tipIcon} />
+                <Text style={[FONTS.caption, styles.tipText]}>
                   Never share your private key or seed phrase with anyone
                 </Text>
               </View>
               <View style={styles.tipItem}>
-                <Ionicons name="lock-closed-outline" size={16} color="#93c5fd" style={styles.tipIcon} />
-                <Text style={styles.tipText}>
+                <Ionicons name="lock-closed-outline" size={16} color={COLORS.primary} style={styles.tipIcon} />
+                <Text style={[FONTS.caption, styles.tipText]}>
                   Store your recovery phrase in a secure location
                 </Text>
               </View>
               <View style={styles.tipItem}>
-                <Ionicons name="eye-off-outline" size={16} color="#93c5fd" style={styles.tipIcon} />
-                <Text style={styles.tipText}>
+                <Ionicons name="eye-off-outline" size={16} color={COLORS.primary} style={styles.tipIcon} />
+                <Text style={[FONTS.caption, styles.tipText]}>
                   Keep your password private and use a strong combination
                 </Text>
               </View>
@@ -167,6 +168,7 @@ export default function ImportSuccessScreen() {
 
         <Animated.Text
           style={[
+            FONTS.caption,
             styles.redirectText,
             {
               opacity: fadeAnim,
@@ -178,20 +180,17 @@ export default function ImportSuccessScreen() {
         </Animated.Text>
 
         <TouchableOpacity
-          style={styles.button}
+          style={[sharedStyles.button, styles.button]}
           onPress={handleGoToPortfolio}
         >
-          <Text style={styles.buttonText}>Go to Portfolio</Text>
+          <Text style={sharedStyles.buttonText}>Go to Portfolio</Text>
         </TouchableOpacity>
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   scrollView: {
     flex: 1,
   },
@@ -199,77 +198,53 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: SPACING.lg,
   },
   iconContainer: {
     width: 80,
     height: 80,
-    backgroundColor: "rgba(74, 222, 128, 0.2)",
+    backgroundColor: `${COLORS.success}33`,
     borderRadius: 40,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   messageContainer: {
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  description: {
-    color: "#93c5fd",
-    fontSize: 16,
+    marginBottom: SPACING.xs,
     textAlign: "center",
   },
   tipsContainer: {
-    backgroundColor: "#ffffff1a",
+    backgroundColor: `${COLORS.white}0D`,
     borderRadius: 12,
-    padding: 24,
+    padding: SPACING.lg,
     width: "100%",
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   tipsTitle: {
-    color: "#93c5fd",
-    fontSize: 14,
-    marginBottom: 8,
+    marginBottom: SPACING.xs,
   },
   tipsList: {
-    gap: 8,
+    gap: SPACING.xs,
   },
   tipItem: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 8,
+    gap: SPACING.xs,
   },
   tipIcon: {
     marginTop: 2,
   },
   tipText: {
     flex: 1,
-    color: "white",
-    fontSize: 14,
   },
   redirectText: {
-    color: "#93c5fd",
-    fontSize: 14,
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   button: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
     width: "100%",
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
-    textAlign: "center",
   },
 }); 
