@@ -17,6 +17,21 @@ export default function Page(): JSX.Element {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Only clean up if we haven't completed the flow
+      SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED).then(state => {
+        if (state !== 'true') {
+          console.log('[SeedPhrase] Cleaning up incomplete flow');
+          SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE);
+          SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
+          SecureStore.deleteItemAsync(STORAGE_KEYS.USER_ID);
+        }
+      });
+    };
+  }, []);
+
   useEffect(() => {
     generateSeedPhrase();
   }, []);
@@ -46,16 +61,12 @@ export default function Page(): JSX.Element {
       console.log("Generated seed phrase with", words.length, "words");
 
       // Create wallet using walletApi
-      await createClassicWallet();
+      const walletData = await createClassicWallet();
       console.log("✅ Wallet created and stored securely");
 
-      // Store the seed phrase temporarily
-      await SecureStore.setItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE, words.join(" "));
-      console.log("✅ Stored unencrypted seed phrase temporarily");
-
-      // Update setup state
-      await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.SEED_PHRASE_GENERATED);
-      console.log("✅ Setup state updated in SecureStore");
+      // Store the seed phrase
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, words.join(" "));
+      console.log("✅ Stored seed phrase");
 
     } catch (error) {
       console.error("Error generating seed phrase:", error);

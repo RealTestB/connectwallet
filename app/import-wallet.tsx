@@ -35,7 +35,10 @@ export default function ImportWalletScreen() {
         <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={styles.button}
-            onPress={() => router.push("/create-password-import?mode=import&type=seed")}
+            onPress={() => router.push({
+              pathname: "/import-seed-phrase",
+              params: { mode: 'import' }
+            })}
           >
             <View style={styles.buttonContent}>
               <Ionicons name="leaf" size={24} color={COLORS.white} style={styles.buttonIcon} />
@@ -45,7 +48,10 @@ export default function ImportWalletScreen() {
 
           <TouchableOpacity
             style={[styles.button, styles.secondaryButton]}
-            onPress={() => router.push("/create-password-import?mode=import&type=key")}
+            onPress={() => router.push({
+              pathname: "/import-private-key",
+              params: { mode: 'import' }
+            })}
           >
             <View style={styles.buttonContent}>
               <Ionicons name="key" size={24} color={COLORS.white} style={styles.buttonIcon} />

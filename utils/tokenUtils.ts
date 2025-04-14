@@ -39,7 +39,7 @@ export const getTokenLogo = (symbol: string, tokenAddress: string, chainId: numb
       case 42161:
         return require('../assets/images/arbitrum.png');
       case 10:
-        return require('../assets/images/Optimism.png');
+        return require('../assets/images/optimism.png');
       case 56:
         return require('../assets/images/bnb.png');
       case 43114:

@@ -21,7 +21,7 @@ export default function ConfirmSeedPhrase() {
 
   const loadSeedPhrase = async () => {
     try {
-      const phrase = await SecureStore.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
+      const phrase = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE);
       if (!phrase) throw new Error('No seed phrase found');
       
       const words = phrase.split(' ');

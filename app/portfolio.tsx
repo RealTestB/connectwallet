@@ -288,12 +288,114 @@ export default function Portfolio(): JSX.Element {
   const [showWalletSelector, setShowWalletSelector] = useState(false);
   const [availableWallets, setAvailableWallets] = useState<Array<{id: string, public_address: string, chain_name: string}>>([]);
   const [isAccountSwitching, setIsAccountSwitching] = useState(false);
+  const [isWalletSelectorLoading, setIsWalletSelectorLoading] = useState(false);
   const [activeSubscriptions, setActiveSubscriptions] = useState<{
     token?: ReturnType<typeof supabase.channel>;
     transaction?: ReturnType<typeof supabase.channel>;
     nft?: ReturnType<typeof supabase.channel>;
     notification?: ReturnType<typeof supabase.channel>;
   }>({});
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        setIsInitializing(true);
+        console.log('[Portfolio] Starting initialization...');
+
+        // Get stored wallet data first
+        const walletData = await getStoredWallet();
+        
+        if (walletData?.address) {
+          // Use chain ID from context
+          console.log('[Portfolio] Found wallet data:', {
+            address: walletData.address,
+            chainId: currentChainId
+          });
+          
+          // Set current account with the chain ID from context
+          const account = { 
+            address: walletData.address,
+            chainId: currentChainId
+          };
+          
+          setCurrentAccount(account);
+            
+          // Load saved data for the current chain ID
+          console.log('[Portfolio] Loading portfolio data for chain:', currentChainId);
+          const savedData = await loadPortfolioData(currentChainId);
+          if (savedData) {
+            setTokens(savedData.tokens);
+            setTotalValue(savedData.totalValue);
+          }
+
+          // Set a timeout to trigger refresh after initialization
+          setTimeout(() => {
+            handleRefresh();
+          }, 1000); // Wait 1 second before refreshing
+        } else {
+          console.log('[Portfolio] No wallet data found');
+          setError("No wallet connected");
+        }
+      } catch (error) {
+        console.error('[Portfolio] Error during initialization:', error);
+        setError(error instanceof Error ? error.message : "Failed to initialize app");
+      } finally {
+        setIsInitializing(false);
+        setIsLoading(false);
+      }
+    };
+
+    init();
+  }, [currentChainId]); // Only depend on currentChainId
+
+  useEffect(() => {
+    const checkAuthentication = async () => {
+      try {
+        console.log('🔍 [Portfolio] Starting authentication check...');
+        
+        // Log all relevant storage items
+        const isAuthenticated = await SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
+        const walletData = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+        const lastActive = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
+        
+        console.log('📊 [Portfolio] Auth state:', {
+          isAuthenticated,
+          hasWalletData: !!walletData,
+          lastActive: lastActive ? new Date(parseInt(lastActive)).toISOString() : null
+        });
+
+        if (isAuthenticated !== 'true') {
+          console.log('❌ [Portfolio] Not authenticated, redirecting to signin');
+          router.replace('/signin');
+          return;
+        }
+
+        // Verify last active timestamp
+        if (lastActive) {
+          const lastActiveTime = parseInt(lastActive);
+          const now = Date.now();
+          const timeDiff = now - lastActiveTime;
+          const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+          if (timeDiff > INACTIVITY_TIMEOUT) {
+            console.log('❌ [Portfolio] Session expired due to inactivity');
+            router.replace('/signin');
+            return;
+          }
+        }
+
+        console.log('✅ [Portfolio] Authentication check passed');
+        setIsLoading(false);
+      } catch (error) {
+        console.error('[Portfolio] Error checking authentication:', error);
+        setError('Failed to load portfolio');
+        setIsLoading(false);
+      }
+    };
+
+    checkAuthentication();
+  }, []);
 
   // Helper function to get the appropriate logo source
   const getLogoSource = useCallback((address: string, chainId: number): ImageSourcePropType | undefined => {
@@ -376,9 +478,80 @@ export default function Portfolio(): JSX.Element {
     setTokenLogos({});
   }, [currentChainId]);
 
-  // Simple close modal function for wallet selector
+  const loadAvailableWallets = async () => {
+    try {
+      console.log('🔍 [Portfolio] Loading available wallets...');
+      setIsWalletSelectorLoading(true);
+      
+      // First check if we're authenticated
+      const isAuthenticated = await SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
+      if (isAuthenticated !== 'true') {
+        console.log('❌ [Portfolio] Not authenticated, redirecting to signin');
+        router.replace('/signin');
+        return;
+      }
+
+      // Get user ID from SecureStore
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (!userId) {
+        console.error('❌ [Portfolio] No user ID found');
+        setAvailableWallets([]);
+        return;
+      }
+
+      console.log('👤 [Portfolio] Loading wallets for user:', userId);
+
+      // Use supabaseAdmin for this request
+      const { data: wallets, error } = await supabaseAdmin
+        .from("wallets")
+        .select("id, public_address")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error('❌ [Portfolio] Error loading wallets:', error);
+        setAvailableWallets([]);
+        return;
+      }
+
+      if (wallets && wallets.length > 0) {
+        // Filter out duplicate addresses, keeping only the first occurrence
+        const uniqueWallets = wallets.reduce((acc: any[], wallet) => {
+          if (!acc.find(w => w.public_address.toLowerCase() === wallet.public_address.toLowerCase())) {
+            acc.push(wallet);
+          }
+          return acc;
+        }, []);
+
+        console.log('✅ [Portfolio] Loaded unique wallets:', uniqueWallets.length);
+        setAvailableWallets(uniqueWallets);
+      } else {
+        console.log('ℹ️ [Portfolio] No wallets found');
+        setAvailableWallets([]);
+      }
+    } catch (error) {
+      console.error("❌ [Portfolio] Error loading available wallets:", error);
+      setAvailableWallets([]);
+    } finally {
+      setIsWalletSelectorLoading(false);
+    }
+  };
+
+  // Update the useEffect to handle loading state with debounce
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | undefined;
+    if (showWalletSelector) {
+      // Load wallets immediately when modal is shown
+      loadAvailableWallets();
+    }
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [showWalletSelector]);
+
   const handleCloseModal = useCallback(() => {
     setShowWalletSelector(false);
+    setIsWalletSelectorLoading(false);
   }, []);
 
   const handleTokenPress = (token: Token): void => {
@@ -581,6 +754,11 @@ export default function Portfolio(): JSX.Element {
   }, [currentAccount, handleRefresh, currentChainId]);
 
   const handleChainChange = useCallback(async (chainId: number) => {
+    if (isChainSwitching || isAccountSwitching) {
+      console.log('[Portfolio] Skipping chain change - already switching');
+      return;
+    }
+
     console.log('[Portfolio] Chain change received:', {
       newChainId: chainId,
       currentChainId,
@@ -606,9 +784,6 @@ export default function Portfolio(): JSX.Element {
       }
       
       // 3. Clear existing data
-      setTokens(current => 
-        current.map(t => ({ ...t, logo: undefined }))
-      );
       setTokens([]);
       setTotalValue("0");
       
@@ -619,8 +794,9 @@ export default function Portfolio(): JSX.Element {
         setTotalValue(savedData.totalValue);
       }
 
-      // 5. Trigger a refresh to get fresh data
-      await handleRefresh();
+      // 5. Wait for UI to update before allowing account switching
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
     } catch (error) {
       console.error('[Portfolio] Error handling chain change:', error);
       setError(error instanceof Error ? error.message : 'Failed to update portfolio for new network');
@@ -628,79 +804,7 @@ export default function Portfolio(): JSX.Element {
     } finally {
       setIsChainSwitching(false);
     }
-  }, [currentAccount, handleRefresh, setChainId]);
-
-  // Update initialization effect to use ChainContext
-  useEffect(() => {
-    let isMounted = true;
-    let initializationTimeout: NodeJS.Timeout;
-
-    const init = async () => {
-      try {
-        setIsInitializing(true);
-        console.log('[Portfolio] Starting initialization...');
-
-        // Get stored wallet data first
-        const walletData = await getStoredWallet();
-        
-        if (walletData?.address) {
-          // Use chain ID from context
-          console.log('[Portfolio] Found wallet data:', {
-            address: walletData.address,
-            chainId: currentChainId
-          });
-          
-          // Set current account with the chain ID from context
-          const account = { 
-            address: walletData.address,
-            chainId: currentChainId
-          };
-          
-          if (isMounted) {
-            setCurrentAccount(account);
-            
-            // Load saved data for the current chain ID
-            console.log('[Portfolio] Loading portfolio data for chain:', currentChainId);
-            const savedData = await loadPortfolioData(currentChainId);
-            if (savedData && isMounted) {
-              setTokens(savedData.tokens);
-              setTotalValue(savedData.totalValue);
-            }
-
-            // Set a timeout to trigger refresh after initialization
-            initializationTimeout = setTimeout(() => {
-              if (isMounted) {
-                handleRefresh();
-              }
-            }, 1000); // Wait 1 second before refreshing
-          }
-        } else {
-          console.log('[Portfolio] No wallet data found');
-          if (isMounted) {
-            setError("No wallet connected");
-          }
-        }
-      } catch (error) {
-        console.error('[Portfolio] Error during initialization:', error);
-        if (isMounted) {
-          setError(error instanceof Error ? error.message : "Failed to initialize app");
-        }
-      } finally {
-        if (isMounted) {
-          setIsInitializing(false);
-        }
-      }
-    };
-
-    init();
-
-    return () => {
-      isMounted = false;
-      if (initializationTimeout) {
-        clearTimeout(initializationTimeout);
-      }
-    };
-  }, [currentChainId]); // Only depend on currentChainId
+  }, [currentAccount, setChainId, isChainSwitching, isAccountSwitching]);
 
   // Memoize chart data preparation
   const prepareChartData = useCallback((token: Token) => {
@@ -790,36 +894,6 @@ export default function Portfolio(): JSX.Element {
     );
   }, [getLogoSource, handleTokenPress]);
 
-  const loadAvailableWallets = async () => {
-    try {
-      const { data: { session }, error: sessionError } = await supabaseAdmin.auth.getSession();
-      if (sessionError || !session?.user?.id) {
-        console.error("No user session found");
-        return;
-      }
-
-      const { data: wallets, error } = await supabaseAdmin
-        .from("wallets")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-
-      if (wallets) {
-        setAvailableWallets(wallets);
-      }
-    } catch (error) {
-      console.error("Error loading available wallets:", error);
-    }
-  };
-
-  useEffect(() => {
-    if (showWalletSelector) {
-      loadAvailableWallets();
-    }
-  }, [showWalletSelector]);
-
   // Memoize sorted tokens
   const sortedTokens = useMemo(() => {
     return [...tokens].sort((a, b) => {
@@ -830,19 +904,33 @@ export default function Portfolio(): JSX.Element {
   }, [tokens]);
 
   // Update wallet selection handler
-  const handleWalletSelect = useCallback(async (wallet: { id: string, public_address: string, chain_name: string }) => {
+  const handleWalletSelect = useCallback(async (wallet: { id: string, public_address: string }) => {
+    if (isAccountSwitching || isChainSwitching) {
+      console.log('[Portfolio] Skipping wallet select - already switching');
+      return;
+    }
+
+    console.log('[Portfolio] Wallet selected:', wallet);
+    setIsAccountSwitching(true);
+    
     try {
-      console.log('[Portfolio] Wallet selected:', wallet);
-      handleAccountChange({ 
+      // Add a small delay before changing account
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      await handleAccountChange({ 
         address: wallet.public_address,
         chainId: currentChainId
       });
+
+      // Close modal after account change is complete
       handleCloseModal();
     } catch (error) {
       console.error('[Portfolio] Error selecting wallet:', error);
       Alert.alert('Error', 'Failed to select wallet');
+    } finally {
+      setIsAccountSwitching(false);
     }
-  }, [currentChainId, handleAccountChange, handleCloseModal]);
+  }, [currentChainId, handleAccountChange, handleCloseModal, isAccountSwitching, isChainSwitching]);
 
   // Add subscription effect
   useEffect(() => {
@@ -1079,36 +1167,46 @@ export default function Portfolio(): JSX.Element {
                       showsVerticalScrollIndicator={false}
                       contentContainerStyle={styles.modalListContent}
                     >
-                      {availableWallets.map((wallet) => (
-                        <TouchableOpacity
-                          key={wallet.id}
-                          style={[
-                            styles.modalOption,
-                            currentAccount?.address === wallet.public_address && styles.modalOptionSelected
-                          ]}
-                          onPress={() => {
-                            handleWalletSelect(wallet);
-                          }}
-                        >
-                          <View style={styles.chainSelectContent}>
-                            <View style={styles.modalChainIcon}>
-                              <Ionicons name="wallet" size={24} color={COLORS.primary} />
+                      {isWalletSelectorLoading ? (
+                        <View style={styles.loadingContainer}>
+                          <ActivityIndicator size="large" color={COLORS.primary} />
+                          <Text style={styles.loadingText}>Loading wallets...</Text>
+                        </View>
+                      ) : availableWallets.length === 0 ? (
+                        <View style={styles.emptyContainer}>
+                          <Text style={styles.emptyText}>No wallets found</Text>
+                        </View>
+                      ) : (
+                        availableWallets.map((wallet) => (
+                          <TouchableOpacity
+                            key={wallet.id}
+                            style={[
+                              styles.modalOption,
+                              currentAccount?.address === wallet.public_address && styles.modalOptionSelected
+                            ]}
+                            onPress={() => {
+                              handleWalletSelect(wallet);
+                            }}
+                          >
+                            <View style={styles.chainSelectContent}>
+                              <View style={styles.modalChainIcon}>
+                                <Ionicons name="wallet" size={24} color={COLORS.primary} />
+                              </View>
+                              <View style={styles.modalTokenInfo}>
+                                <Text style={[
+                                  styles.modalOptionText,
+                                  currentAccount?.address === wallet.public_address && styles.modalOptionTextSelected
+                                ]}>
+                                  {wallet.public_address.slice(0, 6)}...{wallet.public_address.slice(-4)}
+                                </Text>
+                              </View>
                             </View>
-                            <View style={styles.modalTokenInfo}>
-                              <Text style={[
-                                styles.modalOptionText,
-                                currentAccount?.address === wallet.public_address && styles.modalOptionTextSelected
-                              ]}>
-                                {wallet.public_address.slice(0, 6)}...{wallet.public_address.slice(-4)}
-                              </Text>
-                              <Text style={styles.modalTokenName}>{wallet.chain_name}</Text>
-                            </View>
-                          </View>
-                          {currentAccount?.address === wallet.public_address && (
-                            <Ionicons name="checkmark" size={20} color={COLORS.primary} />
-                          )}
-                        </TouchableOpacity>
-                      ))}
+                            {currentAccount?.address === wallet.public_address && (
+                              <Ionicons name="checkmark" size={20} color={COLORS.primary} />
+                            )}
+                          </TouchableOpacity>
+                        ))
+                      )}
                     </ScrollView>
                   </View>
                 </TouchableWithoutFeedback>

@@ -8,6 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
   ImageBackground,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,16 +16,23 @@ import * as Clipboard from "expo-clipboard";
 import * as ScreenCapture from "expo-screen-capture";
 import { importClassicWalletFromPrivateKey } from "../api/walletApi";
 import { sharedStyles, COLORS, SPACING, FONTS } from '../styles/shared';
+import * as SecureStore from "expo-secure-store";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 
-export default function ImportPrivateKey() {
+export default function ImportPrivateKeyScreen() {
   const router = useRouter();
   const [privateKey, setPrivateKey] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [isSecure, setIsSecure] = useState(true);
 
   useEffect(() => {
     void disableScreenCapture();
+    return () => {
+      setPrivateKey("");
+      setError(null);
+      setIsLoading(false);
+    };
   }, []);
 
   const disableScreenCapture = async (): Promise<void> => {
@@ -74,30 +82,42 @@ export default function ImportPrivateKey() {
     }
   };
 
+  const validatePrivateKey = (key: string) => {
+    const cleanKey = key.startsWith("0x") ? key.slice(2) : key;
+    return cleanKey.length === 64 && /^[0-9a-fA-F]+$/.test(cleanKey);
+  };
+
   const handleImport = async () => {
-    if (!privateKey || privateKey.length !== 66) {
-      setError("Please enter a valid private key.");
-      return;
-    }
-
-    setIsProcessing(true);
-    setError(null);
-
     try {
-      console.log("🔄 Starting wallet import process...");
-      
+      setIsLoading(true);
+      setError(null);
+
+      // Show creating wallet screen FIRST and wait for navigation
+      await router.push("/creating-wallet");
+
+      // Now start the actual processing
+      // Validate private key
+      if (!validatePrivateKey(privateKey)) {
+        throw new Error('Invalid private key format');
+      }
+
+      // Import wallet
       const { address } = await importClassicWalletFromPrivateKey(privateKey);
-      console.log(`✅ Wallet imported successfully with address: ${address}`);
       
-      router.push({
-        pathname: "/import-success",
-        params: { type: "import", address }
+      // Store private key and address
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY, privateKey);
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_ADDRESS, address);
+
+      // Navigate to create password
+      router.replace({
+        pathname: '/create-password-import',
+        params: { mode: 'private', type: 'import' }
       });
-    } catch (err) {
-      console.error('[ImportPrivateKey] Import failed:', err);
-      setError(err instanceof Error ? err.message : "Failed to import wallet. Please check your private key.");
+    } catch (error) {
+      console.error('Error importing wallet:', error);
+      setError(error instanceof Error ? error.message : 'Failed to import wallet');
     } finally {
-      setIsProcessing(false);
+      setIsLoading(false);
     }
   };
 
@@ -185,12 +205,12 @@ export default function ImportPrivateKey() {
         <TouchableOpacity
           style={[
             styles.importButton,
-            (isProcessing || !privateKey || privateKey.length !== 66) && styles.importButtonDisabled,
+            (isLoading || !privateKey || privateKey.length !== 66) && styles.importButtonDisabled,
           ]}
           onPress={handleImport}
-          disabled={isProcessing || !privateKey || privateKey.length !== 66}
+          disabled={isLoading || !privateKey || privateKey.length !== 66}
         >
-          {isProcessing ? (
+          {isLoading ? (
             <ActivityIndicator color={COLORS.white} />
           ) : (
             <Text style={styles.importButtonText}>Import Wallet</Text>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
   ImageBackground,
+  Alert,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,15 +18,27 @@ import { importClassicWalletFromSeedPhrase } from '../api/walletApi';
 import { validateSeedPhrase } from '../utils/validators';
 import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function ImportSeedPhraseScreen() {
   const router = useRouter();
+  const { checkAuth } = useAuth();
   const { password } = useLocalSearchParams<{ password: string }>();
   const [wordCount, setWordCount] = useState(12);
   const [words, setWords] = useState(Array(12).fill(""));
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [securityScore, setSecurityScore] = useState(0);
+
+  useEffect(() => {
+    // Cleanup function
+    return () => {
+      setWords(Array(12).fill(""));
+      setError(null);
+      setIsProcessing(false);
+      setSecurityScore(0);
+    };
+  }, []);
 
   const handleWordCountToggle = (count: number) => {
     setWordCount(count);
@@ -36,7 +49,9 @@ export default function ImportSeedPhraseScreen() {
 
   const handleWordChange = (index: number, value: string) => {
     const newWords = [...words];
-    newWords[index] = value.toLowerCase().trim();
+    // Only allow letters and trim whitespace
+    const cleanValue = value.replace(/[^a-zA-Z]/g, '').toLowerCase().trim();
+    newWords[index] = cleanValue;
     setWords(newWords);
     setError(null);
 
@@ -45,38 +60,68 @@ export default function ImportSeedPhraseScreen() {
   };
 
   const handleImport = async () => {
-    setIsProcessing(true);
-    setError(null);
-
     try {
-      const seedPhrase = words.join(" ");
+      if (isProcessing) return;
+
+      setIsProcessing(true);
+      setError(null);
+
+      // Filter out empty words and join with single space
+      const seedPhrase = words.filter(w => w.length > 0).join(' ');
+      
+      // Validate word count first
+      if (words.filter(w => w.length > 0).length !== wordCount) {
+        throw new Error(`Please enter all ${wordCount} words`);
+      }
+
       const validation = validateSeedPhrase(seedPhrase);
       
       if (!validation.isValid) {
         throw new Error(validation.error || "Invalid seed phrase");
       }
 
-      console.log("🔄 Starting wallet import process...");
-      
-      // Import the wallet using the seed phrase
-      const { address } = await importClassicWalletFromSeedPhrase(seedPhrase);
-      console.log(`✅ Wallet imported successfully with address: ${address}`);
-      
-      // Store the seed phrase securely
-      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, seedPhrase);
-      console.log("✅ Seed phrase stored securely");
-      
-      // Navigate to success page with the address
-      router.push({
-        pathname: "/import-success",
-        params: { 
-          type: "import",
-          address 
-        }
+      // Show creating wallet screen immediately
+      await router.push("/creating-wallet");
+
+      // Process in background
+      const processWallet = async () => {
+        console.log("🔄 Starting wallet import process...");
+        
+        // Import the wallet using the seed phrase
+        const { address } = await importClassicWalletFromSeedPhrase(seedPhrase);
+        console.log(`✅ Wallet imported successfully with address: ${address}`);
+        
+        // Parallelize SecureStore operations
+        await Promise.all([
+          SecureStore.setItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE, String(seedPhrase)),
+          SecureStore.setItemAsync(STORAGE_KEYS.WALLET_ADDRESS, String(address))
+        ]);
+        console.log("✅ Seed phrase and address stored securely");
+
+        // Navigate to password creation screen
+        router.replace({
+          pathname: "/create-password-import",
+          params: { 
+            mode: "import",
+            address: address
+          }
+        });
+      };
+
+      // Start processing in background
+      processWallet().catch(error => {
+        console.error("Error during wallet processing:", error);
+        setError(error instanceof Error ? error.message : "Failed to import wallet");
+        router.back(); // Go back to import screen on error
       });
     } catch (err) {
       console.error('[ImportSeedPhrase] Import error:', err);
       setError(err instanceof Error ? err.message : "Failed to import wallet");
+      Alert.alert(
+        "Error",
+        err instanceof Error ? err.message : "Failed to import wallet",
+        [{ text: "OK" }]
+      );
     } finally {
       setIsProcessing(false);
     }

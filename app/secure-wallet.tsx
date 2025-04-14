@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'rea
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, sharedStyles } from '../styles/shared';
 import { useAuth } from '../contexts/AuthContext';
-import { completeWalletSetup } from '../api/walletApi';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEYS } from '../constants/storageKeys';
@@ -16,42 +15,44 @@ export default function SecureWallet() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const checkSetupState = async () => {
-      try {
-        setIsLoading(true);
-        console.log("[SecureWallet] Checking wallet setup state...");
-        
-        // Get current setup state
-        const setupState = await SecureStore.getItemAsync(STORAGE_KEYS.SETUP_STATE);
-        console.log("[SecureWallet] Current setup state:", setupState);
-        
-        if (setupState !== STORAGE_KEYS.SETUP_STEPS.COMPLETE) {
-          console.error("[SecureWallet] Setup not complete");
-          setError("Wallet setup was not completed properly");
-          return;
-        }
+    let mounted = true;
 
+    const initializeWallet = async () => {
+      try {
+        if (!mounted) return;
+        setIsLoading(true);
+        console.log("[SecureWallet] Initializing wallet...");
+        
+        // Set authenticated state
+        await SecureStore.setItemAsync(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+        
         // Update auth state
         await checkAuth();
         
         // Update last active timestamp
         await updateLastActive();
         
-        // Wait a moment to ensure auth state is updated
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (!mounted) return;
         
         // Navigate to portfolio
         router.replace("/portfolio");
-
       } catch (error) {
-        console.error("[SecureWallet] Error checking setup state:", error);
-        setError(error instanceof Error ? error.message : "Failed to verify wallet setup");
+        console.error("[SecureWallet] Error initializing wallet:", error);
+        if (mounted) {
+          setError(error instanceof Error ? error.message : "Failed to initialize wallet");
+        }
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     };
 
-    checkSetupState();
+    initializeWallet();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const handleGoToPortfolio = async () => {
@@ -59,9 +60,9 @@ export default function SecureWallet() {
       setIsLoading(true);
       setError(null);
 
-      // Double check setup state
-      const setupState = await SecureStore.getItemAsync(STORAGE_KEYS.SETUP_STATE);
-      if (setupState !== STORAGE_KEYS.SETUP_STEPS.COMPLETE) {
+      // Verify authentication
+      const isAuthenticated = await SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
+      if (isAuthenticated !== 'true') {
         setError("Please complete the wallet setup first");
         return;
       }

@@ -4,6 +4,10 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
+import * as SecureStore from "expo-secure-store";
+import { supabase, supabaseAdmin } from "../lib/supabase";
+import { STORAGE_KEYS } from "../constants/storageKeys";
+import { useAuth } from '../contexts/AuthContext';
 
 type IconName = 'checkmark-circle' | 'wallet' | 'shield' | 'refresh';
 
@@ -17,6 +21,7 @@ interface Message {
 export default function ImportSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<Record<string, string | string[]>>();
+  const { checkAuth } = useAuth();
   const [message, setMessage] = useState<Message>({
     title: "",
     description: "",
@@ -25,6 +30,10 @@ export default function ImportSuccessScreen() {
   });
   const [fadeAnim] = useState(new Animated.Value(0));
   const [translateY] = useState(new Animated.Value(10));
+  const [sessionRefreshed, setSessionRefreshed] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const successType = typeof params.type === 'string' ? params.type : 'import';
@@ -85,16 +94,201 @@ export default function ImportSuccessScreen() {
       }),
     ]).start();
 
-    // Auto redirect after 3 seconds
-    const timer = setTimeout(() => {
-      router.push("/portfolio");
-    }, 3000);
+    // Set sessionRefreshed to true since we just created the password
+    setSessionRefreshed(true);
 
-    return () => clearTimeout(timer);
-  }, [params.type]);
+    // Cleanup function
+    return () => {
+      // Clear any temporary states
+      setSessionRefreshed(false);
+      setIsNavigating(false);
+      setError(null);
+    };
+  }, []);
 
-  const handleGoToPortfolio = () => {
-    router.push("/portfolio");
+  const handleGoToPortfolio = async () => {
+    if (isNavigating) {
+      console.log('🚫 Navigation already in progress');
+      return;
+    }
+
+    try {
+      console.log('🚀 Starting navigation to portfolio...');
+      setIsNavigating(true);
+
+      // Log initial state
+      const initialAuthState = await SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
+      const initialWalletData = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      console.log('📊 [Debug] Initial state:', {
+        isAuthenticated: initialAuthState,
+        hasWalletData: !!initialWalletData,
+        walletData: initialWalletData ? JSON.parse(initialWalletData) : null
+      });
+
+      // Set authentication flag
+      await SecureStore.setItemAsync(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+      console.log('✅ Authentication flag set');
+
+      // Set last active timestamp
+      const now = Date.now().toString();
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, now);
+      console.log('✅ Last active timestamp set:', new Date(parseInt(now)).toISOString());
+
+      // Verify storage after setting
+      const verifyAuth = await SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
+      const verifyLastActive = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
+      console.log('🔍 [Debug] Storage verification:', {
+        isAuthenticated: verifyAuth,
+        lastActive: verifyLastActive,
+        lastActiveDate: new Date(parseInt(verifyLastActive || '0')).toISOString()
+      });
+
+      // Update auth context
+      console.log('🔄 [Debug] Calling checkAuth...');
+      await checkAuth();
+      console.log('✅ [Debug] checkAuth completed');
+
+      // Get final state before navigation
+      const finalAuthState = await SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
+      console.log('📊 [Debug] Final state before navigation:', {
+        isAuthenticated: finalAuthState
+      });
+
+      // Use a small delay to ensure the root layout is mounted
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log('✅ Navigation conditions met, proceeding to portfolio...');
+      router.replace('/portfolio');
+    } catch (error) {
+      console.error('❌ Error during navigation:', error);
+      setError('Failed to navigate to portfolio');
+      setIsNavigating(false);
+      
+      // Log error details
+      console.error('🔍 [Debug] Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
+      // If navigation fails, try to redirect to the index page
+      try {
+        router.replace('/');
+      } catch (fallbackError) {
+        console.error('❌ Fallback navigation failed:', fallbackError);
+      }
+    }
+  };
+
+  const refreshSession = async () => {
+    try {
+      console.log('🔄 Starting session refresh...');
+      setIsLoading(true);
+      
+      // Get user ID from SecureStore
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      console.log('👤 [Debug] User ID from SecureStore:', userId);
+      if (!userId) {
+        throw new Error('No user ID found');
+      }
+
+      // Get email from SecureStore
+      const email = await SecureStore.getItemAsync(STORAGE_KEYS.USER_EMAIL);
+      console.log('📧 [Debug] Email from SecureStore:', email);
+      if (!email) {
+        throw new Error('No email found');
+      }
+
+      // Get password hash from SecureStore
+      const passwordHash = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+      console.log('🔐 [Debug] Password hash from SecureStore:', passwordHash);
+      if (!passwordHash) {
+        throw new Error('No password found. Please set a password first.');
+      }
+
+      // Parse the password hash
+      console.log('🔍 [Debug] Parsing password hash...');
+      const parsedHash = JSON.parse(passwordHash);
+      console.log('📝 [Debug] Parsed hash structure:', parsedHash);
+
+      // Get user data from database to verify password hash
+      console.log('🔍 [Debug] Querying database for user:', userId);
+      let dbResponse = await supabaseAdmin
+        .from('auth_users')
+        .select('password_hash')
+        .eq('id', userId)
+        .single();
+
+      console.log('📦 [Debug] Database response:', dbResponse);
+
+      if (dbResponse.error) {
+        console.error('❌ [Debug] Database error:', dbResponse.error);
+        throw dbResponse.error;
+      }
+
+      // Check if we have data and it contains password_hash
+      if (!dbResponse.data || !dbResponse.data.password_hash) {
+        console.log('⏳ [Debug] No password hash found, waiting 1s before retry...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('🔄 [Debug] Retrying database query...');
+        dbResponse = await supabaseAdmin
+          .from('auth_users')
+          .select('password_hash')
+          .eq('id', userId)
+          .single();
+          
+        console.log('📦 [Debug] Retry response:', dbResponse);
+        
+        if (dbResponse.error || !dbResponse.data || !dbResponse.data.password_hash) {
+          console.error('❌ [Debug] Retry failed:', dbResponse);
+          throw new Error('No password hash found in database after retry');
+        }
+      }
+
+      const userData = dbResponse.data;
+      const dbPasswordHash = userData.password_hash;
+
+      // Log the comparison
+      console.log('🔍 [Debug] Comparing hashes:', {
+        storedHash: parsedHash.hash,
+        dbHash: dbPasswordHash.hash
+      });
+
+      // Verify the password hash matches
+      if (dbPasswordHash.hash !== parsedHash.hash) {
+        console.error('❌ [Debug] Hash mismatch:', {
+          stored: parsedHash.hash,
+          database: dbPasswordHash.hash
+        });
+        throw new Error('Password hash mismatch');
+      }
+
+      console.log('✅ [Debug] Hash verification successful');
+
+      // Refresh session with Supabase using the credentials we already have
+      console.log('🔄 [Debug] Attempting to sign in with verified credentials');
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: parsedHash.hash
+      });
+
+      if (signInError) {
+        console.error('❌ [Debug] Sign in error:', signInError);
+        throw signInError;
+      }
+
+      console.log('✅ Session refreshed successfully');
+      setSessionRefreshed(true);
+      setError(null);
+    } catch (error) {
+      console.error('❌ Error refreshing session:', error);
+      setError(error instanceof Error ? error.message : 'Failed to refresh session');
+      // Still allow navigation even if session refresh fails
+      setSessionRefreshed(true);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -176,14 +370,17 @@ export default function ImportSuccessScreen() {
             },
           ]}
         >
-          Redirecting to your wallet...
+          {sessionRefreshed ? "Ready to go to your wallet" : "Setting up your wallet..."}
         </Animated.Text>
 
         <TouchableOpacity
-          style={[sharedStyles.button, styles.button]}
+          style={[sharedStyles.button, styles.button, !sessionRefreshed && styles.buttonDisabled]}
           onPress={handleGoToPortfolio}
+          disabled={!sessionRefreshed || isNavigating}
         >
-          <Text style={sharedStyles.buttonText}>Go to Portfolio</Text>
+          <Text style={sharedStyles.buttonText}>
+            {isNavigating ? "Navigating..." : "Go to Portfolio"}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -246,5 +443,8 @@ const styles = StyleSheet.create({
   },
   button: {
     width: "100%",
+  },
+  buttonDisabled: {
+    opacity: 0.5,
   },
 }); 

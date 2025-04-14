@@ -1,32 +1,25 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image, Alert, ImageSourcePropType } from "react-native";
-import * as SecureStore from "expo-secure-store";
+import React, { useState, useCallback, useMemo } from "react";
+import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Image, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { getStoredWallet } from "../../api/walletApi";
 import { BlurView } from "expo-blur";
 import { COLORS, SPACING } from "../../styles/shared";
 import { CHAINS, getChainById } from "../../constants/chains";
 import { useChain } from "../../contexts/ChainContext";
+import { useWalletAccounts } from "../../contexts/WalletAccountsContext";
 
 // Add chain logo mapping
 const CHAIN_LOGOS: { [key: number]: any } = {
   1: require('../../assets/images/ethereum.png'),
   137: require('../../assets/images/polygon.png'),
   42161: require('../../assets/images/arbitrum.png'),
-  10: require('../../assets/images/Optimism.png'),
+  10: require('../../assets/images/optimism.png'),
   56: require('../../assets/images/bnb.png'),
   43114: require('../../assets/images/avalanche.png'),
   8453: require('../../assets/images/base.png')
 };
 
-interface Account {
-  address: string;
-  name?: string;
-  chainId: number;
-}
-
 interface WalletHeaderProps {
-  onAccountChange: (account: Account) => void;
+  onAccountChange?: (account: { address: string; chainId: number }) => void;
   pageName?: string;
   onPress?: () => void;
   onChainChange?: (chainId: number) => Promise<void>;
@@ -34,42 +27,13 @@ interface WalletHeaderProps {
 
 export default function WalletHeader({ onAccountChange, pageName, onPress, onChainChange }: WalletHeaderProps): JSX.Element {
   const { currentChainId, setChainId } = useChain();
+  const { accounts, currentAccount, isLoading, error, switchAccount } = useWalletAccounts();
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [isChainDropdownOpen, setIsChainDropdownOpen] = useState<boolean>(false);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
 
-  const loadAccounts = useCallback(async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const walletData = await getStoredWallet();
-      if (!walletData) {
-        throw new Error('No wallet data found');
-      }
-
-      const accountsList: Account[] = [
-        {
-          address: walletData.address,
-          chainId: currentChainId || 1
-        }
-      ];
-
-      setAccounts(accountsList);
-      setSelectedAccount(accountsList[0]);
-    } catch (error) {
-      console.error('Error loading accounts:', error);
-      setError('Failed to load accounts');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentChainId]);
-
-  useEffect(() => {
-    loadAccounts();
-  }, [loadAccounts]);
+  // Memoize the accounts list to prevent unnecessary re-renders
+  const accountsList = useMemo(() => accounts || [], [accounts]);
 
   const formatAddress = useCallback((address: string | undefined): string => {
     if (!address || typeof address !== 'string' || address.length < 10) {
@@ -78,72 +42,54 @@ export default function WalletHeader({ onAccountChange, pageName, onPress, onCha
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   }, []);
 
-  const getChainName = useCallback((chainId: number): string => {
-    const chain = getChainById(chainId);
-    return chain?.name || 'Unknown Chain';
-  }, []);
-
-  const formattedAddress = useMemo(() => {
-    if (!selectedAccount) return "Select Account";
-    return formatAddress(selectedAccount.address);
-  }, [selectedAccount?.address, formatAddress]);
-
-  const handleAccountSelection = useCallback((account: Account): void => {
-    setSelectedAccount(account);
-    setIsDropdownOpen(false);
-    onAccountChange(account);
-  }, [onAccountChange]);
-
-  const handleChainSelection = useCallback(async (chainId: number): Promise<void> => {
-    console.log('[WalletHeader] Chain selection started:', {
-      newChainId: chainId,
-      currentChainId,
-      selectedAccount: selectedAccount?.address
-    });
-
+  const handleChainSelection = useCallback(async (chainId: number) => {
+    setIsChainDropdownOpen(false);
     try {
-      // Update chain ID in context (this will handle storage updates)
       await setChainId(chainId);
-
-      // Update selected account with new chain
-      if (selectedAccount) {
-        const updatedAccount = { ...selectedAccount, chainId };
-        setSelectedAccount(updatedAccount);
-        onAccountChange(updatedAccount);
-      }
-
-      // Call onChainChange if provided
       if (onChainChange) {
         await onChainChange(chainId);
       }
+      if (currentAccount && onAccountChange) {
+        onAccountChange({ address: currentAccount.address, chainId });
+      }
     } catch (error) {
-      console.error('[WalletHeader] Error updating chain:', error);
-      Alert.alert('Error', 'Failed to update network. Please try again.');
+      console.error('Failed to update chain:', error);
     }
+  }, [currentAccount, onAccountChange, setChainId, onChainChange]);
 
-    setIsChainDropdownOpen(false);
-  }, [selectedAccount, onAccountChange, setChainId, currentChainId, onChainChange]);
-
-  // Update selectedAccount when currentChainId changes
-  useEffect(() => {
-    if (currentChainId && selectedAccount) {
-      const updatedAccount = { ...selectedAccount, chainId: currentChainId };
-      setSelectedAccount(updatedAccount);
+  const handleAccountSelection = useCallback(async (account: { id: string; address: string }) => {
+    setIsDropdownOpen(false);
+    try {
+      await switchAccount(account.id);
+      if (onAccountChange) {
+        onAccountChange({ address: account.address, chainId: currentChainId });
+      }
+    } catch (error) {
+      console.error('Failed to switch account:', error);
     }
-  }, [currentChainId]);
+  }, [currentChainId, onAccountChange, switchAccount]);
 
-  // Force re-render when chain changes
-  useEffect(() => {
-    console.log('[WalletHeader] Chain changed:', currentChainId);
-  }, [currentChainId]);
+  const handleOpenAccountModal = useCallback(() => {
+    if (onPress) {
+      onPress();
+    } else if (!isLoading) {
+      setIsDropdownOpen(true);
+    }
+  }, [onPress, isLoading]);
 
-  useEffect(() => {
-    console.log('[WalletHeader] Component mounted/updated:', {
-      currentChainId,
-      selectedAccount: selectedAccount?.address,
-      selectedAccountChainId: selectedAccount?.chainId
-    });
-  }, [currentChainId, selectedAccount]);
+  const handleOpenChainModal = useCallback(() => {
+    if (!isLoading) {
+      setIsChainDropdownOpen(true);
+    }
+  }, [isLoading]);
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.header}>
@@ -167,11 +113,12 @@ export default function WalletHeader({ onAccountChange, pageName, onPress, onCha
         <View style={styles.rightContainer}>
           {/* Chain Selector */}
           <TouchableOpacity 
-            style={styles.chainButton}
-            onPress={() => setIsChainDropdownOpen(true)}
+            style={[styles.chainButton, (isLoading || isUpdating) && styles.buttonDisabled]}
+            onPress={handleOpenChainModal}
+            disabled={isLoading || isUpdating}
           >
             <Image 
-              source={CHAIN_LOGOS[selectedAccount?.chainId || currentChainId || 1]}
+              source={CHAIN_LOGOS[currentChainId || 1]}
               style={styles.chainIcon}
               resizeMode="contain"
             />
@@ -180,29 +127,16 @@ export default function WalletHeader({ onAccountChange, pageName, onPress, onCha
           {/* Account Selector */}
           <TouchableOpacity 
             style={[
-              styles.accountButton,
-              isLoading && styles.accountButtonDisabled,
-              error && styles.accountButtonError
+              styles.accountButton, 
+              (isLoading || isUpdating) && styles.buttonDisabled
             ]}
-            onPress={() => {
-              if (onPress) {
-                onPress();
-              } else if (!isLoading) {
-                setIsDropdownOpen(true);
-              }
-            }}
-            disabled={isLoading}
+            onPress={handleOpenAccountModal}
+            disabled={isLoading || isUpdating}
           >
-            {isLoading ? (
-              <Text style={styles.accountText}>Loading...</Text>
-            ) : error ? (
-              <Text style={styles.accountTextError}>Error</Text>
-            ) : (
-              <>
-                <Text style={styles.accountText}>{formattedAddress}</Text>
-                <Ionicons name="chevron-down" size={16} color="white" style={styles.dropdownIcon} />
-              </>
-            )}
+            <Text style={styles.accountText}>
+              {isLoading ? "Loading..." : currentAccount ? formatAddress(currentAccount.address) : "Select Account"}
+            </Text>
+            <Ionicons name="chevron-down" size={16} color="white" style={styles.dropdownIcon} />
           </TouchableOpacity>
         </View>
 
@@ -226,26 +160,18 @@ export default function WalletHeader({ onAccountChange, pageName, onPress, onCha
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.accountList}>
-                {[
-                  { id: 1, name: 'Ethereum' },
-                  { id: 137, name: 'Polygon' },
-                  { id: 42161, name: 'Arbitrum' },
-                  { id: 10, name: 'Optimism' },
-                  { id: 56, name: 'BSC' },
-                  { id: 43114, name: 'Avalanche' },
-                  { id: 8453, name: 'Base' }
-                ].map((chain) => (
+                {Object.values(CHAINS).map((chain) => (
                   <TouchableOpacity
-                    key={chain.id}
+                    key={chain.chainId}
                     style={[
                       styles.accountOption,
-                      (selectedAccount?.chainId || currentChainId) === chain.id && styles.selectedAccount
+                      currentChainId === chain.chainId && styles.selectedAccount
                     ]}
-                    onPress={() => handleChainSelection(chain.id)}
+                    onPress={() => handleChainSelection(chain.chainId)}
                   >
                     <View style={styles.accountIcon}>
                       <Image 
-                        source={CHAIN_LOGOS[chain.id]}
+                        source={CHAIN_LOGOS[chain.chainId]}
                         style={styles.chainIcon}
                         resizeMode="contain"
                       />
@@ -253,7 +179,7 @@ export default function WalletHeader({ onAccountChange, pageName, onPress, onCha
                     <View style={styles.accountInfo}>
                       <Text style={styles.accountName}>{chain.name}</Text>
                     </View>
-                    {(selectedAccount?.chainId || currentChainId) === chain.id && (
+                    {currentChainId === chain.chainId && (
                       <View style={styles.selectedIndicator}>
                         <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
                       </View>
@@ -285,12 +211,12 @@ export default function WalletHeader({ onAccountChange, pageName, onPress, onCha
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.accountList}>
-                {accounts.map((account, index) => (
+                {accountsList.map((account, index) => (
                   <TouchableOpacity
-                    key={account.address}
+                    key={account.id}
                     style={[
                       styles.accountOption,
-                      selectedAccount?.address === account.address && styles.selectedAccount
+                      currentAccount?.id === account.id && styles.selectedAccount
                     ]}
                     onPress={() => handleAccountSelection(account)}
                   >
@@ -298,14 +224,10 @@ export default function WalletHeader({ onAccountChange, pageName, onPress, onCha
                       <Ionicons name="wallet-outline" size={24} color={COLORS.primary} />
                     </View>
                     <View style={styles.accountInfo}>
-                      <Text style={styles.accountName}>
-                        Account {index + 1}
-                      </Text>
-                      <Text style={styles.accountAddress}>
-                        {formatAddress(account.address)}
-                      </Text>
+                      <Text style={styles.accountName}>Account {index + 1}</Text>
+                      <Text style={styles.accountAddress}>{formatAddress(account.address)}</Text>
                     </View>
-                    {selectedAccount?.address === account.address && (
+                    {currentAccount?.id === account.id && (
                       <View style={styles.selectedIndicator}>
                         <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
                       </View>
@@ -456,13 +378,17 @@ const styles = StyleSheet.create({
   selectedIndicator: {
     marginLeft: SPACING.md,
   },
-  accountButtonDisabled: {
+  buttonDisabled: {
     opacity: 0.5,
   },
-  accountButtonError: {
-    backgroundColor: "rgba(255, 0, 0, 0.1)",
+  errorContainer: {
+    padding: SPACING.md,
+    backgroundColor: COLORS.error,
+    borderRadius: 8,
+    margin: SPACING.md,
   },
-  accountTextError: {
-    color: "#FF4444",
+  errorText: {
+    color: COLORS.white,
+    textAlign: "center",
   }
 });

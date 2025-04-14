@@ -1,28 +1,72 @@
-import { useNavigation } from "@react-navigation/native";
-import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import type { StackNavigationProp } from "@react-navigation/stack";
-import { RootStackParamList } from "../navigation/types";
-
-type WalletCreatedScreenNavigationProp = StackNavigationProp<RootStackParamList, 'wallet-created'>;
+import React, { useEffect, useState } from "react";
+import { StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
+import { useWallet } from "../contexts/WalletProvider";
+import * as SecureStore from "expo-secure-store";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 
 export default function WalletCreatedScreen(): JSX.Element {
-  const navigation = useNavigation<WalletCreatedScreenNavigationProp>();
+  const router = useRouter();
+  const { account, isLoading, error } = useWallet();
+  const [isNavigating, setIsNavigating] = useState(false);
 
-  const handleStartUsingWallet = (): void => {
-    navigation.reset({
-      index: 0,
-      routes: [{ 
-        name: 'portfolio',
-        params: { 
-          walletAddress: ''
-        }
-      }],
-    });
+  useEffect(() => {
+    // Cleanup function
+    return () => {
+      setIsNavigating(false);
+    };
+  }, []);
+
+  const handleStartUsingWallet = async (): Promise<void> => {
+    try {
+      setIsNavigating(true);
+      
+      // Ensure we have an account
+      if (!account) {
+        throw new Error("No wallet account found");
+      }
+
+      // Store authentication state
+      await SecureStore.setItemAsync(STORAGE_KEYS.IS_AUTHENTICATED, "true");
+
+      // Navigate to portfolio
+      router.replace("/portfolio");
+    } catch (error) {
+      console.error("Error starting wallet:", error);
+      // Handle error appropriately
+    } finally {
+      setIsNavigating(false);
+    }
   };
 
+  if (isLoading) {
+    return (
+      <View style={[sharedStyles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Setting up your wallet...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[sharedStyles.container, styles.errorContainer]}>
+        <Ionicons name="alert-circle" size={48} color={COLORS.error} />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.retryButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
+    <View style={sharedStyles.container}>
       {/* Progress Dots */}
       <View style={styles.progressContainer}>
         {[1, 2, 3, 4, 5].map((step) => (
@@ -32,86 +76,97 @@ export default function WalletCreatedScreen(): JSX.Element {
 
       {/* Success Icon */}
       <View style={styles.successIconContainer}>
-        <Text style={styles.successIcon}>✅</Text>
+        <Ionicons name="checkmark-circle" size={48} color={COLORS.success} />
       </View>
 
       {/* Title & Subtitle */}
-      <Text style={styles.title}>Wallet Created Successfully</Text>
-      <Text style={styles.subtitle}>
+      <Text style={[FONTS.h1, styles.title]}>Wallet Created Successfully</Text>
+      <Text style={[FONTS.body, styles.subtitle]}>
         Your wallet is ready! Make sure to store your recovery phrase securely.
       </Text>
 
       {/* Start Using Wallet Button */}
       <TouchableOpacity
-        style={styles.startButton}
+        style={[
+          sharedStyles.button,
+          isNavigating && { opacity: 0.7 }
+        ]}
         onPress={handleStartUsingWallet}
+        disabled={isNavigating}
       >
-        <Text style={styles.buttonText}>Start Using Wallet</Text>
+        {isNavigating ? (
+          <ActivityIndicator color={COLORS.white} />
+        ) : (
+          <Text style={sharedStyles.buttonText}>Start Using Wallet</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0A1B3F",
-    padding: 20,
+  loadingContainer: {
     justifyContent: "center",
     alignItems: "center",
+    gap: SPACING.md,
+  },
+  loadingText: {
+    ...FONTS.body,
+    color: COLORS.white,
+  },
+  errorContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    gap: SPACING.lg,
+    padding: SPACING.xl,
+  },
+  errorText: {
+    ...FONTS.body,
+    color: COLORS.error,
+    textAlign: "center",
+  },
+  retryButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    ...FONTS.body,
+    color: COLORS.white,
+    fontWeight: "600",
   },
   progressContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: SPACING.xl,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "rgba(106, 158, 255, 0.3)",
+    backgroundColor: `${COLORS.primary}33`,
     marginHorizontal: 4,
   },
   activeDot: {
-    backgroundColor: "#6A9EFF",
+    backgroundColor: COLORS.primary,
   },
   successIconContainer: {
     width: 96,
     height: 96,
-    backgroundColor: "rgba(0, 255, 0, 0.2)",
+    backgroundColor: `${COLORS.success}33`,
     borderRadius: 48,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 20,
-  },
-  successIcon: {
-    fontSize: 40,
-    color: "green",
+    marginBottom: SPACING.xl,
   },
   title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "white",
+    marginBottom: SPACING.sm,
     textAlign: "center",
-    marginBottom: 10,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#6A9EFF",
+    color: COLORS.textSecondary,
     textAlign: "center",
-    marginBottom: 20,
-  },
-  startButton: {
-    backgroundColor: "#6A9EFF",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    width: "100%",
-    maxWidth: 300,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "white",
+    marginBottom: SPACING.xl,
   },
 }); 

@@ -7,43 +7,45 @@ import {
   StyleSheet,
   ActivityIndicator,
   ImageBackground,
+  Alert,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { sharedStyles, COLORS, SPACING, FONTS } from '../styles/shared';
-import { createAnonymousUser, createAnonymousUserForImport } from '../api/supabaseApi';
 import { hashPassword } from '../api/securityApi';
 import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import { supabaseAdmin } from '../lib/supabase';
+import config from '../api/config';
 
-export default function CreatePasswordImport() {
-  const { mode, type } = useLocalSearchParams();
+export default function CreatePasswordImportScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<Record<string, string | string[]>>();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       // Only clean up if we haven't completed the flow
-      SecureStore.getItemAsync(STORAGE_KEYS.SETUP_STATE).then(state => {
-        if (state !== STORAGE_KEYS.SETUP_STEPS.COMPLETE) {
+      SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED).then(state => {
+        if (state !== 'true') {
           console.log('[CreatePasswordImport] Cleaning up incomplete flow');
           SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
           SecureStore.deleteItemAsync(STORAGE_KEYS.USER_ID);
-          SecureStore.deleteItemAsync(STORAGE_KEYS.SETUP_STATE);
         }
       });
     };
   }, []);
 
   useEffect(() => {
-    console.log('[CreatePasswordImport] Flow:', { mode, type });
-  }, [mode, type]);
+    console.log('[CreatePasswordImport] Flow:', { mode: params.mode });
+  }, [params.mode]);
 
   const calculatePasswordStrength = (pass: string) => {
     let strength = 0;
@@ -54,60 +56,132 @@ export default function CreatePasswordImport() {
     setPasswordStrength(strength);
   };
 
-  const validatePassword = () => {
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters long');
-      return false;
-    }
-    if (!password.match(/[A-Z]/)) {
-      setError('Password must contain at least one uppercase letter');
-      return false;
-    }
-    if (!password.match(/[0-9]/)) {
-      setError('Password must contain at least one number');
-      return false;
-    }
-    if (!password.match(/[^A-Za-z0-9]/)) {
-      setError('Password must contain at least one special character');
-      return false;
-    }
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return false;
-    }
-    return true;
+  const validatePassword = (pass: string) => {
+    const hasMinLength = pass.length >= 8;
+    const hasUpperCase = /[A-Z]/.test(pass);
+    const hasLowerCase = /[a-z]/.test(pass);
+    const hasNumbers = /\d/.test(pass);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(pass);
+
+    let strength = 0;
+    if (hasMinLength) strength++;
+    if (hasUpperCase) strength++;
+    if (hasLowerCase) strength++;
+    if (hasNumbers) strength++;
+    if (hasSpecialChar) strength++;
+
+    return strength >= 3;
   };
 
   const handleCreatePassword = async () => {
     try {
+      setIsLoading(true);
       setError(null);
-      if (!validatePassword()) return;
 
-      setIsProcessing(true);
+      console.log('🔐 [CreatePassword] Starting password creation process...');
 
-      // Hash the password
-      const hashedPasswordStr = await hashPassword(password);
-      const hashedPasswordObj = JSON.parse(hashedPasswordStr);
-
-      // Create anonymous user in Supabase (using import-specific function)
-      const userId = await createAnonymousUserForImport(hashedPasswordObj);
-
-      // Store password hash and user id
-      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, hashedPasswordStr);
-      await SecureStore.setItemAsync(STORAGE_KEYS.USER_ID, userId);
-      await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.PASSWORD_CREATED);
-
-      // Navigate based on import type
-      if (type === 'seed') {
-        router.push('/import-seed-phrase');
-      } else if (type === 'key') {
-        router.push('/import-private-key');
+      // Validate passwords
+      if (!validatePassword(password)) {
+        throw new Error('Password does not meet requirements');
       }
-    } catch (err: any) {
-      console.error('[CreatePasswordImport] Error:', err);
-      setError(err.message || 'Failed to create password');
+      if (password !== confirmPassword) {
+        throw new Error('Passwords do not match');
+      }
+
+      console.log('✅ [CreatePassword] Password validation passed');
+
+      // Hash and store password
+      console.log('🔄 [CreatePassword] Hashing password...');
+      const hashedPassword = await hashPassword(password);
+      const hashedPasswordObj = JSON.parse(hashedPassword);
+      console.log('📝 [CreatePassword] Password hash structure:', hashedPasswordObj);
+
+      console.log('💾 [CreatePassword] Storing password in SecureStore...');
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, hashedPassword);
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD_RAW, password);
+
+      // Get user ID from SecureStore
+      console.log('🔍 [CreatePassword] Getting user ID...');
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      console.log('👤 [CreatePassword] User ID:', userId);
+      
+      if (!userId) {
+        throw new Error('No user ID found');
+      }
+
+      // Update password hash in database
+      console.log('📡 [CreatePassword] Updating password hash in database...');
+      const url = `${config.supabase.url}/rest/v1/auth_users?id=eq.${userId}`;
+      
+      const response = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.timeout = 30000; // 30 second timeout
+
+        xhr.addEventListener('readystatechange', () => {
+          console.log('📡 [CreatePassword] XHR state:', xhr.readyState, 'status:', xhr.status);
+          
+          if (xhr.readyState !== 4) return;
+
+          // Handle network errors
+          if (xhr.status === 0) {
+            console.error('❌ [CreatePassword] Network error occurred');
+            reject(new Error('Network error occurred'));
+            return;
+          }
+
+          try {
+            const response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+            console.log('📦 [CreatePassword] Database response:', response);
+
+            // Handle successful response
+            if (xhr.status >= 200 && xhr.status < 300 && response) {
+              console.log('✅ [CreatePassword] Password hash updated in database');
+              resolve(response);
+            } else {
+              console.error('❌ [CreatePassword] Database error:', response?.error || xhr.status);
+              reject(new Error(response?.error || `HTTP error! status: ${xhr.status}`));
+            }
+          } catch (error) {
+            console.error('❌ [CreatePassword] Failed to parse response:', error);
+            reject(new Error('Failed to parse response'));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          console.error('❌ [CreatePassword] XHR request failed');
+          reject(new Error('Request failed'));
+        });
+
+        xhr.addEventListener('timeout', () => {
+          console.error('❌ [CreatePassword] XHR request timed out');
+          reject(new Error('Request timed out'));
+        });
+
+        xhr.open('PATCH', url);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('apikey', config.supabase.serviceRoleKey);
+        xhr.setRequestHeader('Prefer', 'return=representation');
+        
+        const requestBody = JSON.stringify({
+          password_hash: hashedPasswordObj
+        });
+        console.log('📤 [CreatePassword] Sending request:', { url, body: requestBody });
+        
+        xhr.send(requestBody);
+      });
+
+      console.log('✅ [CreatePassword] Password creation complete, navigating to success page...');
+
+      // Navigate to success page
+      router.push({
+        pathname: '/import-success',
+        params: { type: 'import', mode: params.mode }
+      });
+    } catch (error) {
+      console.error('Error creating password:', error);
+      setError(error instanceof Error ? error.message : 'Failed to create password');
     } finally {
-      setIsProcessing(false);
+      setIsLoading(false);
     }
   };
 
@@ -209,12 +283,12 @@ export default function CreatePasswordImport() {
         <TouchableOpacity
           style={[
             styles.continueButton,
-            (isProcessing || !password || !confirmPassword) && styles.continueButtonDisabled,
+            (isLoading || !password || !confirmPassword) && styles.continueButtonDisabled,
           ]}
           onPress={handleCreatePassword}
-          disabled={isProcessing || !password || !confirmPassword}
+          disabled={isLoading || !password || !confirmPassword}
         >
-          {isProcessing ? (
+          {isLoading ? (
             <ActivityIndicator color={COLORS.white} />
           ) : (
             <Text style={styles.continueButtonText}>Continue</Text>

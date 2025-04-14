@@ -1,74 +1,67 @@
-import React, { useEffect, useState } from 'react';
-import { useSegments, useRouter } from 'expo-router';
+import React, { useEffect } from 'react';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
-import * as SecureStore from 'expo-secure-store';
-import { STORAGE_KEYS } from '../constants/storageKeys';
+import { View, ActivityIndicator } from 'react-native';
+import { COLORS } from '../styles/shared';
 
-// Define public routes that don't require authentication
-const publicRoutes = ['welcome', 'signin', 'create-password'];
-const setupRoutes = [
-  'seed-phrase',
-  'confirm-seed-phrase',
-  'secure-wallet',
-  'wallet-created',
-  'import-wallet',
-  'create-password-import',
-  'import-seed-phrase',
-  'import-private-key',
-  'import-success'
-];
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  routeType: 'public' | 'protected' | 'auth';
+}
 
-export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, hasWallet } = useAuth();
-  const segments = useSegments();
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, routeType }) => {
+  const { isAuthenticated, loading } = useAuth();
   const router = useRouter();
-  const [isInSetup, setIsInSetup] = useState(false);
-  const currentRoute = segments[0] || '';
-
-  // Only check setup state for setup-related routes
-  useEffect(() => {
-    const checkSetupState = async () => {
-      // Only check setup state if we're on a setup route
-      if (!setupRoutes.includes(currentRoute)) {
-        setIsInSetup(false);
-        return;
-      }
-
-      try {
-        const setupState = await SecureStore.getItemAsync(STORAGE_KEYS.SETUP_STATE);
-        const isStillInSetup = setupState !== null && setupState !== STORAGE_KEYS.SETUP_STEPS.COMPLETE;
-        setIsInSetup(isStillInSetup);
-      } catch (error) {
-        console.error('[ProtectedRoute] Error checking setup state:', error);
-        setIsInSetup(false);
-      }
-    };
-
-    checkSetupState();
-  }, [currentRoute]);
 
   useEffect(() => {
-    const inPublicGroup = publicRoutes.includes(currentRoute);
-    const inSetupGroup = setupRoutes.includes(currentRoute);
-
-    // If no wallet and not in setup/public routes, redirect to welcome
-    if (!hasWallet && !inPublicGroup && !inSetupGroup) {
-      router.replace('/welcome');
-      return;
+    console.log('[ProtectedRoute] State:', { routeType, isAuthenticated, loading });
+    
+    if (!loading) {
+      if (routeType === 'protected' && !isAuthenticated) {
+        console.log('[ProtectedRoute] Redirecting to signin (protected route, not authenticated)');
+        router.replace('/signin');
+      } else if (routeType === 'auth' && isAuthenticated) {
+        console.log('[ProtectedRoute] Redirecting to portfolio (auth route, authenticated)');
+        router.replace('/portfolio');
+      } else if (routeType === 'public' && isAuthenticated) {
+        console.log('[ProtectedRoute] Redirecting to portfolio (public route, authenticated)');
+        router.replace('/portfolio');
+      } else if (routeType === 'public' && !isAuthenticated) {
+        console.log('[ProtectedRoute] Redirecting to signin (public route, not authenticated)');
+        router.replace('/signin');
+      }
     }
+  }, [routeType, isAuthenticated, loading]);
 
-    // If has wallet but not authenticated and not in public routes, redirect to signin
-    if (hasWallet && !isAuthenticated && !inPublicGroup) {
-      router.replace('/signin');
-      return;
-    }
+  // Show loading state while checking authentication
+  if (loading) {
+    console.log('[ProtectedRoute] Rendering loading state');
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
 
-    // If has wallet and authenticated, redirect to portfolio if trying to access setup or public routes
-    if (hasWallet && isAuthenticated && (inSetupGroup || currentRoute === 'signin')) {
-      router.replace('/portfolio');
-      return;
-    }
-  }, [segments, isAuthenticated, hasWallet, isInSetup]);
+  // For public routes, show content while redirecting
+  if (routeType === 'public') {
+    return <>{children}</>;
+  }
 
-  return <>{children}</>;
-} 
+  // For protected routes, only show content if authenticated
+  if (routeType === 'protected' && isAuthenticated) {
+    return <>{children}</>;
+  }
+
+  // For auth routes, only show content if not authenticated
+  if (routeType === 'auth' && !isAuthenticated) {
+    return <>{children}</>;
+  }
+
+  // Show loading while redirecting
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
+      <ActivityIndicator size="large" color={COLORS.primary} />
+    </View>
+  );
+}; 

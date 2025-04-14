@@ -48,7 +48,10 @@ export default function Welcome() {
         {/* Import Wallet Card */}
         <TouchableOpacity 
           style={styles.card}
-          onPress={() => router.push('/import-wallet')}
+          onPress={() => router.push({
+            pathname: '/import-wallet',
+            params: { mode: 'import' }
+          })}
         >
           <LinearGradient
             colors={['rgba(106, 158, 255, 0.1)', 'rgba(106, 158, 255, 0.05)']}

@@ -102,9 +102,6 @@ export default function Page() {
         const userId = await createAnonymousUser(hashedPasswordObj);
         await SecureStore.setItemAsync(STORAGE_KEYS.USER_ID, userId);
 
-        // Update setup state
-        await SecureStore.setItemAsync(STORAGE_KEYS.SETUP_STATE, STORAGE_KEYS.SETUP_STEPS.PASSWORD_CREATED);
-
         // Navigate based on flow type
         if (mode === 'new') {
           // New wallet creation flow

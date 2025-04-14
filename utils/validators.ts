@@ -136,11 +136,11 @@ export const validateSeedPhrase = (phrase: string): ValidationResult => {
 
     const words = phrase.trim().split(/\s+/);
     
-    // Check word count
-    if (![12, 15, 18, 21, 24].includes(words.length)) {
+    // Check word count - only allow 12 or 24 words
+    if (![12, 24].includes(words.length)) {
       return {
         isValid: false,
-        error: "Invalid number of words. Must be 12, 15, 18, 21, or 24 words",
+        error: "Invalid number of words. Must be 12 or 24 words",
       };
     }
 

@@ -8,6 +8,7 @@ import * as SecureStore from 'expo-secure-store';
 import { verifyPassword } from "../api/securityApi";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
+import { supabaseAdmin } from "../lib/supabase";
 
 const MAX_NAVIGATION_ATTEMPTS = 3;
 const FETCH_TIMEOUT = 8000; // 8 seconds timeout
@@ -90,7 +91,32 @@ export default function Page() {
 
       // Update auth state and wait for it to complete
       console.log('[SignIn] Updating authentication state...');
-      await updateLastActive();
+      
+      // First update the last active timestamp
+      const now = Date.now().toString();
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, now);
+      console.log('[SignIn] Last active timestamp set:', new Date(parseInt(now)).toISOString());
+
+      // Set authentication flag
+      await SecureStore.setItemAsync(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+      console.log('[SignIn] Authentication flag set');
+
+      // Update database timestamp
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      if (userId) {
+        const { error } = await supabaseAdmin
+          .from('auth_users')
+          .update({ last_active: new Date().toISOString() })
+          .eq('id', userId);
+        
+        if (error) {
+          console.error('[SignIn] Failed to update database timestamp:', error);
+        } else {
+          console.log('[SignIn] Database timestamp updated');
+        }
+      }
+
+      // Update auth context
       await checkAuth();
       
       // Add a small delay to ensure state updates are processed

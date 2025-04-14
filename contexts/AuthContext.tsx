@@ -54,15 +54,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+    console.log('[AuthProvider] App state changed:', {
+      previousState: AppState.currentState,
+      newState: nextAppState,
+      currentAuthState: {
+        isAuthenticated,
+        hasWallet,
+        loading
+      }
+    });
+    
     if (nextAppState === 'active') {
+      console.log('[AuthProvider] App became active, checking inactivity...');
       await checkInactivity();
     }
   };
 
   const checkInactivity = async () => {
     try {
+      console.log('[AuthProvider] Starting inactivity check...');
       const lastActiveStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
+      console.log('[AuthProvider] Last active timestamp from storage:', lastActiveStr);
+      
       if (!lastActiveStr) {
+        console.log('[AuthProvider] No last active timestamp found, signing out');
         await signOut();
         return;
       }
@@ -71,9 +86,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const now = Date.now();
       const timeDiff = now - lastActive;
 
+      console.log('[AuthProvider] Inactivity check details:', {
+        lastActive: new Date(lastActive).toISOString(),
+        now: new Date(now).toISOString(),
+        timeDiff,
+        timeout: INACTIVITY_TIMEOUT,
+        isExpired: timeDiff > INACTIVITY_TIMEOUT
+      });
+
       if (timeDiff > INACTIVITY_TIMEOUT) {
         console.log('[AuthProvider] Session expired due to inactivity');
         setIsAuthenticated(false);
+      } else {
+        // Session is still valid, update last active and keep authenticated
+        console.log('[AuthProvider] Session still active, updating timestamp');
+        await updateLastActive();
+        setIsAuthenticated(true);
       }
     } catch (error) {
       console.error('[AuthProvider] Error checking inactivity:', error);
@@ -159,51 +187,47 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         hasWalletData,
         hasAddress: !!walletData.address,
         hasPrivateKey: !!walletData.privateKey,
-        hasLastActive: !!walletData.lastActive
+        hasLastActive: !!walletData.lastActive,
+        currentAuthState: {
+          isAuthenticated,
+          hasWallet,
+          loading
+        }
       });
 
       // Set hasWallet based on essential wallet data presence
       setHasWallet(hasWalletData);
-      
-      // Only set authenticated if we have a wallet and are within activity timeout
-      if (hasWalletData) {
-        // Get the latest lastActive timestamp from storage
-        const lastActiveStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
-        
-        if (!lastActiveStr) {
-          const now = Date.now().toString();
-          await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, now);
-          setIsAuthenticated(true);
-          console.log('[AuthProvider] No last active timestamp found, setting now:', now);
-          return;
-        }
 
-        const lastActive = parseInt(lastActiveStr, 10);
-        const now = Date.now();
-        const timeDiff = now - lastActive;
-        const isActive = timeDiff <= INACTIVITY_TIMEOUT;
-        
-        console.log('[AuthProvider] Checking activity status:', {
-          lastActive: new Date(lastActive).toISOString(),
-          isActive,
-          timeDiff,
-          timeout: INACTIVITY_TIMEOUT
-        });
+      // Check last active timestamp
+      const lastActiveStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE);
+      const lastActive = lastActiveStr ? new Date(parseInt(lastActiveStr, 10)) : null;
+      const now = new Date();
+      const timeDiff = lastActive ? now.getTime() - lastActive.getTime() : Infinity;
+      const isActive = timeDiff < INACTIVITY_TIMEOUT;
 
-        setIsAuthenticated(isActive);
-        
-        if (isActive) {
-          await updateLastActive();
-          console.log('[AuthProvider] Updated last active timestamp');
-        } else {
-          console.log('[AuthProvider] Session expired due to inactivity');
+      console.log('[AuthProvider] Checking activity status:', {
+        lastActive: lastActive?.toISOString(),
+        isActive,
+        timeDiff,
+        timeout: INACTIVITY_TIMEOUT,
+        currentAuthState: {
+          isAuthenticated,
+          hasWallet,
+          loading
         }
+      });
+
+      // Set authenticated if we have wallet data and session is active
+      if (hasWalletData && isActive) {
+        console.log('[AuthProvider] Setting authenticated state: true');
+        setIsAuthenticated(true);
+        await updateLastActive();
       } else {
+        console.log('[AuthProvider] Setting authenticated state: false');
         setIsAuthenticated(false);
-        console.log('[AuthProvider] No wallet found, setting authenticated to false');
       }
-    } catch (err) {
-      console.error('[AuthProvider] Auth check failed:', err);
+    } catch (error) {
+      console.error('[AuthProvider] Error checking auth:', error);
       setError('Failed to check authentication status');
       setIsAuthenticated(false);
       setHasWallet(false);

@@ -1,9 +1,8 @@
 export const STORAGE_KEYS = {
-  // Wallet Setup State
-  SETUP_STATE: 'wallet_setup_state',
-  TEMP_SEED_PHRASE: 'temp_seed_phrase',
-  TEMP_USER_ID: 'temp_user_id',
+  // Authentication State
+  IS_AUTHENTICATED: 'is_authenticated',
   USER_ID: 'user_id',
+  USER_EMAIL: 'user_email',
 
   // Wallet Data
   WALLET_DATA: 'wallet_data',
@@ -11,6 +10,7 @@ export const STORAGE_KEYS = {
   WALLET_PRIVATE_KEY: 'wallet_private_key',
   WALLET_SEED_PHRASE: 'wallet_seed_phrase',
   WALLET_PASSWORD: 'wallet_password',
+  WALLET_PASSWORD_RAW: 'wallet_password_raw',
   WALLET_LAST_ACTIVE: 'wallet_last_active',
   ACTIVITY_LOGS: 'activity_logs',
   TOKEN_BALANCES: 'token_balances',
@@ -30,18 +30,11 @@ export const STORAGE_KEYS = {
     WALLET_ADDRESS: 'network_wallet_address'
   },
 
-  // Setup Steps
-  SETUP_STEPS: {
-    PASSWORD_CREATED: 'password_created',
-    SEED_PHRASE_GENERATED: 'seed_phrase_generated',
-    SEED_PHRASE_CONFIRMED: 'seed_phrase_confirmed',
-    WALLET_SECURED: 'wallet_secured',
-    COMPLETE: 'complete'
-  },
-
   PORTFOLIO_DATA: 'portfolio_data',
-
   TRANSACTIONS: 'transactions',
-
   NEXT_ACCOUNT_INDEX: 'next_account_index',
+
+  // New keys
+  SELECTED_CHAIN_ID: 'selected_chain_id',
+  SELECTED_ACCOUNT_INDEX: 'selected_account_index',
 } as const; 

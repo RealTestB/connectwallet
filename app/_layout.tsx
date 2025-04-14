@@ -1,11 +1,11 @@
 import '../src/crypto-polyfill';
 import React, { useEffect, useState } from "react";
 import { Stack } from "expo-router";
-import { AuthProvider } from "../contexts/AuthContext";
+import { AuthProvider, useAuth } from "../contexts/AuthContext";
 import { SettingsProvider } from "../contexts/SettingsContext";
 import { WalletProvider } from "../contexts/WalletProvider";
-import { WalletAccountsProvider } from "../contexts/WalletAccountsContext";
-import ProtectedRoute from "../components/ProtectedRoute";
+import { WalletAccountsProvider, useWalletAccounts } from "../contexts/WalletAccountsContext";
+import { ProtectedRoute } from "../components/ProtectedRoute";
 import { View, ActivityIndicator, Text, StyleSheet, Alert, Platform, TouchableOpacity } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -22,6 +22,83 @@ SplashScreen.preventAutoHideAsync();
 export const unstable_settings = {
   initialRouteName: 'index',
 };
+
+// Wrapper component to handle initialization
+function InitializationWrapper({ children }: { children: React.ReactNode }) {
+  const { loadAccounts, isLoading: accountsLoading, error: accountsError } = useWalletAccounts();
+  const { loading: authLoading, isAuthenticated } = useAuth();
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    const initialize = async () => {
+      try {
+        console.log('[InitializationWrapper] Starting wallet initialization...', {
+          authLoading,
+          accountsLoading,
+          isAuthenticated,
+          isInitialized
+        });
+
+        // Only initialize if auth is ready and we haven't initialized yet
+        if (!authLoading && !isInitialized) {
+          if (isAuthenticated) {
+            await loadAccounts();
+          }
+          console.log('[InitializationWrapper] Wallet initialization complete');
+          setIsInitialized(true);
+        }
+      } catch (err) {
+        console.error('[InitializationWrapper] Error during wallet initialization:', err);
+        setIsInitialized(true);
+      }
+    };
+
+    initialize();
+  }, [authLoading, isAuthenticated, loadAccounts, isInitialized]);
+
+  // Add debug logging
+  useEffect(() => {
+    console.log('[InitializationWrapper] State:', {
+      isInitialized,
+      accountsLoading,
+      authLoading,
+      hasError: !!accountsError,
+      isAuthenticated
+    });
+  }, [isInitialized, accountsLoading, authLoading, accountsError, isAuthenticated]);
+
+  // If not authenticated, render children immediately
+  if (!isAuthenticated) {
+    console.log('[InitializationWrapper] Not authenticated, rendering children');
+    return <>{children}</>;
+  }
+
+  // Show error state only if authenticated and there's an error
+  if (isAuthenticated && accountsError) {
+    console.log('[InitializationWrapper] Rendering error state:', accountsError);
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Failed to initialize wallet data</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => loadAccounts()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Show loading state only if authenticated and still loading
+  if (isAuthenticated && (!isInitialized || authLoading || accountsLoading)) {
+    console.log('[InitializationWrapper] Rendering loading state');
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  console.log('[InitializationWrapper] Rendering children');
+  return <>{children}</>;
+}
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
@@ -41,11 +118,15 @@ export default function RootLayout() {
           new Promise(resolve => setTimeout(resolve, 100)) // Small delay to ensure proper mounting
         ]);
 
+        console.log('[Layout] App initialization complete');
         setIsInitialized(true);
         setIsReady(true);
-        console.log('[Layout] App initialization complete');
       } catch (error) {
         console.error('[Layout] Error during initialization:', error);
+        // Even if there's an error, we should still set initialized states
+        // to prevent infinite loading
+        setIsInitialized(true);
+        setIsReady(true);
       }
     };
 
@@ -53,13 +134,15 @@ export default function RootLayout() {
   }, []);
 
   if (!isReady || !isInitialized) {
+    console.log('[Layout] Rendering initial loading state');
     return (
-      <View style={{ flex: 1, backgroundColor: '#1A2F6C' }}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
   }
 
+  console.log('[Layout] Rendering providers and router');
   return (
     <ChainProvider>
       <TransactionProvider>
@@ -67,180 +150,188 @@ export default function RootLayout() {
           <SettingsProvider>
             <WalletProvider>
               <WalletAccountsProvider>
-                <ProtectedRoute>
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      animation: 'fade',
-                      animationDuration: 200,
-                    }}
-                  >
-                    <Stack.Screen 
-                      name="index"
-                      options={{
+                <InitializationWrapper>
+                  <ProtectedRoute routeType="public">
+                    <Stack
+                      screenOptions={{
                         headerShown: false,
+                        animation: 'fade',
+                        animationDuration: 200,
                       }}
-                    />
-                    
-                    {/* Auth Group */}
-                    <Stack.Screen 
-                      name="welcome"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="signin"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="create-password"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="create-password-import"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
+                    >
+                      <Stack.Screen 
+                        name="index"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      
+                      {/* Auth Group */}
+                      <Stack.Screen 
+                        name="welcome"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="signin"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="create-password"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="create-password-import"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
 
-                    {/* Wallet Setup Group */}
-                    <Stack.Screen 
-                      name="seed-phrase"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="confirm-seed-phrase"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="secure-wallet"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="wallet-created"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
+                      {/* Wallet Setup Group */}
+                      <Stack.Screen 
+                        name="seed-phrase"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="confirm-seed-phrase"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="secure-wallet"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="wallet-created"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
 
-                    {/* Import Group */}
-                    <Stack.Screen 
-                      name="import-wallet"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="import-seed-phrase"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="import-private-key"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="import-success"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
+                      {/* Import Group */}
+                      <Stack.Screen 
+                        name="import-wallet"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="import-seed-phrase"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="import-private-key"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="creating-wallet"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="import-success"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
 
-                    {/* Main App Group */}
-                    <Stack.Screen 
-                      name="portfolio"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="receive"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="settings"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="manage-accounts"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="nft"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="nft-details"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="send-nft"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="transaction-history"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="transaction-details"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="confirm-transaction"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="pay"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="scan-qr"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                    <Stack.Screen 
-                      name="swap"
-                      options={{
-                        headerShown: false,
-                      }}
-                    />
-                  </Stack>
-                </ProtectedRoute>
+                      {/* Main App Group */}
+                      <Stack.Screen 
+                        name="portfolio"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="receive"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="settings"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="manage-accounts"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="nft"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="nft-details"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="send-nft"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="transaction-history"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="transaction-details"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="confirm-transaction"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="pay"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="scan-qr"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                      <Stack.Screen 
+                        name="swap"
+                        options={{
+                          headerShown: false,
+                        }}
+                      />
+                    </Stack>
+                  </ProtectedRoute>
+                </InitializationWrapper>
               </WalletAccountsProvider>
             </WalletProvider>
           </SettingsProvider>
@@ -251,54 +342,34 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.background,
   },
-  errorCard: {
-    width: '80%',
-    padding: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  errorTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#FF5252',
-    marginBottom: 12,
-  },
-  errorMessage: {
-    fontSize: 16,
-    color: 'white',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  errorHint: {
-    fontSize: 14,
-    color: '#93c5fd',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  buttonRow: {
-    flexDirection: 'row',
+  errorContainer: {
+    flex: 1,
     justifyContent: 'center',
-    width: '100%',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+    padding: 20,
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: 'center',
   },
   retryButton: {
     backgroundColor: COLORS.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 8,
   },
-  buttonText: {
+  retryButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '500',
   },
 });
 
