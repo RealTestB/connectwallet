@@ -392,48 +392,36 @@ CREATE OR REPLACE FUNCTION "public"."handle_existing_wallet"() RETURNS "trigger"
 DECLARE
   existing_user_id UUID;
   new_user_password_hash JSONB;
+  existing_wallet_id UUID;
 BEGIN
-  -- Add debug logging
-  RAISE NOTICE 'Checking wallet: address=%, new_user_id=%', NEW.public_address, NEW.user_id;
-
-  -- Check if this wallet address exists under a DIFFERENT user
-  SELECT user_id INTO existing_user_id
+  -- Check if this wallet address exists for this chain
+  SELECT id, user_id INTO existing_wallet_id, existing_user_id
   FROM wallets
   WHERE public_address = NEW.public_address
-    AND user_id != NEW.user_id
+    AND chain_name = NEW.chain_name
   LIMIT 1;
 
-  -- Add debug logging
-  RAISE NOTICE 'Found existing user_id: %', existing_user_id;
-
-  -- Only proceed if we found the wallet under a different user
-  IF existing_user_id IS NOT NULL THEN
+  -- If wallet exists
+  IF existing_wallet_id IS NOT NULL THEN
     -- Get the new user's password hash
     SELECT password_hash INTO new_user_password_hash
     FROM auth_users
     WHERE id = NEW.user_id;
 
-    -- Add debug logging
-    RAISE NOTICE 'New user password hash: %', new_user_password_hash;
-
-    -- Only update existing user's password if we found a new password
+    -- Update existing user's password if we found a new password
     IF new_user_password_hash IS NOT NULL THEN
       UPDATE auth_users
       SET 
         password_hash = new_user_password_hash,
         last_active = CURRENT_TIMESTAMP
       WHERE id = existing_user_id;
-      
-      RAISE NOTICE 'Updated existing user password';
     END IF;
 
     -- Delete the new user
     DELETE FROM auth_users WHERE id = NEW.user_id;
-    RAISE NOTICE 'Deleted new user: %', NEW.user_id;
 
-    -- Update the wallet to use the existing user_id
-    NEW.user_id := existing_user_id;
-    RAISE NOTICE 'Updated wallet user_id to: %', existing_user_id;
+    -- Return NULL to prevent the new wallet from being created
+    RETURN NULL;
   END IF;
 
   RETURN NEW;
@@ -500,6 +488,55 @@ $$;
 
 
 ALTER FUNCTION "public"."handle_new_user"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."handle_webhook_registration"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    webhook_url text;
+    webhook_response jsonb;
+BEGIN
+    -- Only handle Ethereum wallets for now
+    IF NEW.chain_name = 'ethereum' THEN
+        -- Get the webhook URL from config
+        webhook_url := current_setting('app.webhook_url', true);
+        
+        -- Call webhook registration endpoint
+        SELECT content::jsonb INTO webhook_response
+        FROM http((
+            'POST',
+            webhook_url,
+            ARRAY[http_header('Authorization', 'Bearer ' || current_setting('app.webhook_token', true))],
+            'application/json',
+            json_build_object(
+                'action', 'add',
+                'address', NEW.public_address
+            )::text
+        )::http_request);
+
+        -- Log webhook registration
+        INSERT INTO webhook_logs (
+            wallet_id,
+            public_address,
+            action,
+            response,
+            created_at
+        ) VALUES (
+            NEW.id,
+            NEW.public_address,
+            'add',
+            webhook_response,
+            NOW()
+        );
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."handle_webhook_registration"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") RETURNS "void"
@@ -625,6 +662,816 @@ $$;
 
 
 ALTER FUNCTION "public"."manage_account_index"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_all_wallet_addresses"() RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+    webhook_id text;
+    network_name text;
+BEGIN    
+    -- Loop through all wallets
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        ORDER BY w.chain_name
+    LOOP
+        -- Set webhook ID based on chain
+        webhook_id := CASE wallet_record.chain_name
+            WHEN 'ethereum' THEN 'wh_k6nr3wnpnqvxqwf6'
+            WHEN 'arbitrum' THEN 'wh_yrz4wsilbyi4r3te'
+            WHEN 'polygon' THEN 'wh_7q4bpk3npqvxqwf4'
+            WHEN 'optimism' THEN 'wh_6q4bpk3npqvxqwf5'
+            WHEN 'base' THEN 'wh_8q4bpk3npqvxqwf3'
+            WHEN 'bsc' THEN 'wh_9q4bpk3npqvxqwf2'
+            WHEN 'avalanche' THEN 'wh_5q4bpk3npqvxqwf1'
+        END;
+
+        -- Set network name based on chain
+        network_name := CASE wallet_record.chain_name
+            WHEN 'ethereum' THEN 'eth-mainnet'
+            WHEN 'arbitrum' THEN 'arbitrum-mainnet'
+            WHEN 'polygon' THEN 'polygon-mainnet'
+            WHEN 'optimism' THEN 'opt-mainnet'
+            WHEN 'base' THEN 'base-mainnet'
+            WHEN 'bsc' THEN 'bsc-mainnet'
+            WHEN 'avalanche' THEN 'avalanche-mainnet'
+        END;
+
+        -- Skip if no webhook ID for this chain
+        IF webhook_id IS NULL THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SKIPPED: No webhook configured for this chain';
+            RETURN NEXT;
+            CONTINUE;
+        END IF;
+
+        -- Call webhook registration endpoint
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "%s",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "%s"
+                }',
+                webhook_id,
+                lower(wallet_record.public_address),
+                network_name
+                )
+            )::http_request);
+
+            -- Return success result
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        
+        -- Add a small delay between requests to avoid rate limiting
+        PERFORM pg_sleep(0.5);
+    END LOOP;
+    
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_all_wallet_addresses"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_base_addresses"("batch_size" integer DEFAULT 5) RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+BEGIN    
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        WHERE w.chain_name = 'base'
+        ORDER BY w.public_address
+        LIMIT batch_size
+    LOOP
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "wh_1s9h4o6yvl4vgihk",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "base-mainnet"
+                }',
+                lower(wallet_record.public_address)
+                )
+            )::http_request);
+
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        PERFORM pg_sleep(1);
+    END LOOP;
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_base_addresses"("batch_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_bsc_addresses"("batch_size" integer DEFAULT 5) RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+BEGIN    
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        WHERE w.chain_name = 'bsc'
+        ORDER BY w.public_address
+        LIMIT batch_size
+    LOOP
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "wh_qfjcobe6febny6jq",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "bsc-mainnet"
+                }',
+                lower(wallet_record.public_address)
+                )
+            )::http_request);
+
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        PERFORM pg_sleep(1);
+    END LOOP;
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_bsc_addresses"("batch_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_chain_addresses"("batch_size" integer DEFAULT 5) RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+    webhook_id text;
+    network_name text;
+    processed_count int := 0;
+BEGIN    
+    -- Loop through unprocessed wallets, excluding arbitrum
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        WHERE w.chain_name != 'arbitrum'
+        AND NOT EXISTS (
+            SELECT 1 
+            FROM processed_addresses pa 
+            WHERE pa.chain_name = w.chain_name 
+            AND pa.address = w.public_address
+        )
+        ORDER BY w.chain_name
+        LIMIT batch_size
+    LOOP
+        -- Set webhook ID based on chain (using correct IDs)
+        webhook_id := CASE wallet_record.chain_name
+            WHEN 'ethereum' THEN 'wh_0h8dcqbb9xyicw0j'
+            WHEN 'polygon' THEN 'wh_jy4305rmrrh4tch9'
+            WHEN 'optimism' THEN 'wh_iiey7lav9klnpsuy'
+            WHEN 'base' THEN 'wh_1s9h4o6yvl4vgihk'
+            WHEN 'bsc' THEN 'wh_qfjcobe6febny6jq'
+        END;
+
+        -- Set network name based on chain
+        network_name := CASE wallet_record.chain_name
+            WHEN 'ethereum' THEN 'eth-mainnet'
+            WHEN 'polygon' THEN 'polygon-mainnet'
+            WHEN 'optimism' THEN 'opt-mainnet'
+            WHEN 'base' THEN 'base-mainnet'
+            WHEN 'bsc' THEN 'bsc-mainnet'
+        END;
+
+        -- Skip if no webhook ID for this chain
+        IF webhook_id IS NULL THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SKIPPED: No webhook configured for this chain';
+            RETURN NEXT;
+            CONTINUE;
+        END IF;
+
+        -- Call webhook registration endpoint
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "%s",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "%s"
+                }',
+                webhook_id,
+                lower(wallet_record.public_address),
+                network_name
+                )
+            )::http_request);
+
+            -- Mark address as processed
+            INSERT INTO processed_addresses (chain_name, address)
+            VALUES (wallet_record.chain_name, wallet_record.public_address);
+
+            -- Return success result
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        
+        -- Add a small delay between requests
+        PERFORM pg_sleep(1);
+        
+        processed_count := processed_count + 1;
+    END LOOP;
+    
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_chain_addresses"("batch_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_existing_wallets"() RETURNS TABLE("chain" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+    webhook_id text;
+BEGIN    
+    -- Loop through all existing wallets
+    FOR wallet_record IN 
+        SELECT DISTINCT public_address, id, chain_name
+        FROM wallets 
+    LOOP
+        -- Determine webhook ID based on chain
+        webhook_id := CASE wallet_record.chain_name
+            WHEN 'ethereum' THEN 'wh_0h8dcqbb9xyicw0j'
+            WHEN 'arbitrum' THEN 'wh_yrz4wsilbyi4r3te'
+            WHEN 'base' THEN 'wh_1s9h4o6yvl4vgihk'
+            WHEN 'polygon' THEN 'wh_jy4305rmrrh4tch9'
+            WHEN 'bsc' THEN 'wh_qfjcobe6febny6jq'
+            WHEN 'avalanche' THEN 'wh_n2186j0v0fwdpp7t'
+            WHEN 'optimism' THEN 'wh_iiey7lav9klnpsuy'
+            ELSE NULL
+        END;
+
+        -- Skip if no webhook ID for this chain
+        IF webhook_id IS NULL THEN
+            chain := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SKIPPED: No webhook ID';
+            RETURN NEXT;
+            CONTINUE;
+        END IF;
+
+        -- Call webhook registration endpoint
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses/' || webhook_id,
+                ARRAY[
+                    ('Authorization', 'Bearer lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('Content-Type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                json_build_object(
+                    'type', 'ADD',
+                    'addresses', ARRAY[lower(wallet_record.public_address)]
+                )::text
+            )::http_request);
+
+            -- Log webhook registration
+            INSERT INTO webhook_logs (
+                wallet_id,
+                public_address,
+                action,
+                response,
+                created_at
+            ) VALUES (
+                wallet_record.id,
+                wallet_record.public_address,
+                'add',
+                webhook_response,
+                NOW()
+            );
+
+            chain := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS';
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        
+    END LOOP;
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_existing_wallets"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_next_chain_addresses"("batch_size" integer DEFAULT 5) RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+    webhook_id text;
+    network_name text;
+    current_chain text;
+    processed_count int := 0;
+BEGIN    
+    -- Get the next unprocessed chain in our preferred order
+    WITH chain_order AS (
+        SELECT unnest(ARRAY['ethereum', 'polygon', 'optimism', 'base', 'bsc', 'avalanche']) as chain_name,
+               generate_series(1,6) as priority
+    )
+    SELECT co.chain_name INTO current_chain
+    FROM chain_order co
+    WHERE co.chain_name NOT IN (SELECT pc.chain_name FROM processed_chains pc)
+    AND co.chain_name != 'arbitrum'  -- Skip arbitrum as it's already done
+    ORDER BY co.priority
+    LIMIT 1;
+
+    -- If no chains left to process, return empty
+    IF current_chain IS NULL THEN
+        RAISE NOTICE 'All chains have been processed';
+        RETURN;
+    END IF;
+
+    RAISE NOTICE 'Processing chain: %', current_chain;
+
+    -- Set webhook ID and network name for current chain
+    webhook_id := CASE current_chain
+        WHEN 'polygon' THEN 'wh_jy4305rmrrh4tch9'
+        WHEN 'optimism' THEN 'wh_iiey7lav9klnpsuy'
+        WHEN 'base' THEN 'wh_1s9h4o6yvl4vgihk'
+        WHEN 'bsc' THEN 'wh_qfjcobe6febny6jq'
+    END;
+
+    network_name := CASE current_chain
+        WHEN 'polygon' THEN 'polygon-mainnet'
+        WHEN 'optimism' THEN 'opt-mainnet'
+        WHEN 'base' THEN 'base-mainnet'
+        WHEN 'bsc' THEN 'bsc-mainnet'
+    END;
+
+    -- Process addresses for current chain
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        WHERE w.chain_name = current_chain
+        AND NOT EXISTS (
+            SELECT 1 
+            FROM processed_addresses pa 
+            WHERE pa.chain_name = w.chain_name 
+            AND pa.address = w.public_address
+        )
+        ORDER BY w.public_address
+        LIMIT batch_size
+    LOOP
+        -- Call webhook registration endpoint
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "%s",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "%s"
+                }',
+                webhook_id,
+                lower(wallet_record.public_address),
+                network_name
+                )
+            )::http_request);
+
+            -- Mark address as processed
+            INSERT INTO processed_addresses (chain_name, address)
+            VALUES (wallet_record.chain_name, wallet_record.public_address);
+
+            -- Return success result
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+            processed_count := processed_count + 1;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        
+        -- Add a small delay between requests
+        PERFORM pg_sleep(1);
+    END LOOP;
+
+    -- If no addresses were processed for this chain, mark it as complete
+    IF processed_count = 0 THEN
+        INSERT INTO processed_chains (chain_name)
+        VALUES (current_chain);
+        RAISE NOTICE 'Chain % completed', current_chain;
+    END IF;
+    
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_next_chain_addresses"("batch_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_non_arbitrum_addresses"("batch_size" integer DEFAULT 5) RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+    webhook_id text;
+    network_name text;
+    processed_count int := 0;
+BEGIN    
+    -- Loop through wallets, excluding arbitrum
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        WHERE w.chain_name != 'arbitrum'
+        ORDER BY w.chain_name
+        LIMIT batch_size
+    LOOP
+        -- Set webhook ID based on chain
+        webhook_id := CASE wallet_record.chain_name
+            WHEN 'ethereum' THEN 'wh_k6nr3wnpnqvxqwf6'
+            WHEN 'polygon' THEN 'wh_7q4bpk3npqvxqwf4'
+            WHEN 'optimism' THEN 'wh_6q4bpk3npqvxqwf5'
+            WHEN 'base' THEN 'wh_8q4bpk3npqvxqwf3'
+            WHEN 'bsc' THEN 'wh_9q4bpk3npqvxqwf2'
+            WHEN 'avalanche' THEN 'wh_5q4bpk3npqvxqwf1'
+        END;
+
+        -- Set network name based on chain
+        network_name := CASE wallet_record.chain_name
+            WHEN 'ethereum' THEN 'eth-mainnet'
+            WHEN 'polygon' THEN 'polygon-mainnet'
+            WHEN 'optimism' THEN 'opt-mainnet'
+            WHEN 'base' THEN 'base-mainnet'
+            WHEN 'bsc' THEN 'bsc-mainnet'
+            WHEN 'avalanche' THEN 'avalanche-mainnet'
+        END;
+
+        -- Skip if no webhook ID for this chain
+        IF webhook_id IS NULL THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SKIPPED: No webhook configured for this chain';
+            RETURN NEXT;
+            CONTINUE;
+        END IF;
+
+        -- Call webhook registration endpoint
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "%s",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "%s"
+                }',
+                webhook_id,
+                lower(wallet_record.public_address),
+                network_name
+                )
+            )::http_request);
+
+            -- Return success result
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        
+        -- Add a small delay between requests
+        PERFORM pg_sleep(1);
+        
+        processed_count := processed_count + 1;
+    END LOOP;
+    
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_non_arbitrum_addresses"("batch_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_optimism_addresses"("batch_size" integer DEFAULT 5) RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+BEGIN    
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        WHERE w.chain_name = 'optimism'
+        ORDER BY w.public_address
+        LIMIT batch_size
+    LOOP
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "wh_iiey7lav9klnpsuy",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "opt-mainnet"
+                }',
+                lower(wallet_record.public_address)
+                )
+            )::http_request);
+
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        PERFORM pg_sleep(1);
+    END LOOP;
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_optimism_addresses"("batch_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_polygon_addresses"("batch_size" integer DEFAULT 5) RETURNS TABLE("chain_name" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    wallet_record RECORD;
+    webhook_response jsonb;
+BEGIN    
+    FOR wallet_record IN 
+        SELECT DISTINCT w.public_address, w.chain_name 
+        FROM wallets w 
+        WHERE w.chain_name = 'polygon'
+        ORDER BY w.public_address
+        LIMIT batch_size
+    LOOP
+        BEGIN
+            SELECT content::jsonb INTO webhook_response
+            FROM http((
+                'PATCH',
+                'https://dashboard.alchemy.com/api/update-webhook-addresses',
+                ARRAY[
+                    ('accept', 'application/json'),
+                    ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                    ('content-type', 'application/json')
+                ]::http_header[],
+                'application/json',
+                format('{
+                    "webhook_id": "wh_jy4305rmrrh4tch9",
+                    "addresses_to_add": ["%s"],
+                    "addresses_to_remove": [],
+                    "network": "polygon-mainnet"
+                }',
+                lower(wallet_record.public_address)
+                )
+            )::http_request);
+
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'SUCCESS: ' || webhook_response::text;
+            RETURN NEXT;
+
+        EXCEPTION WHEN OTHERS THEN
+            chain_name := wallet_record.chain_name;
+            address := wallet_record.public_address;
+            status := 'ERROR: ' || SQLERRM;
+            RETURN NEXT;
+        END;
+        PERFORM pg_sleep(1);
+    END LOOP;
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_polygon_addresses"("batch_size" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."test_webhook_single_address"() RETURNS TABLE("chain" "text", "address" "text", "status" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    webhook_response jsonb;
+    webhook_id text := 'wh_yrz4wsilbyi4r3te';  -- Arbitrum webhook ID
+    test_address text := '0x7e08413c4f87a59f75f4a9f8430ae0cc0cff0eb8';
+BEGIN    
+    -- Call webhook registration endpoint
+    BEGIN
+        SELECT content::jsonb INTO webhook_response
+        FROM http((
+            'PATCH',
+            'https://dashboard.alchemy.com/api/update-webhook-addresses',
+            ARRAY[
+                ('accept', 'application/json'),
+                ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                ('content-type', 'application/json')
+            ]::http_header[],
+            'application/json',
+            format('{
+                "webhook_id": "%s",
+                "addresses_to_add": ["%s"],
+                "addresses_to_remove": [],
+                "network": "arbitrum-mainnet"
+            }',
+            webhook_id,
+            lower(test_address)
+            )
+        )::http_request);
+
+        -- Return success result
+        chain := 'arbitrum';
+        address := test_address;
+        status := 'SUCCESS: ' || webhook_response::text;
+        RETURN NEXT;
+
+    EXCEPTION WHEN OTHERS THEN
+        chain := 'arbitrum';
+        address := test_address;
+        status := 'ERROR: ' || SQLERRM;
+        RETURN NEXT;
+    END;
+    
+    RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."test_webhook_single_address"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."transfer_password_and_delete_user"("p_temp_user_id" "uuid", "p_existing_user_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  -- Get the password hash from the temporary user
+  UPDATE auth_users
+  SET password_hash = (
+    SELECT password_hash
+    FROM auth_users
+    WHERE id = p_temp_user_id
+  )
+  WHERE id = p_existing_user_id;
+
+  -- Delete the temporary user
+  DELETE FROM auth_users
+  WHERE id = p_temp_user_id;
+
+  -- Return success
+  RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."transfer_password_and_delete_user"("p_temp_user_id" "uuid", "p_existing_user_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_existing_account_indices"() RETURNS "void"
@@ -832,18 +1679,6 @@ CREATE TABLE IF NOT EXISTS "public"."security_logs" (
 ALTER TABLE "public"."security_logs" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."temp_seed_phrases" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "user_id" "uuid" NOT NULL,
-    "seed_phrase" "text" NOT NULL,
-    "created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    "expires_at" timestamp with time zone DEFAULT (CURRENT_TIMESTAMP + '01:00:00'::interval)
-);
-
-
-ALTER TABLE "public"."temp_seed_phrases" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "public"."token_balances" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "wallet_id" "uuid",
@@ -928,6 +1763,19 @@ CREATE TABLE IF NOT EXISTS "public"."wallets" (
 ALTER TABLE "public"."wallets" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."webhook_logs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "wallet_id" "uuid",
+    "public_address" "text" NOT NULL,
+    "action" "text" NOT NULL,
+    "response" "jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."webhook_logs" OWNER TO "postgres";
+
+
 ALTER TABLE ONLY "public"."auth_accounts"
     ADD CONSTRAINT "auth_accounts_pkey" PRIMARY KEY ("id");
 
@@ -983,11 +1831,6 @@ ALTER TABLE ONLY "public"."security_logs"
 
 
 
-ALTER TABLE ONLY "public"."temp_seed_phrases"
-    ADD CONSTRAINT "temp_seed_phrases_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "public"."token_balances"
     ADD CONSTRAINT "token_balances_pkey" PRIMARY KEY ("id");
 
@@ -1003,11 +1846,6 @@ ALTER TABLE ONLY "public"."token_balances"
 
 
 
-ALTER TABLE ONLY "public"."wallets"
-    ADD CONSTRAINT "unique_wallet_address_chain" UNIQUE ("public_address", "chain_name");
-
-
-
 ALTER TABLE ONLY "public"."user_preferences"
     ADD CONSTRAINT "user_preferences_pkey" PRIMARY KEY ("user_id");
 
@@ -1015,6 +1853,11 @@ ALTER TABLE ONLY "public"."user_preferences"
 
 ALTER TABLE ONLY "public"."wallets"
     ADD CONSTRAINT "wallets_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."webhook_logs"
+    ADD CONSTRAINT "webhook_logs_pkey" PRIMARY KEY ("id");
 
 
 
@@ -1051,10 +1894,6 @@ CREATE INDEX "idx_security_logs_timestamp" ON "public"."security_logs" USING "bt
 
 
 CREATE INDEX "idx_security_logs_user_event" ON "public"."security_logs" USING "btree" ("user_id", "event_type");
-
-
-
-CREATE INDEX "idx_temp_seed_phrases_expires_at" ON "public"."temp_seed_phrases" USING "btree" ("expires_at");
 
 
 
@@ -1118,6 +1957,14 @@ CREATE OR REPLACE TRIGGER "manage_account_index_trigger" BEFORE INSERT ON "publi
 
 
 
+CREATE OR REPLACE TRIGGER "register_webhook_on_wallet_creation" AFTER INSERT ON "public"."wallets" FOR EACH ROW EXECUTE FUNCTION "public"."handle_webhook_registration"();
+
+
+
+CREATE OR REPLACE TRIGGER "register_webhook_on_wallet_update" AFTER UPDATE OF "public_address" ON "public"."wallets" FOR EACH ROW WHEN (("old"."public_address" IS DISTINCT FROM "new"."public_address")) EXECUTE FUNCTION "public"."handle_webhook_registration"();
+
+
+
 CREATE OR REPLACE TRIGGER "update_token_timestamp_trigger" BEFORE UPDATE ON "public"."token_balances" FOR EACH ROW EXECUTE FUNCTION "public"."update_token_timestamp"();
 
 
@@ -1147,11 +1994,6 @@ ALTER TABLE ONLY "public"."notification_logs"
 
 
 
-ALTER TABLE ONLY "public"."temp_seed_phrases"
-    ADD CONSTRAINT "temp_seed_phrases_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."auth_users"("id");
-
-
-
 ALTER TABLE ONLY "public"."transactions"
     ADD CONSTRAINT "transactions_network_id_fkey" FOREIGN KEY ("network_id") REFERENCES "public"."networks"("id");
 
@@ -1159,6 +2001,11 @@ ALTER TABLE ONLY "public"."transactions"
 
 ALTER TABLE ONLY "public"."user_preferences"
     ADD CONSTRAINT "user_preferences_selected_network_fkey" FOREIGN KEY ("selected_network") REFERENCES "public"."networks"("id");
+
+
+
+ALTER TABLE ONLY "public"."webhook_logs"
+    ADD CONSTRAINT "webhook_logs_wallet_id_fkey" FOREIGN KEY ("wallet_id") REFERENCES "public"."wallets"("id");
 
 
 
@@ -1210,15 +2057,7 @@ CREATE POLICY "User can access their own session" ON "public"."auth_sessions" FO
 
 
 
-CREATE POLICY "User can access their own temp seed phrase" ON "public"."temp_seed_phrases" FOR SELECT USING (("user_id" = "auth"."uid"()));
-
-
-
 CREATE POLICY "User can delete their own session" ON "public"."auth_sessions" FOR DELETE USING (("userId" = "auth"."uid"()));
-
-
-
-CREATE POLICY "User can delete their own temp seed phrase" ON "public"."temp_seed_phrases" FOR DELETE USING (("user_id" = "auth"."uid"()));
 
 
 
@@ -1376,6 +2215,12 @@ GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."handle_webhook_registration"() TO "anon";
+GRANT ALL ON FUNCTION "public"."handle_webhook_registration"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."handle_webhook_registration"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid", "public_address" "text") TO "service_role";
@@ -1385,6 +2230,72 @@ GRANT ALL ON FUNCTION "public"."insert_default_token_balances"("wallet_id" "uuid
 GRANT ALL ON FUNCTION "public"."manage_account_index"() TO "anon";
 GRANT ALL ON FUNCTION "public"."manage_account_index"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."manage_account_index"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_all_wallet_addresses"() TO "anon";
+GRANT ALL ON FUNCTION "public"."register_all_wallet_addresses"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_all_wallet_addresses"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_base_addresses"("batch_size" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."register_base_addresses"("batch_size" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_base_addresses"("batch_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_bsc_addresses"("batch_size" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."register_bsc_addresses"("batch_size" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_bsc_addresses"("batch_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_chain_addresses"("batch_size" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."register_chain_addresses"("batch_size" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_chain_addresses"("batch_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_existing_wallets"() TO "anon";
+GRANT ALL ON FUNCTION "public"."register_existing_wallets"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_existing_wallets"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_next_chain_addresses"("batch_size" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."register_next_chain_addresses"("batch_size" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_next_chain_addresses"("batch_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_non_arbitrum_addresses"("batch_size" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."register_non_arbitrum_addresses"("batch_size" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_non_arbitrum_addresses"("batch_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_optimism_addresses"("batch_size" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."register_optimism_addresses"("batch_size" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_optimism_addresses"("batch_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_polygon_addresses"("batch_size" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."register_polygon_addresses"("batch_size" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_polygon_addresses"("batch_size" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."test_webhook_single_address"() TO "anon";
+GRANT ALL ON FUNCTION "public"."test_webhook_single_address"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."test_webhook_single_address"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."transfer_password_and_delete_user"("p_temp_user_id" "uuid", "p_existing_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."transfer_password_and_delete_user"("p_temp_user_id" "uuid", "p_existing_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."transfer_password_and_delete_user"("p_temp_user_id" "uuid", "p_existing_user_id" "uuid") TO "service_role";
 
 
 
@@ -1461,12 +2372,6 @@ GRANT ALL ON TABLE "public"."security_logs" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."temp_seed_phrases" TO "anon";
-GRANT ALL ON TABLE "public"."temp_seed_phrases" TO "authenticated";
-GRANT ALL ON TABLE "public"."temp_seed_phrases" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."token_balances" TO "anon";
 GRANT ALL ON TABLE "public"."token_balances" TO "authenticated";
 GRANT ALL ON TABLE "public"."token_balances" TO "service_role";
@@ -1488,6 +2393,12 @@ GRANT ALL ON TABLE "public"."user_preferences" TO "service_role";
 GRANT ALL ON TABLE "public"."wallets" TO "anon";
 GRANT ALL ON TABLE "public"."wallets" TO "authenticated";
 GRANT ALL ON TABLE "public"."wallets" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."webhook_logs" TO "anon";
+GRANT ALL ON TABLE "public"."webhook_logs" TO "authenticated";
+GRANT ALL ON TABLE "public"."webhook_logs" TO "service_role";
 
 
 

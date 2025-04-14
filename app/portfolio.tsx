@@ -127,6 +127,8 @@ const DEFAULT_TOKEN_LOGO = require('../assets/images/default-token.png');
 const DEFAULT_LOADING_LOGO = require('../assets/images/loading-token.png');
 const DEFAULT_ERROR_LOGO = require('../assets/images/error-token.png');
 
+const REFRESH_COOLDOWN = 5000; // 5 seconds cooldown between manual refreshes
+
 // Storage functions
 const savePortfolioData = async (data: PortfolioData): Promise<void> => {
   try {
@@ -271,31 +273,16 @@ export default function Portfolio(): JSX.Element {
   const [totalValue, setTotalValue] = useState<string>("0");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [isChainSwitching, setIsChainSwitching] = useState(false);
-  const [isLoadingPrices, setIsLoadingPrices] = useState(false);
-  const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
   const [lastRefreshTime, setLastRefreshTime] = useState(0);
-  const REFRESH_COOLDOWN = 5000; // 5 seconds cooldown between manual refreshes
-  const [walletData, setWalletData] = useState<WalletData>({
-    address: '',
-    type: 'classic',
-    chainId: undefined,
-    hasPassword: undefined
-  });
   const [error, setError] = useState<string | null>(null);
-  const [chartData, setChartData] = useState<ChartData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const [showWalletSelector, setShowWalletSelector] = useState(false);
-  const [availableWallets, setAvailableWallets] = useState<Array<{id: string, public_address: string, chain_name: string}>>([]);
-  const [isAccountSwitching, setIsAccountSwitching] = useState(false);
-  const [isWalletSelectorLoading, setIsWalletSelectorLoading] = useState(false);
   const [activeSubscriptions, setActiveSubscriptions] = useState<{
     token?: ReturnType<typeof supabase.channel>;
     transaction?: ReturnType<typeof supabase.channel>;
     nft?: ReturnType<typeof supabase.channel>;
     notification?: ReturnType<typeof supabase.channel>;
   }>({});
-  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const init = async () => {
@@ -313,14 +300,6 @@ export default function Portfolio(): JSX.Element {
             chainId: currentChainId
           });
           
-          // Set current account with the chain ID from context
-          const account = { 
-            address: walletData.address,
-            chainId: currentChainId
-          };
-          
-          setCurrentAccount(account);
-            
           // Load saved data for the current chain ID
           console.log('[Portfolio] Loading portfolio data for chain:', currentChainId);
           const savedData = await loadPortfolioData(currentChainId);
@@ -478,86 +457,6 @@ export default function Portfolio(): JSX.Element {
     setTokenLogos({});
   }, [currentChainId]);
 
-  const loadAvailableWallets = async () => {
-    try {
-      console.log('🔍 [Portfolio] Loading available wallets...');
-      setIsWalletSelectorLoading(true);
-      
-      // First check if we're authenticated
-      const isAuthenticated = await SecureStore.getItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
-      if (isAuthenticated !== 'true') {
-        console.log('❌ [Portfolio] Not authenticated, redirecting to signin');
-        router.replace('/signin');
-        return;
-      }
-
-      // Get user ID from SecureStore
-      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
-      if (!userId) {
-        console.error('❌ [Portfolio] No user ID found');
-        setAvailableWallets([]);
-        return;
-      }
-
-      console.log('👤 [Portfolio] Loading wallets for user:', userId);
-
-      // Use supabaseAdmin for this request
-      const { data: wallets, error } = await supabaseAdmin
-        .from("wallets")
-        .select("id, public_address")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: true });
-
-      if (error) {
-        console.error('❌ [Portfolio] Error loading wallets:', error);
-        setAvailableWallets([]);
-        return;
-      }
-
-      if (wallets && wallets.length > 0) {
-        // Filter out duplicate addresses, keeping only the first occurrence
-        const uniqueWallets = wallets.reduce((acc: any[], wallet) => {
-          if (!acc.find(w => w.public_address.toLowerCase() === wallet.public_address.toLowerCase())) {
-            acc.push(wallet);
-          }
-          return acc;
-        }, []);
-
-        console.log('✅ [Portfolio] Loaded unique wallets:', uniqueWallets.length);
-        setAvailableWallets(uniqueWallets);
-      } else {
-        console.log('ℹ️ [Portfolio] No wallets found');
-        setAvailableWallets([]);
-      }
-    } catch (error) {
-      console.error("❌ [Portfolio] Error loading available wallets:", error);
-      setAvailableWallets([]);
-    } finally {
-      setIsWalletSelectorLoading(false);
-    }
-  };
-
-  // Update the useEffect to handle loading state with debounce
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout | undefined;
-    if (showWalletSelector) {
-      // Load wallets immediately when modal is shown
-      loadAvailableWallets();
-    }
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [showWalletSelector]);
-
-  const handleCloseModal = useCallback(() => {
-    setShowWalletSelector(false);
-    setIsWalletSelectorLoading(false);
-  }, []);
-
-  const handleTokenPress = (token: Token): void => {
-    console.log('Token pressed:', token.symbol);
-  };
-
   const handleRefresh = useCallback(async () => {
     try {
       // Only check if already refreshing, remove initialization check
@@ -584,7 +483,7 @@ export default function Portfolio(): JSX.Element {
       }
 
       // Ensure we have both account and chain
-      const effectiveAccount = currentAccount || { 
+      const effectiveAccount = { 
         address: walletData.address, 
         chainId: currentChainId 
       };
@@ -707,104 +606,7 @@ export default function Portfolio(): JSX.Element {
     } finally {
       setIsRefreshing(false);
     }
-  }, [currentAccount?.address, currentChainId, isRefreshing, lastRefreshTime]);
-
-  const handleAccountChange = useCallback(async (account: Account) => {
-    console.log('[Portfolio] Account change received:', {
-      address: account.address,
-      chainId: account.chainId,
-      currentAccount: currentAccount?.address
-    });
-
-    try {
-      setIsAccountSwitching(true);
-      setError(null);
-
-      // Validate account
-      if (!account.address) {
-        throw new Error('Invalid account address');
-      }
-
-      // 1. Update current account
-      setCurrentAccount(account);
-      
-      // 2. Clear existing data
-      setTokens(current => 
-        current.map(t => ({ ...t, logo: undefined }))
-      );
-      setTokens([]);
-      setTotalValue("0");
-      
-      // 3. Load and save portfolio data for the new account
-      const savedData = await loadPortfolioData(currentChainId);
-      if (savedData) {
-        setTokens(savedData.tokens);
-        setTotalValue(savedData.totalValue);
-      }
-
-      // 4. Trigger a refresh to get fresh data
-      await handleRefresh();
-    } catch (error) {
-      console.error('[Portfolio] Error handling account change:', error);
-      setError(error instanceof Error ? error.message : 'Failed to update portfolio for new account');
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update portfolio for new account');
-    } finally {
-      setIsAccountSwitching(false);
-    }
-  }, [currentAccount, handleRefresh, currentChainId]);
-
-  const handleChainChange = useCallback(async (chainId: number) => {
-    if (isChainSwitching || isAccountSwitching) {
-      console.log('[Portfolio] Skipping chain change - already switching');
-      return;
-    }
-
-    console.log('[Portfolio] Chain change received:', {
-      newChainId: chainId,
-      currentChainId,
-      currentAccount: currentAccount?.address
-    });
-    
-    try {
-      setIsChainSwitching(true);
-      setError(null);
-
-      // Validate chain ID
-      if (!getChainById(chainId)) {
-        throw new Error(`Unsupported chain ID: ${chainId}`);
-      }
-
-      // 1. Update chain ID in context
-      await setChainId(chainId);
-      
-      // 2. Update current account with new chain ID
-      if (currentAccount) {
-        const updatedAccount = { ...currentAccount, chainId };
-        setCurrentAccount(updatedAccount);
-      }
-      
-      // 3. Clear existing data
-      setTokens([]);
-      setTotalValue("0");
-      
-      // 4. Load and save portfolio data for the new chain
-      const savedData = await loadPortfolioData(chainId);
-      if (savedData) {
-        setTokens(savedData.tokens);
-        setTotalValue(savedData.totalValue);
-      }
-
-      // 5. Wait for UI to update before allowing account switching
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-    } catch (error) {
-      console.error('[Portfolio] Error handling chain change:', error);
-      setError(error instanceof Error ? error.message : 'Failed to update portfolio for new network');
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update portfolio for new network');
-    } finally {
-      setIsChainSwitching(false);
-    }
-  }, [currentAccount, setChainId, isChainSwitching, isAccountSwitching]);
+  }, [currentChainId, isRefreshing, lastRefreshTime]);
 
   // Memoize chart data preparation
   const prepareChartData = useCallback((token: Token) => {
@@ -833,7 +635,6 @@ export default function Portfolio(): JSX.Element {
       <TouchableOpacity 
         key={`${token.address}-${token.chain_id}`}
         style={styles.tokenCard}
-        onPress={() => handleTokenPress(token)}
       >
         <View style={[styles.cardBlur, { backgroundColor: 'rgba(41, 40, 40, 0.25)' }]}>
           <View style={styles.cardContent}>
@@ -892,7 +693,7 @@ export default function Portfolio(): JSX.Element {
         </View>
       </TouchableOpacity>
     );
-  }, [getLogoSource, handleTokenPress]);
+  }, [getLogoSource]);
 
   // Memoize sorted tokens
   const sortedTokens = useMemo(() => {
@@ -903,90 +704,62 @@ export default function Portfolio(): JSX.Element {
     });
   }, [tokens]);
 
-  // Update wallet selection handler
-  const handleWalletSelect = useCallback(async (wallet: { id: string, public_address: string }) => {
-    if (isAccountSwitching || isChainSwitching) {
-      console.log('[Portfolio] Skipping wallet select - already switching');
-      return;
-    }
-
-    console.log('[Portfolio] Wallet selected:', wallet);
-    setIsAccountSwitching(true);
-    
-    try {
-      // Add a small delay before changing account
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      await handleAccountChange({ 
-        address: wallet.public_address,
-        chainId: currentChainId
-      });
-
-      // Close modal after account change is complete
-      handleCloseModal();
-    } catch (error) {
-      console.error('[Portfolio] Error selecting wallet:', error);
-      Alert.alert('Error', 'Failed to select wallet');
-    } finally {
-      setIsAccountSwitching(false);
-    }
-  }, [currentChainId, handleAccountChange, handleCloseModal, isAccountSwitching, isChainSwitching]);
-
   // Add subscription effect
   useEffect(() => {
-    if (!currentAccount?.address) return;
+    const init = async () => {
+      const walletData = await getStoredWallet();
+      if (!walletData?.address) return;
 
-    // Subscribe to changes in token balances and transactions for current wallet
-    const tokenBalanceSubscription = supabase
-      .channel('token_balance_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'token_balances',
-          filter: `public_address=eq.${currentAccount.address}`
-        },
-        (payload) => {
-          console.log('Token balance changed:', payload);
-          handleRefresh();
-        }
-      )
-      .subscribe();
+      // Subscribe to changes in token balances and transactions for current wallet
+      const tokenBalanceSubscription = supabase
+        .channel('token_balance_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'token_balances',
+            filter: `public_address=eq.${walletData.address}`
+          },
+          (payload) => {
+            console.log('Token balance changed:', payload);
+            handleRefresh();
+          }
+        )
+        .subscribe();
 
-    // Subscribe to changes in transactions for current wallet (both incoming and outgoing)
-    const transactionSubscription = supabase
-      .channel('transaction_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'transactions',
-          filter: `from_address=eq.${currentAccount.address.toLowerCase()}`
-        },
-        (payload) => {
-          console.log('Outgoing transaction changed:', payload);
-          handleRefresh();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'transactions',
-          filter: `to_address=eq.${currentAccount.address.toLowerCase()}`
-        },
-        (payload) => {
-          console.log('Incoming transaction changed:', payload);
-          handleRefresh();
-        }
-      )
-      .subscribe();
+      // Subscribe to changes in transactions for current wallet
+      const transactionSubscription = supabase
+        .channel('transaction_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'transactions',
+            filter: `from_address=eq.${walletData.address.toLowerCase()}`
+          },
+          (payload) => {
+            console.log('Outgoing transaction changed:', payload);
+            handleRefresh();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'transactions',
+            filter: `to_address=eq.${walletData.address.toLowerCase()}`
+          },
+          (payload) => {
+            console.log('Incoming transaction changed:', payload);
+            handleRefresh();
+          }
+        )
+        .subscribe();
 
-    // Get the current user's session
-    const getSession = async () => {
+      // Get the current user's session
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user?.id) {
         // Subscribe to NFT changes for current wallet
@@ -998,12 +771,10 @@ export default function Portfolio(): JSX.Element {
               event: '*',
               schema: 'public',
               table: 'nfts',
-              filter: `wallet_id.in.(select id from wallets where public_address=eq.${currentAccount.address.toLowerCase()})`
+              filter: `wallet_id.in.(select id from wallets where public_address=eq.${walletData.address.toLowerCase()})`
             },
             (payload) => {
               console.log('NFT collection changed:', payload);
-              // Here you would typically update NFT state
-              // For now just refresh everything
               handleRefresh();
             }
           )
@@ -1022,30 +793,26 @@ export default function Portfolio(): JSX.Element {
             },
             (payload) => {
               console.log('New notification:', payload);
-              // Here you would typically update notification state or show a toast
-              // For now just log it
             }
           )
           .subscribe();
 
-        // Store subscriptions for cleanup
         setActiveSubscriptions(prev => ({
           ...prev,
           nft: nftSubscription,
           notification: notificationSubscription
         }));
       }
+
+      // Store token and transaction subscriptions
+      setActiveSubscriptions(prev => ({
+        ...prev,
+        token: tokenBalanceSubscription,
+        transaction: transactionSubscription
+      }));
     };
 
-    // Initialize NFT and notification subscriptions
-    getSession();
-
-    // Store token and transaction subscriptions
-    setActiveSubscriptions(prev => ({
-      ...prev,
-      token: tokenBalanceSubscription,
-      transaction: transactionSubscription
-    }));
+    init();
 
     // Cleanup subscriptions on unmount
     return () => {
@@ -1053,15 +820,10 @@ export default function Portfolio(): JSX.Element {
         if (subscription) subscription.unsubscribe();
       });
     };
-  }, [currentAccount?.address, handleRefresh]);
+  }, [handleRefresh]); // Only depend on handleRefresh
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      <WalletHeader 
-        onAccountChange={handleAccountChange}
-        pageName="Portfolio"
-        onChainChange={handleChainChange}
-      />
       <ImageBackground 
         source={require('../assets/background.png')} 
         style={styles.backgroundImage}
@@ -1070,30 +832,27 @@ export default function Portfolio(): JSX.Element {
       >
         <View style={styles.content}>
           <WalletHeader 
-            onAccountChange={handleAccountChange}
-            onPress={() => {
-              setShowWalletSelector(true);
-            }}
+            pageName="Portfolio"
           />
 
           {/* Portfolio Value */}
           <View style={styles.portfolioValue}>
             <Text style={styles.valueLabel}>Total Value</Text>
             <Text style={styles.valueAmount}>
-              {isInitializing ? 'Loading...' : isChainSwitching ? 'Switching...' : `$${totalValue}`}
+              {isInitializing ? 'Loading...' : `$${totalValue}`}
             </Text>
             <View style={styles.headerButtons}>
               <TouchableOpacity 
                 style={styles.swapButton}
                 onPress={() => router.push('/swap')}
-                disabled={isInitializing || isChainSwitching}
+                disabled={isInitializing}
               >
                 <Ionicons name="swap-horizontal" size={24} color={COLORS.primary} />
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.refreshButton}
                 onPress={handleRefresh}
-                disabled={isInitializing || isRefreshing || isChainSwitching || !currentAccount?.address}
+                disabled={isInitializing || isRefreshing}
               >
                 {isRefreshing ? (
                   <ActivityIndicator color={COLORS.primary} size="small" />
@@ -1114,11 +873,6 @@ export default function Portfolio(): JSX.Element {
                 <ActivityIndicator size="large" color={COLORS.primary} />
                 <Text style={styles.loadingText}>Loading portfolio...</Text>
               </View>
-            ) : isChainSwitching ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={COLORS.primary} />
-                <Text style={styles.loadingText}>Switching network...</Text>
-              </View>
             ) : error ? (
               <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>{error}</Text>
@@ -1138,82 +892,6 @@ export default function Portfolio(): JSX.Element {
             )}
           </ScrollView>
 
-          {/* Wallet Selection Modal */}
-          <Modal
-            animationType="none"
-            transparent={true}
-            visible={showWalletSelector}
-            onRequestClose={handleCloseModal}
-          >
-            <TouchableWithoutFeedback onPress={handleCloseModal}>
-              <View style={styles.modalOverlay}>
-                <TouchableWithoutFeedback>
-                  <View style={styles.modalContainer}>
-                    <Image
-                      source={require('../assets/background.png')}
-                      style={styles.modalBackground}
-                    />
-                    <View style={styles.modalHeader}>
-                      <Text style={styles.modalTitle}>Select Wallet</Text>
-                      <TouchableOpacity
-                        style={styles.closeButton}
-                        onPress={handleCloseModal}
-                      >
-                        <Ionicons name="close" size={24} color={COLORS.white} />
-                      </TouchableOpacity>
-                    </View>
-                    <ScrollView
-                      style={styles.modalList}
-                      showsVerticalScrollIndicator={false}
-                      contentContainerStyle={styles.modalListContent}
-                    >
-                      {isWalletSelectorLoading ? (
-                        <View style={styles.loadingContainer}>
-                          <ActivityIndicator size="large" color={COLORS.primary} />
-                          <Text style={styles.loadingText}>Loading wallets...</Text>
-                        </View>
-                      ) : availableWallets.length === 0 ? (
-                        <View style={styles.emptyContainer}>
-                          <Text style={styles.emptyText}>No wallets found</Text>
-                        </View>
-                      ) : (
-                        availableWallets.map((wallet) => (
-                          <TouchableOpacity
-                            key={wallet.id}
-                            style={[
-                              styles.modalOption,
-                              currentAccount?.address === wallet.public_address && styles.modalOptionSelected
-                            ]}
-                            onPress={() => {
-                              handleWalletSelect(wallet);
-                            }}
-                          >
-                            <View style={styles.chainSelectContent}>
-                              <View style={styles.modalChainIcon}>
-                                <Ionicons name="wallet" size={24} color={COLORS.primary} />
-                              </View>
-                              <View style={styles.modalTokenInfo}>
-                                <Text style={[
-                                  styles.modalOptionText,
-                                  currentAccount?.address === wallet.public_address && styles.modalOptionTextSelected
-                                ]}>
-                                  {wallet.public_address.slice(0, 6)}...{wallet.public_address.slice(-4)}
-                                </Text>
-                              </View>
-                            </View>
-                            {currentAccount?.address === wallet.public_address && (
-                              <Ionicons name="checkmark" size={20} color={COLORS.primary} />
-                            )}
-                          </TouchableOpacity>
-                        ))
-                      )}
-                    </ScrollView>
-                  </View>
-                </TouchableWithoutFeedback>
-              </View>
-            </TouchableWithoutFeedback>
-          </Modal>
-
           <BottomNav activeTab="portfolio" />
         </View>
       </ImageBackground>
@@ -1227,11 +905,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   backgroundImage: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     width: '100%',
     height: '100%',
   },
@@ -1243,7 +917,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   portfolioValue: {
-    padding: SPACING.xl,
+    paddingTop: SPACING.md,
+    paddingHorizontal: SPACING.xl,
+    paddingBottom: SPACING.xl,
     alignItems: "center",
     position: 'relative',
   },
@@ -1403,93 +1079,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     opacity: 0.7,
     fontSize: 12,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalOverlayContent: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    height: MODAL_HEIGHT,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: COLORS.background,
-  },
-  modalBackground: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: SPACING.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  closeButton: {
-    padding: SPACING.xs,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.white,
-  },
-  modalList: {
-    flex: 1,
-  },
-  modalListContent: {
-    padding: SPACING.lg,
-  },
-  modalOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.md,
-    borderRadius: 12,
-  },
-  modalOptionSelected: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  modalOptionText: {
-    fontSize: 16,
-    color: COLORS.white,
-  },
-  modalOptionTextSelected: {
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  chainSelectContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-  },
-  modalChainIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalTokenInfo: {
-    flex: 1,
-  },
-  modalTokenName: {
-    fontSize: 12,
-    color: COLORS.white,
-    opacity: 0.7,
-  },
-  modalContent: {
-    padding: SPACING.lg,
   },
   loadingContainer: {
     flex: 1,
