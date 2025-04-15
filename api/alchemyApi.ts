@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import config from './config';
 import { TokenBalance, TokenMetadata } from '../types/tokens';
 import { NETWORKS } from './config';
-import { CHAIN_TO_NETWORK } from './tokensApi';
+import { CHAIN_TO_NETWORK } from './chainMappings';
 
 // Update TokenBalance interface to match Alchemy's response structure
 interface AlchemyTokenBalance {

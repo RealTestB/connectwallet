@@ -9,6 +9,8 @@ import { supabaseAdmin } from '../lib/supabase';
 import { makeHttpRequest } from '../utils/httpClient';
 import { ChainId } from '../constants/chains';
 import { TokenMetadata, TokenBalance, TokenWithPrice, TokenBalanceResult } from '../types/tokens';
+import { makeAlchemyRequest } from './alchemyApi';
+import { CHAIN_TO_NETWORK } from './chainMappings';
 
 // Define ERC20 ABI
 const ERC20_ABI = [
@@ -172,7 +174,7 @@ export const getTokenMetadata = async (contractAddress: string, chainId: number)
     }
 
     // For chains supported by Alchemy
-    if (CHAIN_TO_ALCHEMY[chainId as ChainId]) {
+    if (CHAIN_TO_NETWORK[chainId as ChainId]) {
       const metadata = await makeAlchemyRequest('alchemy_getTokenMetadata', [contractAddress], chainId);
       
       if (!metadata) {
@@ -269,17 +271,6 @@ async function formatTokenBalance(balance: { contractAddress: string; tokenBalan
   }
 }
 
-// Map chain IDs to network keys
-export const CHAIN_TO_NETWORK: { [chainId: number]: string } = {
-  1: 'ethereum',
-  137: 'polygon',
-  42161: 'arbitrum',
-  10: 'optimism',
-  56: 'bsc',
-  43114: 'avalanche',
-  8453: 'base'
-};
-
 // Map chain IDs to Alchemy network types
 export const CHAIN_TO_ALCHEMY: Record<ChainId, Network> = {
   1: Network.ETH_MAINNET,
@@ -354,73 +345,59 @@ export const getTokenBalance = async (contractAddress: string, ownerAddress: str
  * Get all token balances for an address on a specific chain
  */
 export const getTokenBalances = async (address: string, chainId: number): Promise<TokenBalanceResult[]> => {
-  console.log('[TokensApi] Fetching token balances:', { address, chainId });
-
   try {
-    // First, get the native token balance
-    const nativeBalance = await makeAlchemyRequest('eth_getBalance', [address, 'latest']);
-    const formattedNativeBalance = ethers.formatEther(nativeBalance);
+    // Get native token balance
+    const nativeBalance = await makeAlchemyRequest('eth_getBalance', [address, 'latest'], chainId);
     const nativeMetadata = await getTokenMetadata('0x0000000000000000000000000000000000000000', chainId);
-    
-    // Create native token balance result
-    const nativeTokenResult: TokenBalanceResult = {
+    const nativeResult: TokenBalanceResult = {
       contractAddress: '0x0000000000000000000000000000000000000000',
       tokenBalance: nativeBalance,
-      formattedBalance: formattedNativeBalance,
+      formattedBalance: ethers.formatEther(nativeBalance),
       metadata: nativeMetadata
     };
 
-    // Get wallet from Supabase
-    const { data: wallet, error: walletError } = await supabaseAdmin
-      .from("wallets")
-      .select("id")
-      .eq("public_address", address.toLowerCase())
-      .maybeSingle();
+    // Get token balances from Alchemy
+    const response = await makeAlchemyRequest('alchemy_getTokenBalances', [address], chainId);
+    
+    // The response has an address and tokenBalances array
+    const alchemyBalances: AlchemyTokenBalance[] = response?.tokenBalances || [];
+    console.log('[TokensApi] Processing token balances:', alchemyBalances);
 
-    if (walletError || !wallet) {
-      console.log('[TokensApi] No wallet found in Supabase, returning only native token');
-      return [nativeTokenResult];
-    }
+    // Filter out zero balances and ensure tokenBalance exists
+    const nonZeroBalances = alchemyBalances.filter((balance: AlchemyTokenBalance) => {
+      if (!balance?.tokenBalance) return false;
+      // Check if balance is non-zero (it's a hex string)
+      return balance.tokenBalance !== '0x0' && balance.tokenBalance !== '0x' && balance.tokenBalance !== '0x0000000000000000000000000000000000000000000000000000000000000000';
+    });
 
-    // Get token list from our database
-    const { data: tokenList } = await supabaseAdmin
-      .from("token_balances")
-      .select("*")
-      .eq("wallet_id", wallet.id)
-      .eq("chain_id", chainId);
-
-    if (!tokenList) {
-      console.log('[TokensApi] No tokens found in token_balances table');
-      return [nativeTokenResult];
-    }
-
-    console.log('[TokensApi] Found tokens in Supabase:', tokenList.length);
-
+    // Process all tokens with balances
     const tokenResults = await Promise.all(
-      tokenList.map(async (token) => {
+      nonZeroBalances.map(async (token: AlchemyTokenBalance) => {
         try {
-          const balance = await getTokenBalance(token.token_address, address, chainId);
-          const metadata = await getTokenMetadata(token.token_address, chainId);
-
-          return {
-            contractAddress: token.token_address,
-            tokenBalance: ethers.parseUnits(balance, metadata.decimals).toString(),
-            formattedBalance: balance,
+          const metadata = await getTokenMetadata(token.contractAddress, chainId);
+          const formattedBalance = await formatTokenBalance({
+            contractAddress: token.contractAddress,
+            tokenBalance: token.tokenBalance,
             metadata
-          } as TokenBalanceResult;
+          });
+          return formattedBalance;
         } catch (error) {
-          console.error('[TokensApi] Error processing token:', token.token_address, error);
-          return null;
+          console.error(`[TokensApi] Error processing token ${token.contractAddress}:`, error);
+          return {
+            contractAddress: token.contractAddress,
+            tokenBalance: token.tokenBalance,
+            formattedBalance: '0',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          };
         }
       })
     );
 
-    // Filter out null results and combine with native token
-    const validTokenResults = tokenResults.filter((result): result is TokenBalanceResult => result !== null);
-    return [nativeTokenResult, ...validTokenResults];
+    // Return both native token and other token balances
+    return [nativeResult, ...tokenResults];
   } catch (error) {
-    console.error('[TokensApi] Error fetching token balances:', error);
-    return [];
+    console.error('[TokensApi] Error getting token balances:', error);
+    throw error;
   }
 };
 
@@ -454,116 +431,6 @@ const fetchWithRetry = async (url: string, retries = 3): Promise<Response> => {
  * @param days Number of days of history to fetch
  * @returns Array of [timestamp, price] tuples
  */
-
-export const makeAlchemyRequest = (method: string, params: any[], chainId: number = 1): Promise<any> => {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.timeout = 5000; // 5 second timeout
-
-    const body = JSON.stringify({
-      jsonrpc: '2.0',
-      id: Math.floor(Math.random() * 1000),
-      method,
-      params
-    });
-
-    console.log('[TokensApi] Making Alchemy request:', { method, params, chainId });
-
-    // Get the correct network key and RPC URL for the chain
-    const networkKey = CHAIN_TO_NETWORK[chainId];
-    if (!networkKey) {
-      reject(new Error(`Chain ID ${chainId} not supported`));
-      return;
-    }
-
-    const network = NETWORKS[networkKey as keyof typeof NETWORKS];
-    if (!network?.rpcUrl) {
-      reject(new Error(`No RPC URL found for chain ID ${chainId}`));
-      return;
-    }
-
-    console.log('[TokensApi] Using RPC URL for chain:', { 
-      chainId, 
-      networkKey, 
-      rpcUrl: network.rpcUrl 
-    });
-
-    xhr.addEventListener('loadstart', () => {
-      console.log('📡 [Alchemy] Request started');
-    });
-
-    xhr.addEventListener('progress', (event) => {
-      if (event.lengthComputable) {
-        console.log(`📡 [Alchemy] Progress: ${Math.round((event.loaded / event.total) * 100)}%`);
-      }
-    });
-
-    xhr.addEventListener('readystatechange', () => {
-      console.log(`📡 [Alchemy] Ready state: ${xhr.readyState}`);
-      
-      if (xhr.readyState !== 4) return;
-      
-      console.log('[Alchemy] Response received:', {
-        status: xhr.status,
-        statusText: xhr.statusText,
-        hasResponse: !!xhr.responseText,
-        responseText: xhr.responseText
-      });
-      
-      if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          console.log('[Alchemy] Parsed response:', {
-            response,
-            result: response.result,
-            resultType: typeof response.result
-          });
-          if (response.error) {
-            console.error('[Alchemy] JSON-RPC error:', response.error);
-            reject(new Error(response.error.message));
-            return;
-          }
-          resolve(response.result);
-        } catch (error) {
-          console.error('[Alchemy] Failed to parse response:', error);
-          reject(new Error('Failed to parse response'));
-        }
-      } else {
-        const errorMsg = `Request failed with status ${xhr.status}`;
-        console.error('[Alchemy]', errorMsg, {
-          status: xhr.status,
-          statusText: xhr.statusText,
-          responseText: xhr.responseText
-        });
-        reject(new Error(errorMsg));
-      }
-    });
-
-    xhr.addEventListener('error', (event) => {
-      console.error('❌ [Alchemy] Network error:', event);
-      reject(new Error('Network request failed'));
-    });
-
-    xhr.addEventListener('timeout', () => {
-      console.error('⏰ [Alchemy] Request timed out');
-      reject(new Error('Request timed out'));
-    });
-
-    xhr.addEventListener('abort', () => {
-      console.error('🚫 [Alchemy] Request aborted');
-      reject(new Error('Request was aborted'));
-    });
-
-    try {
-      xhr.open('POST', network.rpcUrl);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(body);
-    } catch (error) {
-      console.error('[Alchemy] Failed to send request:', error);
-      reject(new Error('Failed to send request'));
-    }
-  });
-};
 
 export const getNativeBalance = async (address: string): Promise<string> => {
   try {

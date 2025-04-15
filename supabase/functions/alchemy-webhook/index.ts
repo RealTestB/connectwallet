@@ -133,8 +133,22 @@ serve(async (req: Request) => {
       const isReceiver = wallet.public_address.toLowerCase() === transaction.to?.toLowerCase();
       
       // Get the token address (Native or ERC20)
-      const tokenAddress = transaction.contractAddress?.toLowerCase() || '0x0000000000000000000000000000000000000000';
+      const tokenAddress = transaction.contractAddress?.toLowerCase() || transaction.asset?.contractAddress?.toLowerCase() || '0x0000000000000000000000000000000000000000';
       const isNativeToken = tokenAddress === '0x0000000000000000000000000000000000000000';
+
+      // Calculate the value based on whether it's a native token or ERC20
+      let value: bigint;
+      if (isNativeToken) {
+        value = BigInt(transaction.value || '0');
+      } else {
+        // For ERC20 transfers, use the rawContract data or erc20Metadata
+        value = BigInt(
+          transaction.rawContract?.value || 
+          transaction.asset?.value ||
+          transaction.erc20Metadata?.value || 
+          '0'
+        );
+      }
 
       // Get token details from our tokens table
       const { data: token, error: tokenError } = await supabaseClient
@@ -150,6 +164,17 @@ serve(async (req: Request) => {
         throw tokenError;
       }
 
+      // For ERC20 tokens, get metadata from the transaction
+      const tokenMetadata = !isNativeToken ? {
+        symbol: transaction.asset?.symbol || transaction.erc20Metadata?.symbol || 'UNKNOWN',
+        name: transaction.asset?.name || transaction.erc20Metadata?.name || 'Unknown Token',
+        decimals: transaction.asset?.decimals || transaction.erc20Metadata?.decimals || 18
+      } : {
+        symbol: chain.symbol,
+        name: chain.name,
+        decimals: chain.decimals
+      };
+
       // Log the transaction
       const { error: txError } = await supabaseClient
         .from('transactions')
@@ -160,8 +185,8 @@ serve(async (req: Request) => {
           to_address: transaction.to,
           value: transaction.value || '0',
           token_address: tokenAddress,
-          token_symbol: isNativeToken ? chain.symbol : (token?.symbol || 'UNKNOWN'),
-          token_decimals: isNativeToken ? chain.decimals : (token?.decimals || 18),
+          token_symbol: tokenMetadata.symbol,
+          token_decimals: tokenMetadata.decimals,
           status: 'confirmed',
           network_id: chain.id,
           gas_price: transaction.gasPrice || '0',
@@ -217,7 +242,7 @@ serve(async (req: Request) => {
                 value: transaction.value,
                 chain: chain.name,
                 transaction_hash: transaction.hash,
-                token_symbol: isNativeToken ? chain.symbol : (token?.symbol || 'UNKNOWN')
+                token_symbol: tokenMetadata.symbol
               }
             });
           }
@@ -267,7 +292,6 @@ serve(async (req: Request) => {
       }
 
       // Calculate the new balance
-      const value = BigInt(transaction.value || '0');
       const currentBalance = token ? BigInt(token.balance || '0') : BigInt(0);
       const newBalance = isReceiver ? 
         currentBalance + value : 
@@ -278,15 +302,18 @@ serve(async (req: Request) => {
         .from('token_balances')
         .upsert({
           wallet_id: wallet.id,
+          user_id: wallet.user_id,
+          public_address: wallet.public_address,
           token_address: tokenAddress,
-          symbol: isNativeToken ? chain.symbol : (token?.symbol || 'UNKNOWN'),
-          name: isNativeToken ? chain.name : (token?.name || 'Unknown Token'),
-          decimals: isNativeToken ? chain.decimals : (token?.decimals || 18),
+          symbol: tokenMetadata.symbol,
+          name: tokenMetadata.name,
+          decimals: tokenMetadata.decimals,
           balance: newBalance.toString(),
           chain_id: chain.id,
           last_updated: new Date().toISOString(),
           is_native: isNativeToken,
-          contract_type: isNativeToken ? 'NATIVE' : 'ERC20'
+          contract_type: isNativeToken ? 'NATIVE' : 'ERC20',
+          usd_value: 0 // We'll need to update this separately with price data
         });
 
       if (upsertError) {
@@ -296,7 +323,8 @@ serve(async (req: Request) => {
 
       console.log(`Updated balance for wallet ${wallet.public_address}:`, {
         chain: chain.name,
-        token: isNativeToken ? chain.symbol : token?.symbol,
+        token: tokenMetadata.symbol,
+        tokenAddress,
         oldBalance: currentBalance.toString(),
         newBalance: newBalance.toString(),
         change: isReceiver ? '+' + value.toString() : '-' + value.toString()

@@ -494,25 +494,60 @@ CREATE OR REPLACE FUNCTION "public"."handle_webhook_registration"() RETURNS "tri
     LANGUAGE "plpgsql"
     AS $$
 DECLARE
-    webhook_url text;
+    webhook_id text;
+    network_name text;
     webhook_response jsonb;
 BEGIN
-    -- Only handle Ethereum wallets for now
-    IF NEW.chain_name = 'ethereum' THEN
-        -- Get the webhook URL from config
-        webhook_url := current_setting('app.webhook_url', true);
-        
-        -- Call webhook registration endpoint
+    -- Set webhook ID and network name based on chain
+    webhook_id := CASE NEW.chain_name
+        WHEN 'ethereum' THEN 'wh_0h8dcqbb9xyicw0j'
+        WHEN 'arbitrum' THEN 'wh_yrz4wsilbyi4r3te'
+        WHEN 'polygon' THEN 'wh_jy4305rmrrh4tch9'
+        WHEN 'optimism' THEN 'wh_iiey7lav9klnpsuy'
+        WHEN 'base' THEN 'wh_1s9h4o6yvl4vgihk'
+        WHEN 'bsc' THEN 'wh_qfjcobe6febny6jq'
+        WHEN 'avalanche' THEN 'wh_n2186j0v0fwdpp7t'
+        ELSE NULL
+    END;
+
+    network_name := CASE NEW.chain_name
+        WHEN 'ethereum' THEN 'eth-mainnet'
+        WHEN 'arbitrum' THEN 'arbitrum-mainnet'
+        WHEN 'polygon' THEN 'polygon-mainnet'
+        WHEN 'optimism' THEN 'opt-mainnet'
+        WHEN 'base' THEN 'base-mainnet'
+        WHEN 'bsc' THEN 'bsc-mainnet'
+        WHEN 'avalanche' THEN 'avalanche-mainnet'
+        ELSE NULL
+    END;
+
+    -- Skip if no webhook ID for this chain
+    IF webhook_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Call webhook registration endpoint
+    BEGIN
         SELECT content::jsonb INTO webhook_response
         FROM http((
-            'POST',
-            webhook_url,
-            ARRAY[http_header('Authorization', 'Bearer ' || current_setting('app.webhook_token', true))],
+            'PATCH',
+            'https://dashboard.alchemy.com/api/update-webhook-addresses',
+            ARRAY[
+                ('accept', 'application/json'),
+                ('X-Alchemy-Token', 'lPmalTriZ4DtBx47FSROKvO41ja4qLd8'),
+                ('content-type', 'application/json')
+            ]::http_header[],
             'application/json',
-            json_build_object(
-                'action', 'add',
-                'address', NEW.public_address
-            )::text
+            format('{
+                "webhook_id": "%s",
+                "addresses_to_add": ["%s"],
+                "addresses_to_remove": [],
+                "network": "%s"
+            }',
+            webhook_id,
+            lower(NEW.public_address),
+            network_name
+            )
         )::http_request);
 
         -- Log webhook registration
@@ -529,7 +564,11 @@ BEGIN
             webhook_response,
             NOW()
         );
-    END IF;
+
+    EXCEPTION WHEN OTHERS THEN
+        -- Log error but don't fail the trigger
+        RAISE NOTICE 'Webhook registration failed for %: %', NEW.public_address, SQLERRM;
+    END;
 
     RETURN NEW;
 END;
