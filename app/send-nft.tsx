@@ -22,6 +22,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WalletHeader from '../components/ui/WalletHeader';
 import BottomNav from '../components/ui/BottomNav';
 import { COLORS, SPACING, FONTS, sharedStyles } from '../styles/shared';
+import { estimateGas, TransactionType } from '../utils/gasUtils';
+import { ChainId } from '../constants/chains';
 
 const truncateAddress = (address: string): string => {
   if (!address) return '';
@@ -70,7 +72,7 @@ export default function SendNFTScreen(): JSX.Element {
     return isAddress(address);
   };
 
-  const estimateGas = async (toAddress: string) => {
+  const estimateNFTGas = async (toAddress: string) => {
     try {
       if (!validateAddress(toAddress)) return;
       
@@ -90,20 +92,15 @@ export default function SendNFTScreen(): JSX.Element {
         return;
       }
 
-      // Log full NFT data for debugging
-      console.log('Full NFT data:', {
-        contract: nft.contract,
-        tokenId: nft.tokenId,
-        title: nft.title,
-        media: nft.media
-      });
-
-      // Validate contract address format
-      if (!isAddress(nft.contract.address)) {
-        console.error('Invalid contract address:', nft.contract.address);
-        setError('Invalid NFT contract address');
+      // Get wallet data for chainId
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletDataStr) {
+        console.error('No wallet data found in storage');
+        setError('Wallet data not found');
         return;
       }
+      const walletData = JSON.parse(walletDataStr);
+      const chainId = (walletData.chainId || 1) as ChainId;
 
       // Get token type from NFT data
       const tokenType = nft.contract.tokenType as 'ERC721' | 'ERC1155';
@@ -113,23 +110,20 @@ export default function SendNFTScreen(): JSX.Element {
         return;
       }
 
-      console.log('Estimating gas with params:', {
-        contractAddress: nft.contract.address,
-        tokenId: nft.tokenId,
-        toAddress,
+      // Get gas estimation
+      const gasEstimation = await estimateGas(
+        chainId,
+        tokenType === 'ERC721' ? TransactionType.NFT_TRANSFER : TransactionType.NFT_APPROVAL,
         fromAddress,
-        tokenType
-      });
-
-      const estimate = await estimateNFTTransferGas({
-        contractAddress: nft.contract.address,
-        tokenId: nft.tokenId,
         toAddress,
-        fromAddress,
-        tokenType
-      });
+        undefined,
+        undefined
+      );
 
-      setGasEstimate(estimate);
+      setGasEstimate({
+        gasLimit: gasEstimation.gasLimit,
+        gasPrice: gasEstimation.gasPrice
+      });
       setError(null);
     } catch (err) {
       console.error('Gas estimation error:', err);
@@ -275,7 +269,7 @@ export default function SendNFTScreen(): JSX.Element {
               onChangeText={(text) => {
                 setRecipientAddress(text);
                 if (validateAddress(text) && !isWalletLoading) {
-                  estimateGas(text);
+                  estimateNFTGas(text);
                 }
               }}
               placeholder={isWalletLoading ? "Loading wallet..." : "Enter recipient's address"}

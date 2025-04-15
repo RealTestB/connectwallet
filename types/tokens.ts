@@ -7,6 +7,7 @@ export interface TokenMetadata {
   logo?: string;
   address: string;
   chainId: ChainId;
+  isSpam?: boolean;
 }
 
 export interface TokenBalance {

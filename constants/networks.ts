@@ -1,111 +1,98 @@
 import { NetworkConfig, ChainId } from '../types/chains';
+import { ethers } from 'ethers';
 
 export const NETWORKS: Record<ChainId, NetworkConfig> = {
   1: {
-    chainId: 1,
     name: 'Ethereum',
-    rpcUrl: process.env.ETH_RPC_URL || '',
+    chainId: 1,
+    rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2',
     explorerUrl: 'https://etherscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://etherscan.io'],
-    icon: 'https://raw.githubusercontent.com/ethereum-optimism/brand-kit/main/assets/svg/ETH.svg',
+    symbol: 'ETH',
+    decimals: 18,
     isTestnet: false,
-    supported: true,
+    iconUrl: 'https://ethereum.org/static/eth-diamond.svg',
+    isEnabled: true,
+    gasTokenSymbol: 'ETH',
+    supportsEIP1559: true
   },
   137: {
-    chainId: 137,
     name: 'Polygon',
-    rpcUrl: process.env.POLYGON_RPC_URL || '',
+    chainId: 137,
+    rpcUrl: 'https://polygon-mainnet.g.alchemy.com/v2',
     explorerUrl: 'https://polygonscan.com',
-    nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://polygonscan.com'],
-    icon: 'https://raw.githubusercontent.com/maticnetwork/polygon-brand-assets/main/svg/polygon-logo.svg',
+    symbol: 'MATIC',
+    decimals: 18,
     isTestnet: false,
-    supported: true,
+    iconUrl: 'https://polygon.technology/static/polygon-logo.svg',
+    isEnabled: true,
+    gasTokenSymbol: 'MATIC',
+    supportsEIP1559: true
   },
   42161: {
-    chainId: 42161,
     name: 'Arbitrum',
-    rpcUrl: process.env.ARBITRUM_RPC_URL || '',
+    chainId: 42161,
+    rpcUrl: 'https://arb-mainnet.g.alchemy.com/v2',
     explorerUrl: 'https://arbiscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://arbiscan.io'],
-    icon: 'https://raw.githubusercontent.com/arbitrum/brand-kit/main/assets/svg/arbitrum-logo.svg',
+    symbol: 'ETH',
+    decimals: 18,
     isTestnet: false,
-    supported: true,
+    iconUrl: 'https://arbitrum.io/static/arbitrum-logo.svg',
+    isEnabled: true,
+    gasTokenSymbol: 'ETH',
+    supportsEIP1559: false
   },
   10: {
-    chainId: 10,
     name: 'Optimism',
-    rpcUrl: process.env.OPTIMISM_RPC_URL || '',
+    chainId: 10,
+    rpcUrl: 'https://opt-mainnet.g.alchemy.com/v2',
     explorerUrl: 'https://optimistic.etherscan.io',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://optimistic.etherscan.io'],
-    icon: 'https://raw.githubusercontent.com/ethereum-optimism/brand-kit/main/assets/svg/optimism-logo.svg',
+    symbol: 'ETH',
+    decimals: 18,
     isTestnet: false,
-    supported: true,
+    iconUrl: 'https://optimism.io/static/optimism-logo.svg',
+    isEnabled: true,
+    gasTokenSymbol: 'ETH',
+    supportsEIP1559: false
   },
   56: {
+    name: 'BNB Smart Chain',
     chainId: 56,
-    name: 'BSC',
-    rpcUrl: process.env.BSC_RPC_URL || '',
+    rpcUrl: 'https://bsc-dataseed.binance.org',
     explorerUrl: 'https://bscscan.com',
-    nativeCurrency: {
-      name: 'BNB',
-      symbol: 'BNB',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://bscscan.com'],
-    icon: 'https://raw.githubusercontent.com/bnb-chain/brand-assets/main/svg/bnb-chain-logo.svg',
+    symbol: 'BNB',
+    decimals: 18,
     isTestnet: false,
-    supported: true,
+    iconUrl: 'https://bnbchain.org/static/bnb-logo.svg',
+    isEnabled: true,
+    gasTokenSymbol: 'BNB',
+    supportsEIP1559: false
   },
   43114: {
-    chainId: 43114,
     name: 'Avalanche',
-    rpcUrl: process.env.AVALANCHE_RPC_URL || '',
+    chainId: 43114,
+    rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',
     explorerUrl: 'https://snowtrace.io',
-    nativeCurrency: {
-      name: 'AVAX',
-      symbol: 'AVAX',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://snowtrace.io'],
-    icon: 'https://raw.githubusercontent.com/avalanche-labs/brand-kit/main/assets/svg/avalanche-logo.svg',
+    symbol: 'AVAX',
+    decimals: 18,
     isTestnet: false,
-    supported: true,
+    iconUrl: 'https://avax.network/static/avax-logo.svg',
+    isEnabled: true,
+    gasTokenSymbol: 'AVAX',
+    supportsEIP1559: true
   },
   8453: {
-    chainId: 8453,
     name: 'Base',
-    rpcUrl: process.env.BASE_RPC_URL || '',
+    chainId: 8453,
+    rpcUrl: 'https://mainnet.base.org',
     explorerUrl: 'https://basescan.org',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    blockExplorerUrls: ['https://basescan.org'],
-    icon: 'https://raw.githubusercontent.com/base-org/brand-kit/main/assets/svg/base-logo.svg',
+    symbol: 'ETH',
+    decimals: 18,
     isTestnet: false,
-    supported: true,
-  },
+    iconUrl: 'https://base.org/static/base-logo.svg',
+    isEnabled: true,
+    gasTokenSymbol: 'ETH',
+    supportsEIP1559: true
+  }
 };
 
 export const getNetworkByChainId = (chainId: ChainId): NetworkConfig => {
@@ -117,5 +104,5 @@ export const getNetworkByChainId = (chainId: ChainId): NetworkConfig => {
 };
 
 export const getSupportedNetworks = (): NetworkConfig[] => {
-  return Object.values(NETWORKS).filter(network => network.supported);
+  return Object.values(NETWORKS).filter(network => network.isEnabled);
 }; 

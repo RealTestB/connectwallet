@@ -7,6 +7,8 @@ import { STORAGE_KEYS } from '../constants/storageKeys';
 import { ERC721_ABI, ERC1155_ABI } from '../constants/abis';
 import { getProvider } from '../lib/provider';
 import { NETWORKS } from './config';
+import { estimateGas, TransactionType } from '../utils/gasUtils';
+import { ChainId } from '../types/chains';
 
 export interface NFTAttribute {
   trait_type: string;
@@ -506,9 +508,30 @@ export const getNFTFloorPrice = async (contractAddress: string) => {
   }
 };
 
-/**
- * Estimate gas for NFT transfer
- */
+// Helper function to determine NFT token type
+const getNFTTokenType = async (contractAddress: string): Promise<'ERC721' | 'ERC1155' | null> => {
+  try {
+    // Try ERC721 interface first
+    const erc721Contract = new ethers.Contract(contractAddress, ERC721_ABI);
+    try {
+      await erc721Contract.supportsInterface('0x80ac58cd'); // ERC721 interface ID
+      return 'ERC721';
+    } catch {
+      // Not ERC721, try ERC1155
+      const erc1155Contract = new ethers.Contract(contractAddress, ERC1155_ABI);
+      try {
+        await erc1155Contract.supportsInterface('0xd9b67a26'); // ERC1155 interface ID
+        return 'ERC1155';
+      } catch {
+        return null;
+      }
+    }
+  } catch (error) {
+    console.error('[NFTsApi] Error determining token type:', error);
+    return null;
+  }
+};
+
 export const estimateNFTTransferGas = async (
   contractAddress: string,
   tokenId: string,
@@ -516,31 +539,39 @@ export const estimateNFTTransferGas = async (
   toAddress: string
 ) => {
   try {
-    console.log('[NFTsApi] Estimating NFT transfer gas:', {
-      contractAddress,
-      tokenId,
+    // Get wallet data to determine chain ID
+    const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+    if (!walletDataStr) {
+      throw new Error('No wallet data found');
+    }
+    const walletData = JSON.parse(walletDataStr);
+    const chainId = (walletData.chainId || 1) as ChainId;
+
+    // Get token type from contract
+    const tokenType = await getNFTTokenType(contractAddress);
+    if (!tokenType) {
+      throw new Error('Failed to determine NFT token type');
+    }
+
+    // Use centralized gas estimation
+    const gasEstimation = await estimateGas(
+      chainId,
+      tokenType === 'ERC721' ? TransactionType.NFT_TRANSFER : TransactionType.NFT_APPROVAL,
       fromAddress,
-      toAddress
-    });
+      contractAddress,
+      undefined,
+      undefined,
+      tokenType,
+      tokenId
+    );
 
-    const response = await makeAlchemyRequest('eth_estimateGas', [{
-      from: fromAddress,
-      to: contractAddress,
-      data: `0x23b872dd${fromAddress.slice(2).padStart(64, '0')}${toAddress.slice(2).padStart(64, '0')}${BigInt(tokenId).toString(16).padStart(64, '0')}`
-    }]);
-
-    console.log('[NFTsApi] Gas estimate response:', response);
-    return response;
+    return {
+      gasLimit: gasEstimation.gasLimit.toString(),
+      gasPrice: gasEstimation.gasPrice.toString()
+    };
   } catch (error) {
-    console.error('[NFTsApi] Failed to estimate NFT transfer gas:', {
-      contractAddress,
-      tokenId,
-      fromAddress,
-      toAddress,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    throw new Error('Failed to estimate NFT transfer gas');
+    console.error('[NFTsApi] Error estimating gas:', error);
+    throw error;
   }
 };
 

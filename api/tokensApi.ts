@@ -11,15 +11,8 @@ import { ChainId } from '../constants/chains';
 import { TokenMetadata, TokenBalance, TokenWithPrice, TokenBalanceResult } from '../types/tokens';
 import { makeAlchemyRequest } from './alchemyApi';
 import { CHAIN_TO_NETWORK } from './chainMappings';
-
-// Define ERC20 ABI
-const ERC20_ABI = [
-  'function transfer(address to, uint256 amount) returns (bool)',
-  'function balanceOf(address owner) view returns (uint256)',
-  'function decimals() view returns (uint8)',
-  'function symbol() view returns (string)',
-  'function name() view returns (string)'
-];
+import { estimateGas, TransactionType } from '../utils/gasUtils';
+import { ERC20_ABI } from '../constants/abis';
 
 // Map Alchemy networks to our network keys
 const ALCHEMY_NETWORKS = {
@@ -358,6 +351,12 @@ export const getTokenBalances = async (address: string, chainId: number): Promis
 
     // Get token balances from Alchemy
     const response = await makeAlchemyRequest('alchemy_getTokenBalances', [address], chainId);
+    console.log('[TokensApi] Raw Alchemy response:', response);
+    console.log('[TokensApi] Response structure:', {
+      hasTokenBalances: response?.tokenBalances !== undefined,
+      responseType: typeof response,
+      keys: response ? Object.keys(response) : []
+    });
     
     // The response has an address and tokenBalances array
     const alchemyBalances: AlchemyTokenBalance[] = response?.tokenBalances || [];
@@ -484,86 +483,36 @@ export const getTokenTransfers = async (
  * Estimate gas for token transfer
  */
 export const estimateTokenTransferGas = async (
+  from: string,
+  to: string,
   tokenAddress: string,
-  fromAddress: string,
-  toAddress: string,
-  amount: string
-): Promise<string> => {
+  amount: string,
+  chainId: number
+): Promise<{
+  gasLimit: string;
+  gasPrice: string;
+}> => {
   try {
-    console.log('[TokensApi] Estimating gas for token transfer:', {
+    // Create the token transfer data
+    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI);
+    const data = tokenContract.interface.encodeFunctionData('transfer', [to, amount]);
+
+    // Estimate gas using the new gas utilities
+    const { gasLimit, gasPrice } = await estimateGas(
+      chainId as ChainId,
+      TransactionType.TOKEN_TRANSFER,
+      from,
       tokenAddress,
-      fromAddress,
-      toAddress,
-      amount
-    });
+      data,
+      '0x0' // No value for token transfers
+    );
 
-    // Validate inputs
-    if (!tokenAddress || !fromAddress || !toAddress || amount === undefined || amount === null) {
-      throw new Error('Missing required parameters for gas estimation');
-    }
-
-    // Validate amount is a valid number
-    const numAmount = parseFloat(amount);
-    if (isNaN(numAmount)) {
-      throw new Error('Invalid amount format');
-    }
-
-    // Initialize provider
-    const provider = await getProvider();
-
-    // For native ETH transfers
-    if (tokenAddress === '0x0000000000000000000000000000000000000000') {
-      const response = await makeAlchemyRequest('eth_estimateGas', [{
-        from: fromAddress,
-        to: toAddress,
-        value: ethers.toQuantity(ethers.parseEther(amount))
-      }]);
-
-      console.log('[TokensApi] Response received:', response);
-
-      if (response.error) {
-        console.log('[TokensApi] JSON-RPC error:', response.error);
-        
-        // Handle insufficient funds error
-        if (response.error.code === -32003) {
-          const balance = await makeAlchemyRequest('eth_getBalance', [fromAddress, 'latest']);
-          const balanceInEth = ethers.formatEther(balance);
-          throw new Error(`Insufficient funds. Your balance is ${parseFloat(balanceInEth).toFixed(6)} ETH. Please reduce the amount or add more funds to your wallet.`);
-        }
-        throw new Error(response.error.message);
-      }
-
-      return response;
-    }
-
-    // For ERC20 token transfers
-    const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-    const decimals = await contract.decimals();
-    const amountInWei = ethers.parseUnits(amount, decimals);
-    
-    const response = await makeAlchemyRequest('eth_estimateGas', [{
-      from: fromAddress,
-      to: tokenAddress,
-      data: contract.interface.encodeFunctionData('transfer', [toAddress, amountInWei])
-    }]);
-
-    console.log('[TokensApi] Response received:', response);
-
-    if (response.error) {
-      console.log('[TokensApi] JSON-RPC error:', response.error);
-      throw new Error(response.error.message);
-    }
-
-    return response;
+    return {
+      gasLimit: gasLimit.toString(),
+      gasPrice: gasPrice.toString()
+    };
   } catch (error) {
-    console.error('[TokensApi] Error in gas estimation:', {
-      tokenAddress,
-      fromAddress,
-      toAddress,
-      amount,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
+    console.error('Error estimating token transfer gas:', error);
     throw error;
   }
 };
@@ -600,16 +549,19 @@ export const transferToken = async ({
       throw new Error('No private key found in wallet data');
     }
 
-    // Create provider and wallet instance
-    const provider = await getProvider();
-    console.log('[TokensApi] Provider initialized');
+    const chainId = walletData.chainId || 1; // Get chain ID from wallet data
+    console.log('[TokensApi] Using chain ID:', chainId);
+
+    // Create provider and wallet instance for the correct chain
+    const provider = await getChainProvider(chainId);
+    console.log('[TokensApi] Provider initialized for chain:', chainId);
 
     const wallet = new ethers.Wallet(walletData.privateKey, provider);
     console.log('[TokensApi] Wallet instance created for address:', wallet.address);
 
-    // For native ETH transfer
+    // For native token transfer
     if (contractAddress === '0x0000000000000000000000000000000000000000') {
-      console.log('[TokensApi] Sending native ETH transfer');
+      console.log('[TokensApi] Sending native token transfer');
       
       if (!gasPrice) {
         throw new Error('Gas price is required for transfer');
@@ -622,29 +574,33 @@ export const transferToken = async ({
       );
       console.log('[TokensApi] Gas price in Wei:', gasPriceInWei.toString());
 
-      // Get current nonce
-      const nonce = await makeAlchemyRequest('eth_getTransactionCount', [wallet.address, 'latest']);
+      // Get current nonce for the correct chain
+      const nonce = await makeAlchemyRequest('eth_getTransactionCount', [wallet.address, 'latest'], chainId);
       
-      // Create transaction object with proper string values
-      const tx = {
+      // Estimate gas if not provided
+      const txParams = {
+        from: wallet.address,
         to: toAddress,
-        value: ethers.parseEther(amount).toString(),
-        gasLimit: (gasLimit || '21000').toString(),
+        value: ethers.toQuantity(ethers.parseEther(amount)),
         gasPrice: gasPriceInWei.toString(),
-        chainId: 1,
+        gasLimit: gasLimit || (await estimateGas(
+          chainId,
+          TransactionType.NATIVE_TRANSFER,
+          wallet.address,
+          toAddress,
+          undefined,
+          ethers.toQuantity(ethers.parseEther(amount))
+        )).gasLimit.toString(),
+        chainId: chainId,
         nonce: nonce
       };
 
-      console.log('[TokensApi] Transaction object created:', tx);
+      console.log('[TokensApi] Transaction object created:', txParams);
       console.log('[TokensApi] Sending transaction...');
 
-      // Sign the transaction
-      console.log('[TokensApi] Signing transaction...');
-      const signedTx = await wallet.signTransaction(tx);
-      
-      // Send the raw transaction
-      console.log('[TokensApi] Sending raw transaction...');
-      const txHash = await makeAlchemyRequest('eth_sendRawTransaction', [signedTx]);
+      // Sign and send the transaction
+      const signedTx = await wallet.signTransaction(txParams);
+      const txHash = await makeAlchemyRequest('eth_sendRawTransaction', [signedTx], chainId);
       
       if (!txHash) {
         throw new Error('Failed to get transaction hash');
@@ -669,24 +625,33 @@ export const transferToken = async ({
 
       try {
         console.log('[TokensApi] Sending token transfer transaction...');
-        const nonce = await makeAlchemyRequest('eth_getTransactionCount', [wallet.address, 'latest']);
+        const nonce = await makeAlchemyRequest('eth_getTransactionCount', [wallet.address, 'latest'], chainId);
         
-        // Create transaction object with all values as strings
-        const tx = {
+        // Estimate gas if not provided
+        const txParams = {
+          from: wallet.address,
           to: contractAddress,
           data: contract.interface.encodeFunctionData('transfer', [toAddress, amountInWei.toString()]),
-          gasLimit: (gasLimit || '200000').toString(),
+          value: '0x0',
           gasPrice: gasPriceInWei.toString(),
-          chainId: 1,
+          gasLimit: gasLimit || (await estimateGas(
+            chainId,
+            TransactionType.TOKEN_TRANSFER,
+            wallet.address,
+            contractAddress,
+            contract.interface.encodeFunctionData('transfer', [toAddress, amountInWei.toString()]),
+            '0x0'
+          )).gasLimit.toString(),
+          chainId: chainId,
           nonce: nonce
         };
 
-        console.log('[TokensApi] Transaction object created:', tx);
+        console.log('[TokensApi] Transaction object created:', txParams);
         console.log('[TokensApi] Signing transaction...');
-        const signedTx = await wallet.signTransaction(tx);
+        const signedTx = await wallet.signTransaction(txParams);
         
         console.log('[TokensApi] Sending raw transaction...');
-        const txHash = await makeAlchemyRequest('eth_sendRawTransaction', [signedTx]);
+        const txHash = await makeAlchemyRequest('eth_sendRawTransaction', [signedTx], chainId);
         
         if (!txHash) {
           throw new Error('Failed to get transaction hash');

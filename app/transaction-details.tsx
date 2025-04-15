@@ -33,7 +33,23 @@ interface TransactionDetails {
 const TransactionDetailsScreen = () => {
   const { transaction } = useLocalSearchParams();
   const router = useRouter();
-  const transactionDetails: TransactionDetails = JSON.parse(transaction as string);
+  const [transactionDetails, setTransactionDetails] = React.useState<TransactionDetails | null>(null);
+  const [error, setError] = React.useState<string>('');
+
+  React.useEffect(() => {
+    if (!transaction) {
+      setError('No transaction details provided');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(transaction as string);
+      setTransactionDetails(parsed);
+    } catch (err) {
+      console.error('Failed to parse transaction details:', err);
+      setError('Invalid transaction data');
+    }
+  }, [transaction]);
 
   const handleBack = () => {
     router.back();
@@ -97,63 +113,73 @@ const TransactionDetailsScreen = () => {
       </View>
       
       <ScrollView style={styles.content}>
-        <View style={styles.card}>
-          {/* Transaction Type & Status */}
-          <View style={styles.header}>
-            <Text style={styles.title}>
-              {getStatusIcon(transactionDetails.status)} {transactionDetails.type.replace('_', ' ')}
-            </Text>
-            <Text style={[styles.statusText, { color: getStatusColor(transactionDetails.status) }]}>
-              {transactionDetails.status}
-            </Text>
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
-
-          {/* Amount */}
-          <View style={styles.amountContainer}>
-            <Text style={styles.amount}>{transactionDetails.amount}</Text>
+        ) : !transactionDetails ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Loading transaction details...</Text>
           </View>
-
-          {/* Transaction Details */}
-          <View style={styles.detailsContainer}>
-            <View style={styles.row}>
-              <Text style={styles.label}>Date</Text>
-              <Text style={styles.value}>{transactionDetails.date}</Text>
+        ) : (
+          <View style={styles.card}>
+            {/* Transaction Type & Status */}
+            <View style={styles.header}>
+              <Text style={styles.title}>
+                {getStatusIcon(transactionDetails.status)} {transactionDetails.type.replace('_', ' ')}
+              </Text>
+              <Text style={[styles.statusText, { color: getStatusColor(transactionDetails.status) }]}>
+                {transactionDetails.status}
+              </Text>
             </View>
 
-            <View style={styles.row}>
-              <Text style={styles.label}>From</Text>
-              <Text style={styles.value}>{transactionDetails.from}</Text>
+            {/* Amount */}
+            <View style={styles.amountContainer}>
+              <Text style={styles.amount}>{transactionDetails.amount}</Text>
             </View>
 
-            <View style={styles.row}>
-              <Text style={styles.label}>To</Text>
-              <Text style={styles.value}>{transactionDetails.to}</Text>
+            {/* Transaction Details */}
+            <View style={styles.detailsContainer}>
+              <View style={styles.row}>
+                <Text style={styles.label}>Date</Text>
+                <Text style={styles.value}>{transactionDetails.date}</Text>
+              </View>
+
+              <View style={styles.row}>
+                <Text style={styles.label}>From</Text>
+                <Text style={styles.value}>{transactionDetails.from}</Text>
+              </View>
+
+              <View style={styles.row}>
+                <Text style={styles.label}>To</Text>
+                <Text style={styles.value}>{transactionDetails.to}</Text>
+              </View>
+
+              <View style={styles.row}>
+                <Text style={styles.label}>Network</Text>
+                <Text style={styles.value}>{transactionDetails.network}</Text>
+              </View>
+
+              <View style={styles.row}>
+                <Text style={styles.label}>Network Fee</Text>
+                <Text style={styles.value}>{transactionDetails.fee}</Text>
+              </View>
+
+              <View style={styles.row}>
+                <Text style={styles.label}>Transaction Hash</Text>
+                <Text style={styles.value} numberOfLines={1}>{transactionDetails.hash}</Text>
+              </View>
             </View>
 
-            <View style={styles.row}>
-              <Text style={styles.label}>Network</Text>
-              <Text style={styles.value}>{transactionDetails.network}</Text>
-            </View>
-
-            <View style={styles.row}>
-              <Text style={styles.label}>Network Fee</Text>
-              <Text style={styles.value}>{transactionDetails.fee}</Text>
-            </View>
-
-            <View style={styles.row}>
-              <Text style={styles.label}>Transaction Hash</Text>
-              <Text style={styles.value} numberOfLines={1}>{transactionDetails.hash}</Text>
-            </View>
+            {/* View on Explorer Button */}
+            <TouchableOpacity
+              style={styles.explorerButton}
+              onPress={() => handleOpenExplorer(transactionDetails.explorer)}
+            >
+              <Text style={styles.explorerButtonText}>🔍 View on Explorer</Text>
+            </TouchableOpacity>
           </View>
-
-          {/* View on Explorer Button */}
-          <TouchableOpacity
-            style={styles.explorerButton}
-            onPress={() => handleOpenExplorer(transactionDetails.explorer)}
-          >
-            <Text style={styles.explorerButtonText}>🔍 View on Explorer</Text>
-          </TouchableOpacity>
-        </View>
+        )}
       </ScrollView>
 
       <BottomNav activeTab="portfolio" />
@@ -175,7 +201,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.xl,
+    paddingBottom: SPACING.md,
+    height: 80,
+    backgroundColor: 'rgba(20, 24, 40, 0.98)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -189,6 +219,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: COLORS.white,
+    flex: 1,
+    textAlign: 'center',
   },
   statusText: {
     fontSize: 16,
@@ -232,6 +264,26 @@ const styles = StyleSheet.create({
   },
   explorerButtonText: {
     color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: COLORS.textSecondary,
     fontSize: 16,
     fontWeight: '600',
   },

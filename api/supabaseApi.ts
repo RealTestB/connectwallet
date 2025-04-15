@@ -132,8 +132,6 @@ export interface Transaction {
   timestamp: string;
   block_number?: number;
   notes?: string;
-  created_at: string;
-  updated_at: string;
 }
 
 interface CreateWalletParams {
@@ -342,7 +340,7 @@ export const getUserTransactions = async (
  * Add transaction
  */
 export const addTransaction = async (
-  transaction: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>
+  transaction: Omit<Transaction, 'id'>
 ): Promise<Transaction | null> => {
   try {
     const { data, error } = await supabase
@@ -885,5 +883,61 @@ export const cleanupOrphanedWallets = async (): Promise<void> => {
     console.log('✅ Successfully cleaned up orphaned wallets');
   } catch (error) {
     console.error('❌ Exception in cleanupOrphanedWallets:', error);
+  }
+};
+
+/**
+ * Store a new transaction in the database
+ */
+export const storeTransaction = async (transaction: {
+  wallet_id: string;
+  hash: string;
+  from_address: string;
+  to_address: string;
+  value: string;
+  token_address?: string;
+  token_symbol?: string;
+  token_decimals?: number;
+  status: 'pending' | 'confirmed' | 'failed';
+  network_id: number;
+  gas_price?: string;
+  gas_used?: string;
+}) => {
+  try {
+    // Call the add_transaction function directly
+    const { error } = await supabase.rpc('add_transaction', {
+      wallet_id: transaction.wallet_id,
+      hash: transaction.hash,
+      from_address: transaction.from_address,
+      to_address: transaction.to_address,
+      value: transaction.value, // Already in base units (wei)
+      status: transaction.status,
+      network_id: transaction.network_id,
+      gas_price: transaction.gas_price || '0',
+      gas_used: transaction.gas_used || '0'
+    });
+
+    if (error) throw error;
+    console.log('[SupabaseApi] Stored transaction:', transaction.hash);
+
+    // If this is a token transfer, store token information in a separate call
+    if (transaction.token_address && transaction.token_symbol) {
+      const { error: tokenError } = await supabase
+        .from('token_transactions')
+        .insert({
+          transaction_hash: transaction.hash,
+          token_address: transaction.token_address,
+          token_symbol: transaction.token_symbol,
+          token_decimals: transaction.token_decimals
+        });
+
+      if (tokenError) {
+        console.error('[SupabaseApi] Error storing token transaction info:', tokenError);
+        // Don't throw here as the main transaction was stored successfully
+      }
+    }
+  } catch (error) {
+    console.error('[SupabaseApi] Error storing transaction:', error);
+    throw error;
   }
 };

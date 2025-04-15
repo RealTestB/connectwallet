@@ -6,6 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from 'expo-secure-store';
 import { verifyPassword } from "../api/securityApi";
+import { getStoredWallet } from "../api/walletApi";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { sharedStyles, COLORS, SPACING, FONTS } from "../styles/shared";
 import { supabaseAdmin } from "../lib/supabase";
@@ -40,7 +41,7 @@ export default function Page() {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [navigationAttempts, setNavigationAttempts] = useState(0);
-  const { checkAuth, updateLastActive } = useAuth();
+  const { checkAuth, updateLastActive, isInitialized } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -65,68 +66,69 @@ export default function Page() {
     }
   }, [router, navigationAttempts]);
 
-  const handleSignIn = async (): Promise<void> => {
-    if (!password.trim()) {
-      Alert.alert("Error", "Please enter your password");
-      return;
-    }
-
+  const handleSignIn = async () => {
     try {
       console.log('[SignIn] Starting sign in process');
       setIsLoading(true);
       setError(null);
 
-      // Get stored password hash using correct storage key
+      // Get stored password hash
       const storedPasswordHash = await fetchWithTimeout(STORAGE_KEYS.WALLET_PASSWORD);
       if (!storedPasswordHash) {
-        throw new Error("No password found in secure storage");
+        throw new Error('No password found in secure storage');
       }
 
       // Verify password
       const isValid = await verifyPassword(password, storedPasswordHash);
       if (!isValid) {
-        throw new Error("Invalid password");
+        setError('Invalid password');
+        return;
       }
       console.log('[SignIn] Password verified');
 
-      // Update auth state and wait for it to complete
+      // Update authentication state
       console.log('[SignIn] Updating authentication state...');
-      
-      // First update the last active timestamp
-      const now = Date.now().toString();
-      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, now);
-      console.log('[SignIn] Last active timestamp set:', new Date(parseInt(now)).toISOString());
+      const walletData = await getStoredWallet();
+      if (!walletData) throw new Error('No wallet data found');
+
+      // Set last active timestamp
+      const lastActive = Date.now().toString();
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_LAST_ACTIVE, lastActive);
+      console.log('[SignIn] Last active timestamp set:', new Date(parseInt(lastActive)).toISOString());
 
       // Set authentication flag
       await SecureStore.setItemAsync(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
       console.log('[SignIn] Authentication flag set');
 
-      // Update database timestamp
+      // Update last_active in database
       const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
       if (userId) {
-        const { error } = await supabaseAdmin
+        await supabaseAdmin
           .from('auth_users')
-          .update({ last_active: new Date().toISOString() })
+          .update({ last_active: lastActive })
           .eq('id', userId);
-        
-        if (error) {
-          console.error('[SignIn] Failed to update database timestamp:', error);
-        } else {
-          console.log('[SignIn] Database timestamp updated');
-        }
+        console.log('[SignIn] Database timestamp updated');
       }
 
-      // Update auth context
-      await checkAuth();
-      
-      // Add a small delay to ensure state updates are processed
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      console.log('[SignIn] Authentication state updated, navigating to portfolio');
-      router.replace('/portfolio');
+      // Wait for initialization to complete
+      let attempts = 0;
+      const maxAttempts = 10;
+      while (attempts < maxAttempts) {
+        if (isInitialized) {
+          console.log('[SignIn] Initialization complete, navigating to portfolio');
+          router.replace('/portfolio');
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+        attempts++;
+      }
+
+      // If we get here, initialization didn't complete in time
+      throw new Error('Navigation timeout: Root Layout not initialized');
+
     } catch (error) {
-      console.error('[SignIn] Error during sign in:', error);
-      setError(error instanceof Error ? error.message : "Failed to sign in");
+      console.log('[SignIn] Error during sign in:', error);
+      setError(error instanceof Error ? error.message : 'Failed to sign in');
     } finally {
       setIsLoading(false);
     }

@@ -1,6 +1,9 @@
 import { ethers } from "ethers";
 import { NETWORKS, NETWORK_SETTINGS } from './config';
 import { NetworkConfig } from '../types/chains';
+import { makeAlchemyRequest } from './alchemyApi';
+import { estimateGas, TransactionType } from '../utils/gasUtils';
+import { ChainId } from '../types/chains';
 
 // Cache providers by network
 const providers: { [key: string]: ethers.JsonRpcProvider } = {};
@@ -228,4 +231,42 @@ export function getBlockExplorerUrl(network: string): string {
     throw new Error(`Network ${network} not supported`);
   }
   return networkConfig.blockExplorerUrl;
+}
+
+export class CustomProvider extends ethers.JsonRpcProvider {
+  async send(method: string, params: Array<any>): Promise<any> {
+    // Handle specific methods
+    if (method === 'eth_estimateGas') {
+      try {
+        const txParams = params[0];
+        const network = await this.getNetwork();
+        const chainId = Number(network.chainId) as ChainId;
+        
+        // Determine transaction type based on the parameters
+        let transactionType = TransactionType.CONTRACT_INTERACTION;
+        if (!txParams.data) {
+          transactionType = TransactionType.NATIVE_TRANSFER;
+        } else if (txParams.data.startsWith('0xa9059cbb')) {
+          transactionType = TransactionType.TOKEN_TRANSFER;
+        }
+
+        const gasEstimation = await estimateGas(
+          chainId,
+          transactionType,
+          txParams.from,
+          txParams.to,
+          txParams.data,
+          txParams.value
+        );
+
+        return ethers.toQuantity(gasEstimation.gasLimit);
+      } catch (error) {
+        console.error('[Provider] Gas estimation error:', error);
+        throw error;
+      }
+    }
+
+    // Handle other methods with default behavior
+    return super.send(method, params);
+  }
 }

@@ -15,9 +15,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { COLORS, SPACING, FONTS, sharedStyles } from "../styles/shared";
-import { hashPassword, verifyPassword } from "../api/securityApi";
+import { encryptPassword, verifyPassword } from "../utils/crypto";
 import WalletHeader from "../components/ui/WalletHeader";
-import config from "../api/config";
+import { supabase } from '../lib/supabase';
+import config from '../api/config';
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -28,149 +29,91 @@ export default function ChangePasswordScreen() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [passwordStrength, setPasswordStrength] = useState(0);
-
-  const calculatePasswordStrength = (pass: string) => {
-    let strength = 0;
-    if (pass.length >= 8) strength += 25;
-    if (pass.match(/[A-Z]/)) strength += 25;
-    if (pass.match(/[0-9]/)) strength += 25;
-    if (pass.match(/[^A-Za-z0-9]/)) strength += 25;
-    setPasswordStrength(strength);
-  };
-
-  const validateNewPassword = () => {
-    if (newPassword.length < 8) {
-      setError("New password must be at least 8 characters long");
-      return false;
-    }
-    if (!newPassword.match(/[A-Z]/)) {
-      setError("New password must contain at least one uppercase letter");
-      return false;
-    }
-    if (!newPassword.match(/[0-9]/)) {
-      setError("New password must contain at least one number");
-      return false;
-    }
-    if (!newPassword.match(/[^A-Za-z0-9]/)) {
-      setError("New password must contain at least one special character");
-      return false;
-    }
-    if (newPassword !== confirmPassword) {
-      setError("New passwords do not match");
-      return false;
-    }
-    if (newPassword === currentPassword) {
-      setError("New password must be different from current password");
-      return false;
-    }
-    return true;
-  };
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleChangePassword = async () => {
     try {
-      setError(null);
+      setIsLoading(true);
+
+      // Validate inputs
       if (!currentPassword || !newPassword || !confirmPassword) {
-        setError("Please fill in all fields");
+        Alert.alert('Error', 'Please fill in all fields');
         return;
       }
 
-      setIsProcessing(true);
+      if (newPassword !== confirmPassword) {
+        Alert.alert('Error', 'New passwords do not match');
+        return;
+      }
+
+      if (newPassword.length < 8) {
+        Alert.alert('Error', 'Password must be at least 8 characters long');
+        return;
+      }
+
+      // Get stored password and user ID
+      const storedPassword = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
+      
+      if (!storedPassword || !userId) {
+        Alert.alert('Error', 'No password or user ID found');
+        return;
+      }
 
       // Verify current password
-      const storedPasswordHash = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
-      if (!storedPasswordHash) {
-        throw new Error("No password found in secure storage");
-      }
-
-      const isValid = await verifyPassword(currentPassword, storedPasswordHash);
+      const isValid = await verifyPassword(currentPassword, storedPassword);
       if (!isValid) {
-        setError("Current password is incorrect");
+        Alert.alert('Error', 'Current password is incorrect');
         return;
       }
 
-      // Validate new password
-      if (!validateNewPassword()) {
-        return;
-      }
-
-      // Get user ID from SecureStore
-      const userId = await SecureStore.getItemAsync(STORAGE_KEYS.USER_ID);
-      if (!userId) {
-        throw new Error('No user ID found');
-      }
-
-      // Hash new password
-      const newHashedPasswordStr = await hashPassword(newPassword);
-      const newHashedPasswordObj = JSON.parse(newHashedPasswordStr);
+      // Encrypt new password
+      const encryptedNewPassword = await encryptPassword(newPassword);
 
       // Update password in database
-      const url = `${config.supabase.url}/rest/v1/auth_users?id=eq.${userId}`;
-      
-      const response = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.timeout = 30000; // 30 second timeout
+      const { error: dbError } = await supabase
+        .from('auth_users')
+        .update({ password_hash: encryptedNewPassword })
+        .eq('id', userId);
 
-        xhr.addEventListener('readystatechange', () => {
-          if (xhr.readyState !== 4) return;
-
-          // Handle network errors
-          if (xhr.status === 0) {
-            reject(new Error('Network error occurred'));
-            return;
-          }
-
-          try {
-            const response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-
-            // Handle successful response
-            if (xhr.status >= 200 && xhr.status < 300 && response) {
-              resolve(response);
-            } else {
-              reject(new Error(response?.error || `HTTP error! status: ${xhr.status}`));
-            }
-          } catch (error) {
-            reject(new Error('Failed to parse response'));
-          }
-        });
-
-        xhr.addEventListener('error', () => {
-          reject(new Error('Request failed'));
-        });
-
-        xhr.addEventListener('timeout', () => {
-          reject(new Error('Request timed out'));
-        });
-
-        xhr.open('PATCH', url);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.setRequestHeader('apikey', config.supabase.serviceRoleKey);
-        xhr.setRequestHeader('Prefer', 'return=representation');
-        xhr.send(JSON.stringify({
-          password_hash: newHashedPasswordObj
-        }));
-      });
+      if (dbError) {
+        console.error('[ChangePassword] Database error:', dbError);
+        Alert.alert('Error', 'Failed to update password in database');
+        return;
+      }
 
       // Update password in SecureStore
-      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, newHashedPasswordStr);
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, encryptedNewPassword);
+      await SecureStore.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD_RAW, newPassword);
 
       Alert.alert(
-        "Success",
-        "Your password has been changed successfully",
+        'Password Updated',
+        'Your password has been changed successfully',
         [
           {
-            text: "OK",
+            text: 'Done',
             onPress: () => router.back(),
-          },
+            style: 'default',
+          }
+        ],
+        {
+          cancelable: false,
+        }
+      );
+    } catch (error) {
+      console.error('[ChangePassword] Error:', error);
+      Alert.alert(
+        'Update Failed',
+        'Unable to change password. Please try again.',
+        [
+          {
+            text: 'OK',
+            style: 'cancel'
+          }
         ]
       );
-    } catch (err) {
-      console.error("[ChangePassword] Error:", err);
-      setError("Failed to change password. Please try again.");
     } finally {
-      setIsProcessing(false);
+      setIsLoading(false);
     }
   };
 
@@ -181,156 +124,104 @@ export default function ChangePasswordScreen() {
         style={sharedStyles.backgroundImage}
       />
 
-      <WalletHeader onAccountChange={() => {}} pageName="Change Password" />
+      <WalletHeader 
+        onAccountChange={() => {}} 
+        pageName="Change Password" 
+      />
 
       <View style={[styles.content, { paddingTop: insets.top }]}>
-        <View style={styles.warningContainer}>
-          <Ionicons name="warning" size={24} color={COLORS.primary} />
-          <Text style={styles.warningText}>
-            Make sure to use a strong password that you don't use anywhere else
-          </Text>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            secureTextEntry={!showCurrentPassword}
-            value={currentPassword}
-            onChangeText={setCurrentPassword}
-            placeholder="Current password"
-            placeholderTextColor={COLORS.textSecondary}
-          />
-          <TouchableOpacity
-            style={styles.eyeIcon}
-            onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-          >
-            <Ionicons
-              name={showCurrentPassword ? "eye-off" : "eye"}
-              size={24}
-              color={COLORS.textSecondary}
-            />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            secureTextEntry={!showNewPassword}
-            value={newPassword}
-            onChangeText={(text) => {
-              setNewPassword(text);
-              calculatePasswordStrength(text);
-            }}
-            placeholder="New password"
-            placeholderTextColor={COLORS.textSecondary}
-          />
-          <TouchableOpacity
-            style={styles.eyeIcon}
-            onPress={() => setShowNewPassword(!showNewPassword)}
-          >
-            <Ionicons
-              name={showNewPassword ? "eye-off" : "eye"}
-              size={24}
-              color={COLORS.textSecondary}
-            />
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.strengthText}>
-          Password Strength:{" "}
-          {passwordStrength >= 75
-            ? "Very Strong"
-            : passwordStrength >= 50
-            ? "Strong"
-            : passwordStrength >= 25
-            ? "Medium"
-            : "Weak"}
-        </Text>
-        <View style={styles.strengthBarContainer}>
-          <View style={[styles.strengthBar, { width: `${passwordStrength}%` }]} />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            secureTextEntry={!showConfirmPassword}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            placeholder="Confirm new password"
-            placeholderTextColor={COLORS.textSecondary}
-          />
-          <TouchableOpacity
-            style={styles.eyeIcon}
-            onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-          >
-            <Ionicons
-              name={showConfirmPassword ? "eye-off" : "eye"}
-              size={24}
-              color={COLORS.textSecondary}
-            />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.requirementsContainer}>
-          <Text style={styles.requirementsTitle}>Password Requirements:</Text>
-          <Text
-            style={[
-              styles.requirementText,
-              newPassword.length >= 8 && styles.requirementMet,
-            ]}
-          >
-            • At least 8 characters
-          </Text>
-          <Text
-            style={[
-              styles.requirementText,
-              newPassword.match(/[A-Z]/) && styles.requirementMet,
-            ]}
-          >
-            • One uppercase letter
-          </Text>
-          <Text
-            style={[
-              styles.requirementText,
-              newPassword.match(/[0-9]/) && styles.requirementMet,
-            ]}
-          >
-            • One number
-          </Text>
-          <Text
-            style={[
-              styles.requirementText,
-              newPassword.match(/[^A-Za-z0-9]/) && styles.requirementMet,
-            ]}
-          >
-            • One special character
-          </Text>
-        </View>
-
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
+        <View style={styles.card}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Current Password</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                secureTextEntry={!showCurrentPassword}
+                placeholder="Enter current password"
+                placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+              >
+                <Ionicons
+                  name={showCurrentPassword ? "eye-off" : "eye"}
+                  size={24}
+                  color={COLORS.white}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>New Password</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry={!showNewPassword}
+                placeholder="Enter new password"
+                placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowNewPassword(!showNewPassword)}
+              >
+                <Ionicons
+                  name={showNewPassword ? "eye-off" : "eye"}
+                  size={24}
+                  color={COLORS.white}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Confirm New Password</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+                placeholder="Confirm new password"
+                placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-off" : "eye"}
+                  size={24}
+                  color={COLORS.white}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
 
         <TouchableOpacity
           style={[
-            styles.changeButton,
-            (isProcessing ||
-              !currentPassword ||
-              !newPassword ||
-              !confirmPassword) &&
-              styles.changeButtonDisabled,
+            styles.button,
+            (!currentPassword || !newPassword || !confirmPassword) && styles.buttonDisabled
           ]}
           onPress={handleChangePassword}
-          disabled={
-            isProcessing || !currentPassword || !newPassword || !confirmPassword
-          }
+          disabled={!currentPassword || !newPassword || !confirmPassword || isLoading}
         >
-          {isProcessing ? (
+          {isLoading ? (
             <ActivityIndicator color={COLORS.white} />
           ) : (
-            <Text style={styles.changeButtonText}>Change Password</Text>
+            <Text style={styles.buttonText}>Update Password</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -343,91 +234,50 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: SPACING.lg,
   },
-  warningContainer: {
-    backgroundColor: `${COLORS.primary}20`,
-    borderRadius: 12,
-    padding: SPACING.md,
-    marginBottom: SPACING.xl,
-    flexDirection: "row",
-    alignItems: "center",
+  card: {
+    backgroundColor: 'rgba(20, 24, 40, 0.15)',
+    borderRadius: 16,
+    padding: SPACING.lg,
+    gap: SPACING.md,
   },
-  warningText: {
-    ...FONTS.body,
-    color: COLORS.primary,
-    flex: 1,
-    marginLeft: SPACING.sm,
+  inputGroup: {
+    gap: SPACING.xs,
+  },
+  label: {
+    fontSize: 14,
+    color: COLORS.white,
+    opacity: 0.7,
+    marginBottom: 4,
   },
   inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: `${COLORS.white}10`,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
-    marginBottom: SPACING.sm,
+    overflow: 'hidden',
   },
   input: {
     flex: 1,
-    padding: SPACING.md,
-    ...FONTS.body,
     color: COLORS.white,
-  },
-  eyeIcon: {
+    fontSize: 16,
     padding: SPACING.md,
   },
-  strengthText: {
-    ...FONTS.caption,
-    color: COLORS.primary,
-    marginBottom: SPACING.xs,
+  eyeButton: {
+    padding: SPACING.md,
   },
-  strengthBarContainer: {
-    height: 4,
-    backgroundColor: `${COLORS.primary}20`,
-    borderRadius: 2,
-    marginBottom: SPACING.lg,
-  },
-  strengthBar: {
-    height: "100%",
+  button: {
     backgroundColor: COLORS.primary,
-    borderRadius: 2,
-  },
-  requirementsContainer: {
-    marginTop: SPACING.lg,
-    marginBottom: SPACING.xl,
-  },
-  requirementsTitle: {
-    ...FONTS.body,
-    color: COLORS.white,
-    marginBottom: SPACING.sm,
-  },
-  requirementText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginBottom: SPACING.xs,
-  },
-  requirementMet: {
-    color: COLORS.success,
-  },
-  errorContainer: {
-    backgroundColor: `${COLORS.error}20`,
     borderRadius: 12,
     padding: SPACING.md,
-    marginBottom: SPACING.lg,
+    alignItems: 'center',
+    marginTop: SPACING.xl,
   },
-  errorText: {
-    ...FONTS.body,
-    color: COLORS.error,
-  },
-  changeButton: {
-    backgroundColor: COLORS.primary,
-    padding: SPACING.md,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  changeButtonDisabled: {
+  buttonDisabled: {
     opacity: 0.5,
   },
-  changeButtonText: {
-    ...FONTS.body,
+  buttonText: {
     color: COLORS.white,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: '600',
   },
 }); 

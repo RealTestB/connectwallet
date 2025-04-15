@@ -56,6 +56,8 @@ interface Token {
     market_caps: Array<[number, number]>;
     total_volumes: Array<[number, number]>;
   };
+  isSpam?: boolean;
+  isApproved?: boolean;
 }
 
 interface TokenLogos {
@@ -266,6 +268,59 @@ const getChainPath = (chainId: number): string => {
   }
 };
 
+// Add SpamTokenAlert component
+const SpamTokenAlert = ({ tokens, onApprove, onReject }: { 
+  tokens: Token[], 
+  onApprove: (token: Token) => void,
+  onReject: (token: Token) => void 
+}) => {
+  if (tokens.length === 0) return null;
+
+  return (
+    <View style={styles.spamAlertContainer}>
+      <Text style={styles.spamAlertTitle}>New Token Notifications</Text>
+      <Text style={styles.spamAlertSubtitle}>The following tokens were sent to your wallet</Text>
+      
+      {tokens.map((token) => (
+        <View key={`${token.address}-${token.chain_id}`} style={styles.spamTokenCard}>
+          <View style={styles.spamTokenInfo}>
+            <View style={styles.tokenIconContainer}>
+              {token.logo ? (
+                <Image 
+                  source={token.logo} 
+                  style={styles.chainIcon} 
+                  resizeMode="contain"
+                />
+              ) : null}
+            </View>
+            <View style={styles.spamTokenDetails}>
+              <Text style={styles.spamTokenSymbol}>{token.symbol}</Text>
+              <Text style={styles.spamTokenName}>{token.name}</Text>
+              <Text style={styles.spamTokenBalance}>
+                Balance: {parseFloat(token.balance).toFixed(4)}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.spamTokenActions}>
+            <TouchableOpacity 
+              style={[styles.spamTokenButton, styles.approveButton]}
+              onPress={() => onApprove(token)}
+            >
+              <Text style={styles.spamTokenButtonText}>Add</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.spamTokenButton, styles.rejectButton]}
+              onPress={() => onReject(token)}
+            >
+              <Text style={styles.spamTokenButtonText}>Hide</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+};
+
 export default function Portfolio(): JSX.Element {
   const { currentChainId, setChainId } = useChain();
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -276,6 +331,7 @@ export default function Portfolio(): JSX.Element {
   const [lastRefreshTime, setLastRefreshTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showSpamTokens, setShowSpamTokens] = useState(false);
   const router = useRouter();
   const [activeSubscriptions, setActiveSubscriptions] = useState<{
     token?: ReturnType<typeof supabase.channel>;
@@ -283,6 +339,8 @@ export default function Portfolio(): JSX.Element {
     nft?: ReturnType<typeof supabase.channel>;
     notification?: ReturnType<typeof supabase.channel>;
   }>({});
+  const [approvedTokens, setApprovedTokens] = useState<Set<string>>(new Set());
+  const [rejectedTokens, setRejectedTokens] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const init = async () => {
@@ -459,7 +517,7 @@ export default function Portfolio(): JSX.Element {
 
   const handleRefresh = useCallback(async () => {
     try {
-      // Only check if already refreshing, remove initialization check
+      // Only check if already refreshing
       if (isRefreshing) {
         console.log('[Portfolio] Skipping refresh - already refreshing');
         return;
@@ -557,7 +615,8 @@ export default function Portfolio(): JSX.Element {
                 market_caps: [],
                 total_volumes: []
               },
-              chain_id: currentChainId
+              chain_id: currentChainId,
+              isSpam: balance.metadata?.isSpam || false
             };
 
             return token;
@@ -571,13 +630,17 @@ export default function Portfolio(): JSX.Element {
         })
       );
 
-      // Filter out failed token updates
-      const validTokens = updatedTokens.filter((token): token is Token => token !== null);
+      // Filter out failed token updates and spam tokens if not showing them
+      const validTokens = updatedTokens
+        .filter((token): token is Token => token !== null)
+        .filter(token => showSpamTokens || !token.isSpam);
 
-      // Calculate total value
-      const totalValue = validTokens.reduce((sum: number, token: Token) => {
-        return sum + parseFloat(token.balanceUSD || "0");
-      }, 0);
+      // Calculate total value (excluding spam tokens)
+      const totalValue = validTokens
+        .filter(token => !token.isSpam)
+        .reduce((sum: number, token: Token) => {
+          return sum + parseFloat(token.balanceUSD || "0");
+        }, 0);
 
       // Update state
       setTokens(validTokens);
@@ -606,7 +669,7 @@ export default function Portfolio(): JSX.Element {
     } finally {
       setIsRefreshing(false);
     }
-  }, [currentChainId, isRefreshing, lastRefreshTime]);
+  }, [currentChainId, isRefreshing, lastRefreshTime, showSpamTokens]);
 
   // Memoize chart data preparation
   const prepareChartData = useCallback((token: Token) => {
@@ -698,9 +761,14 @@ export default function Portfolio(): JSX.Element {
   // Memoize sorted tokens
   const sortedTokens = useMemo(() => {
     return [...tokens].sort((a, b) => {
-      const balanceA = parseFloat(a.balance || '0');
-      const balanceB = parseFloat(b.balance || '0');
-      return balanceB - balanceA;
+      // Always put native token first
+      if (a.isNative) return -1;
+      if (b.isNative) return 1;
+      
+      // Sort remaining tokens by USD value in descending order
+      const valueA = parseFloat(a.balanceUSD || '0');
+      const valueB = parseFloat(b.balanceUSD || '0');
+      return valueB - valueA;
     });
   }, [tokens]);
 
@@ -822,6 +890,77 @@ export default function Portfolio(): JSX.Element {
     };
   }, [handleRefresh]); // Only depend on handleRefresh
 
+  // Add handlers for spam tokens
+  const handleApproveToken = useCallback(async (token: Token) => {
+    const tokenKey = `${token.address}-${token.chain_id}`;
+    setApprovedTokens(prev => new Set([...prev, tokenKey]));
+    
+    // Save approved status to SecureStore
+    try {
+      const approvedTokensStr = await SecureStore.getItemAsync(STORAGE_KEYS.APPROVED_TOKENS);
+      const approvedTokens = approvedTokensStr ? JSON.parse(approvedTokensStr) : [];
+      approvedTokens.push(tokenKey);
+      await SecureStore.setItemAsync(STORAGE_KEYS.APPROVED_TOKENS, JSON.stringify(approvedTokens));
+    } catch (error) {
+      console.error('[Portfolio] Error saving approved token:', error);
+    }
+  }, []);
+
+  const handleRejectToken = useCallback(async (token: Token) => {
+    const tokenKey = `${token.address}-${token.chain_id}`;
+    setRejectedTokens(prev => new Set([...prev, tokenKey]));
+    
+    // Save rejected status to SecureStore
+    try {
+      const rejectedTokensStr = await SecureStore.getItemAsync(STORAGE_KEYS.REJECTED_TOKENS);
+      const rejectedTokens = rejectedTokensStr ? JSON.parse(rejectedTokensStr) : [];
+      rejectedTokens.push(tokenKey);
+      await SecureStore.setItemAsync(STORAGE_KEYS.REJECTED_TOKENS, JSON.stringify(rejectedTokens));
+    } catch (error) {
+      console.error('[Portfolio] Error saving rejected token:', error);
+    }
+  }, []);
+
+  // Load approved/rejected tokens on mount
+  useEffect(() => {
+    const loadTokenPreferences = async () => {
+      try {
+        const approvedTokensStr = await SecureStore.getItemAsync(STORAGE_KEYS.APPROVED_TOKENS);
+        const rejectedTokensStr = await SecureStore.getItemAsync(STORAGE_KEYS.REJECTED_TOKENS);
+        
+        if (approvedTokensStr) {
+          setApprovedTokens(new Set(JSON.parse(approvedTokensStr)));
+        }
+        if (rejectedTokensStr) {
+          setRejectedTokens(new Set(JSON.parse(rejectedTokensStr)));
+        }
+      } catch (error) {
+        console.error('[Portfolio] Error loading token preferences:', error);
+      }
+    };
+    
+    loadTokenPreferences();
+  }, []);
+
+  // Filter tokens based on spam status and user preferences
+  const { displayedTokens, pendingSpamTokens } = useMemo(() => {
+    return tokens.reduce((acc: { displayedTokens: Token[], pendingSpamTokens: Token[] }, token) => {
+      const tokenKey = `${token.address}-${token.chain_id}`;
+      
+      if (token.isSpam) {
+        if (approvedTokens.has(tokenKey)) {
+          acc.displayedTokens.push({ ...token, isApproved: true });
+        } else if (!rejectedTokens.has(tokenKey)) {
+          acc.pendingSpamTokens.push(token);
+        }
+      } else {
+        acc.displayedTokens.push(token);
+      }
+      
+      return acc;
+    }, { displayedTokens: [], pendingSpamTokens: [] });
+  }, [tokens, approvedTokens, rejectedTokens]);
+
   return (
     <GestureHandlerRootView style={styles.container}>
       <ImageBackground 
@@ -837,30 +976,49 @@ export default function Portfolio(): JSX.Element {
 
           {/* Portfolio Value */}
           <View style={styles.portfolioValue}>
-            <Text style={styles.valueLabel}>Total Value</Text>
+            <View style={styles.portfolioHeader}>
+              <Text style={styles.valueLabel}>Total Value</Text>
+              <TouchableOpacity
+                style={styles.refreshButton}
+                onPress={handleRefresh}
+                disabled={isRefreshing}
+              >
+                <Ionicons 
+                  name="refresh" 
+                  size={24} 
+                  color={COLORS.white} 
+                  style={isRefreshing ? styles.rotating : undefined}
+                />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.valueAmount}>
               {isInitializing ? 'Loading...' : `$${totalValue}`}
             </Text>
-            <View style={styles.headerButtons}>
-              <TouchableOpacity 
-                style={styles.swapButton}
-                onPress={() => router.push('/swap')}
-                disabled={isInitializing}
-              >
-                <Ionicons name="swap-horizontal" size={24} color={COLORS.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.refreshButton}
-                onPress={handleRefresh}
-                disabled={isInitializing || isRefreshing}
-              >
-                {isRefreshing ? (
-                  <ActivityIndicator color={COLORS.primary} size="small" />
-                ) : (
-                  <Ionicons name="refresh" size={24} color={COLORS.primary} />
-                )}
-              </TouchableOpacity>
-            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.actionButtons}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/swap')}
+              disabled={isInitializing}
+            >
+              <Ionicons name="swap-horizontal" size={24} color={COLORS.white} />
+              <Text style={styles.actionButtonText}>Swap</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setShowSpamTokens(!showSpamTokens)}
+            >
+              <Ionicons 
+                name={showSpamTokens ? "eye-off" : "eye"} 
+                size={24} 
+                color={COLORS.white} 
+              />
+              <Text style={styles.actionButtonText}>
+                {showSpamTokens ? 'Hide Spam' : 'Show Spam'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <ScrollView 
@@ -883,12 +1041,23 @@ export default function Portfolio(): JSX.Element {
                   <Text style={styles.retryButtonText}>Retry</Text>
                 </TouchableOpacity>
               </View>
-            ) : sortedTokens.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No tokens found</Text>
-              </View>
             ) : (
-              sortedTokens.map(renderTokenCard)
+              <>
+                {pendingSpamTokens.length > 0 && (
+                  <SpamTokenAlert
+                    tokens={pendingSpamTokens}
+                    onApprove={handleApproveToken}
+                    onReject={handleRejectToken}
+                  />
+                )}
+                {displayedTokens.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No tokens found</Text>
+                  </View>
+                ) : (
+                  displayedTokens.map(renderTokenCard)
+                )}
+              </>
             )}
           </ScrollView>
 
@@ -919,14 +1088,17 @@ const styles = StyleSheet.create({
   portfolioValue: {
     paddingTop: SPACING.md,
     paddingHorizontal: SPACING.xl,
-    paddingBottom: SPACING.xl,
-    alignItems: "center",
-    position: 'relative',
+    paddingBottom: SPACING.md,
+  },
+  portfolioHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
   },
   valueLabel: {
     fontSize: 16,
     color: COLORS.white,
-    marginBottom: SPACING.xs,
     fontWeight: '500',
   },
   valueAmount: {
@@ -934,20 +1106,26 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.white,
   },
-  headerButtons: {
-    position: 'absolute',
-    right: SPACING.xl,
-    top: SPACING.xl + 8,
+  actionButtons: {
     flexDirection: 'row',
-    gap: SPACING.sm,
+    paddingHorizontal: SPACING.xl,
+    paddingBottom: SPACING.xl,
+    gap: SPACING.md,
   },
-  swapButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    padding: SPACING.md,
+    gap: SPACING.xs,
+  },
+  actionButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '500',
   },
   refreshButton: {
     width: 40,
@@ -1134,5 +1312,80 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  rotating: {
+    transform: [{ rotate: '360deg' }],
+  },
+  spamAlertContainer: {
+    backgroundColor: 'rgba(41, 40, 40, 0.25)',
+    borderRadius: 16,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+  },
+  spamAlertTitle: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: SPACING.xs,
+  },
+  spamAlertSubtitle: {
+    color: COLORS.white,
+    opacity: 0.7,
+    fontSize: 14,
+    marginBottom: SPACING.md,
+  },
+  spamTokenCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  spamTokenInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  spamTokenDetails: {
+    flex: 1,
+    marginLeft: SPACING.sm,
+  },
+  spamTokenSymbol: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  spamTokenName: {
+    color: COLORS.white,
+    opacity: 0.7,
+    fontSize: 12,
+  },
+  spamTokenBalance: {
+    color: COLORS.white,
+    opacity: 0.7,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  spamTokenActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: SPACING.sm,
+  },
+  spamTokenButton: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: 8,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  approveButton: {
+    backgroundColor: COLORS.primary,
+  },
+  rejectButton: {
+    backgroundColor: 'rgba(255, 59, 48, 0.2)',
+  },
+  spamTokenButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '500',
   },
 }); 

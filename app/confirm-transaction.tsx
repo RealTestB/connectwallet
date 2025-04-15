@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert, ActivityIndicator, Modal } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,18 +10,39 @@ import WalletHeader from '../components/ui/WalletHeader';
 import { useTransactions, Transaction } from '../contexts/TransactionContext';
 import { ethers } from 'ethers';
 import { getProvider } from '../lib/provider';
+import { makeAlchemyRequest } from "../api/alchemyApi";
+import { TokenWithPrice as TokenBase } from "../types/tokens";
+import * as SecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+import { getChainById } from '../constants/chains';
+import { storeTransaction } from '../api/supabaseApi';
+import { getCurrentGasPrices } from '../utils/gasUtils';
+
+interface Token extends TokenBase {
+  address: string;
+  symbol: string;
+  decimals: number;
+  balance: string;
+}
+
+type SpeedType = 'slow' | 'normal' | 'fast';
 
 type TransactionParams = {
-  amount?: string;
+  tokenAddress: string;
+  tokenSymbol: string;
+  tokenDecimals: string;
+  amount: string;
+  recipient: string;
+  gasPrice: string;
+  gasLimit: string;
+  usdValue: string;
+  tokenLogo?: string;
+  gasUsd?: string;
+  // Legacy params kept for backward compatibility
   to?: string;
   from?: string;
-  tokenSymbol?: string;
-  gasLimit: string;
-  gasPrice: string;
-  networkFee: string;
-  total: string;
-  tokenAddress?: string;
-  decimals?: string;
+  networkFee?: string;
+  total?: string;
   // NFT specific params
   type?: string;
   contractAddress?: string;
@@ -34,27 +55,62 @@ type TransactionParams = {
 
 const ConfirmTransactionScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>('');
   const [showScamWarning, setShowScamWarning] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [currentTxHash, setCurrentTxHash] = useState<string>('');
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<TransactionParams>();
-  const [selectedSpeed, setSelectedSpeed] = useState<'slow' | 'market' | 'fast'>('market');
-  const [speedOptions] = useState({
-    slow: { multiplier: 0.397, time: '60 sec' },
-    market: { multiplier: 1, time: '60 sec' },
-    fast: { multiplier: 2.064, time: '15 sec' }
-  });
+  const [selectedSpeed, setSelectedSpeed] = useState<SpeedType>('normal');
   const { addTransaction, updateTransaction } = useTransactions();
+  const [amount, setAmount] = useState('');
+  const [tokens, setTokens] = useState<Token[]>([]);
+  const [tokenPrice, setTokenPrice] = useState(0);
+  const [gasEstimate, setGasEstimate] = useState('');
+  const [gasUsd, setGasUsd] = useState('');
 
-  const calculateGasPrice = (basePrice: string, speedType: 'slow' | 'market' | 'fast') => {
-    const basePriceNum = Number(basePrice);
-    return (basePriceNum * speedOptions[speedType].multiplier).toString();
+  const speedMultipliers = {
+    slow: 0.8,
+    normal: 1.0,
+    fast: 1.2
+  };
+
+  const calculateGasPrice = (basePrice: bigint | string, speed: SpeedType): string => {
+    const multiplier = speedMultipliers[speed];
+    try {
+      if (!basePrice) return '0';
+      
+      // Convert to BigInt if it's a string
+      const basePriceWei = typeof basePrice === 'string'
+        ? (basePrice.startsWith('0x') ? BigInt(basePrice) : BigInt(basePrice))
+        : basePrice;
+        
+      const multiplierBigInt = BigInt(Math.floor(multiplier * 100));
+      const result = (basePriceWei * multiplierBigInt) / BigInt(100);
+      return result.toString();
+    } catch (error) {
+      console.error('Error calculating gas price:', error);
+      return typeof basePrice === 'bigint' ? basePrice.toString() : '0';
+    }
   };
 
   const getAdjustedNetworkFee = () => {
-    const baseNetworkFee = params.networkFee || '0';
-    return calculateGasPrice(baseNetworkFee, selectedSpeed);
+    // Get the base gas price and gas limit
+    const gasPrice = params.gasPrice || '0';
+    const gasLimit = params.gasLimit || '0';
+    
+    // Calculate adjusted gas price based on selected speed
+    const adjustedGasPrice = calculateGasPrice(gasPrice, selectedSpeed);
+    
+    try {
+      // Calculate total gas cost
+      const gasCostWei = BigInt(adjustedGasPrice) * BigInt(gasLimit);
+      return ethers.formatEther(gasCostWei);
+    } catch (error) {
+      console.error('Error calculating network fee:', error);
+      return '0';
+    }
   };
 
   const getTotal = () => {
@@ -64,12 +120,22 @@ const ConfirmTransactionScreen = () => {
       return networkFee;
     }
     // For tokens, add amount if it exists
-    const amount = params.amount ? Number(params.amount) : 0;
-    return (Number(networkFee) + amount).toString();
+    const amount = params.amount ? parseFloat(params.amount) : 0;
+    const fee = parseFloat(networkFee);
+    return (fee + amount).toString();
   };
 
-  const handleSpeedChange = (speed: 'slow' | 'market' | 'fast') => {
+  const handleSpeedChange = (speed: SpeedType) => {
     setSelectedSpeed(speed);
+    // Force a re-render of the gas costs
+    const newFee = getAdjustedNetworkFee();
+    const newGasUsd = params.gasUsd 
+      ? (parseFloat(params.gasUsd) * speedMultipliers[speed]).toFixed(2)
+      : (parseFloat(newFee) * 1800).toFixed(2); // Using 1800 as fallback ETH price if not provided
+    
+    // Update the display values
+    setGasEstimate(newFee);
+    setGasUsd(newGasUsd);
   };
 
   const handleBack = () => {
@@ -77,139 +143,129 @@ const ConfirmTransactionScreen = () => {
   };
 
   const handleConfirm = async () => {
-    setIsLoading(true);
-    setError('');
-
     try {
-      if (params.type === 'nft') {
-        // NFT transfer
-        if (!params.contractAddress || !params.toAddress || !params.tokenId || !params.tokenType) {
-          setError('Missing required NFT transfer parameters');
-          return;
-        }
+      setIsLoading(true);
+      setError(null);
 
-        // Check for suspicious terms but show warning instead of blocking
-        const suspiciousTerms = ['stake', 'claim', 'reward', 'airdrop', 'free'];
-        const contractName = params.nftName?.toLowerCase() || '';
-        const isScammy = suspiciousTerms.some(term => contractName.includes(term));
-        
-        if (isScammy && !showScamWarning) {
-          setShowScamWarning(true);
-          setIsLoading(false);
-          return;
-        }
-        
-        // Create pending transaction record
-        const transaction: Transaction = {
-          hash: '', // Will be updated once we have the tx hash
-          type: 'NFT_TRANSFER',
-          status: 'PENDING',
-          from: params.from || '',
-          to: params.toAddress,
-          timestamp: new Date().toISOString(),
-          tokenId: params.tokenId,
-          contractAddress: params.contractAddress,
-          nftName: params.nftName,
-          nftImage: params.nftImage,
-          gasPrice: calculateGasPrice(params.gasPrice || '0', selectedSpeed),
-          gasLimit: params.gasLimit || '0',
-        };
-
-        // Start NFT transfer
-        const tx = await transferNFT({
-          contractAddress: params.contractAddress,
-          tokenId: params.tokenId,
-          toAddress: params.toAddress,
-          tokenType: params.tokenType as 'ERC721' | 'ERC1155',
-          gasPrice: calculateGasPrice(params.gasPrice || '0', selectedSpeed),
-          gasLimit: params.gasLimit || '0',
-        });
-
-        // Update transaction with hash and navigate to transactions screen
-        transaction.hash = tx.hash;
-        addTransaction(transaction);
-        router.push('/transaction-history');
-
-        // Handle transaction confirmation in background
-        tx.wait()
-          .then(() => {
-            updateTransaction(tx.hash, { status: 'COMPLETED' });
-            syncNFTs(); // Sync NFTs after successful transfer
-          })
-          .catch((error: Error) => {
-            updateTransaction(tx.hash, {
-              status: 'FAILED',
-              error: error.message,
-            });
-          });
-
-      } else {
-        // ETH or token transfer
-        if (!params.to || !params.amount) {
-          setError('Missing required transfer parameters');
-          return;
-        }
-
-        // Start transfer
-        console.log('[ConfirmTransaction] Starting transfer with details:', {
-          to: params.to,
-          amount: params.amount,
-          gasPrice: calculateGasPrice(params.gasPrice || '0', selectedSpeed),
-          gasLimit: params.gasLimit || '0'
-        });
-        const txHash = await transferToken({
-          contractAddress: params.tokenAddress || '0x0000000000000000000000000000000000000000',
-          toAddress: params.to,
-          amount: params.amount,
-          decimals: params.decimals ? parseInt(params.decimals) : 18,
-          gasPrice: calculateGasPrice(params.gasPrice || '0', selectedSpeed),
-          gasLimit: params.gasLimit || '0',
-        });
-
-        console.log('[ConfirmTransaction] Transfer initiated! Transaction hash:', txHash);
-
-        // Create pending transaction record
-        const transaction: Transaction = {
-          hash: txHash,
-          type: params.tokenAddress ? 'TOKEN_TRANSFER' : 'ETH_TRANSFER',
-          status: 'PENDING',
-          from: params.from || '',
-          to: params.to || '',
-          timestamp: new Date().toISOString(),
-          amount: params.amount,
-          tokenSymbol: params.tokenSymbol || 'ETH',
-          tokenAddress: params.tokenAddress,
-          gasPrice: calculateGasPrice(params.gasPrice || '0', selectedSpeed),
-          gasLimit: params.gasLimit || '0'
-        };
-
-        console.log('[ConfirmTransaction] Adding transaction to history:', transaction);
-        addTransaction(transaction);
-        
-        // Navigate immediately to transaction history
-        console.log('[ConfirmTransaction] Navigating to transaction history...');
-        router.push('/transaction-history');
-
-        // Get provider to monitor transaction in background
-        const provider = await getProvider();
-        console.log('[ConfirmTransaction] Setting up transaction monitoring for hash:', txHash);
-        
-        // Use provider.once instead of provider.on to ensure we only handle the confirmation once
-        provider.once(txHash, (receipt) => {
-          console.log('[ConfirmTransaction] Transaction confirmed:', receipt);
-          updateTransaction(txHash, { status: 'COMPLETED' });
-          console.log('[ConfirmTransaction] Transaction status updated to COMPLETED');
-        });
-
+      // Validate all required parameters are present
+      if (!params.amount || !params.recipient || !params.tokenAddress) {
+        setError('Some transaction details are missing. Please try again.');
+        return;
       }
-    } catch (error) {
-      console.error('Transfer failed:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to transfer';
-      setError(errorMessage);
+
+      // Get current chain ID from wallet data
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletDataStr) {
+        throw new Error('No wallet data found');
+      }
+      const walletData = JSON.parse(walletDataStr);
+      const chainId = walletData.chainId || 1;
+
+      // Get current gas prices
+      const gasPrices = await getCurrentGasPrices(chainId);
       
-      if (errorMessage.includes('1015')) {
-        setError('Network error: Please check your internet connection and try again');
+      // Use maxFee directly since it's already a BigInt
+      console.log('[ConfirmTransaction] Gas price calculated:', gasPrices.maxFee.toString());
+
+      // Apply speed multiplier
+      const adjustedGasPrice = calculateGasPrice(gasPrices.maxFee, selectedSpeed);
+      
+      // Calculate gas cost in native token
+      const gasCostWei = BigInt(adjustedGasPrice) * BigInt(params.gasLimit);
+      const gasCostNative = ethers.formatEther(gasCostWei);
+
+      // For native token transfers, check if we have enough balance
+      if (params.tokenAddress === '0x0000000000000000000000000000000000000000') {
+        const balance = await makeAlchemyRequest('eth_getBalance', [walletData.address, 'latest'], chainId);
+        const currentBalance = ethers.formatEther(balance);
+        const sendAmount = params.amount;
+        const gasCost = ethers.formatEther(BigInt(adjustedGasPrice) * BigInt(params.gasLimit));
+        
+        // Convert all values to BigInt with 18 decimals for precise comparison
+        const balanceWei = BigInt(balance);
+        const sendAmountWei = ethers.parseEther(sendAmount);
+        const gasCostWei = BigInt(adjustedGasPrice) * BigInt(params.gasLimit);
+        const totalRequiredWei = sendAmountWei + gasCostWei;
+
+        console.log('[ConfirmTransaction] Detailed balance check:', {
+          rawBalance: balance,
+          balanceFormatted: currentBalance,
+          balanceWei: balanceWei.toString(),
+          sendAmount,
+          sendAmountWei: sendAmountWei.toString(),
+          gasCost,
+          gasCostWei: gasCostWei.toString(),
+          totalRequiredWei: totalRequiredWei.toString(),
+          comparison: {
+            totalRequired: totalRequiredWei.toString(),
+            balance: balanceWei.toString(),
+            hasEnough: totalRequiredWei <= balanceWei
+          }
+        });
+
+        // Compare using BigInt values to avoid floating point precision issues
+        if (totalRequiredWei > balanceWei) {
+          const maxPossibleAmount = ethers.formatEther(balanceWei - gasCostWei);
+          if (balanceWei > gasCostWei) {
+            setError(`Insufficient balance. Maximum amount you can send is ${maxPossibleAmount} ETH`);
+          } else {
+            setError('Insufficient balance to cover gas fees');
+          }
+          return;
+        }
       }
+
+      // Proceed with the transaction
+      const txHash = await transferToken({
+        contractAddress: params.tokenAddress,
+        toAddress: params.recipient,
+        amount: params.amount,
+        decimals: parseInt(params.tokenDecimals),
+        gasPrice: adjustedGasPrice,
+        gasLimit: params.gasLimit
+      });
+
+      // Store transaction in database
+      await storeTransaction({
+        wallet_id: walletData.id,
+        hash: txHash,
+        from_address: walletData.address,
+        to_address: params.recipient,
+        value: ethers.parseUnits(params.amount, parseInt(params.tokenDecimals)).toString(),
+        token_address: params.tokenAddress === '0x0000000000000000000000000000000000000000' ? undefined : params.tokenAddress,
+        token_symbol: params.tokenSymbol,
+        token_decimals: parseInt(params.tokenDecimals),
+        status: 'pending',
+        network_id: chainId,
+        gas_price: adjustedGasPrice.toString(),
+        gas_used: params.gasLimit
+      });
+
+      // Store transaction hash and show success modal
+      setCurrentTxHash(txHash);
+      setShowSuccessModal(true);
+
+    } catch (error) {
+      console.error('[ConfirmTransaction] Error:', error);
+      
+      let errorMessage = 'An error occurred while processing your transaction.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('insufficient funds')) {
+          errorMessage = 'You do not have enough funds to cover this transaction and gas fees.';
+        } else if (error.message.includes('gas required exceeds allowance')) {
+          errorMessage = 'The transaction requires more gas than expected. Please try again with a smaller amount.';
+        } else if (error.message.includes('nonce')) {
+          errorMessage = 'There was an issue with the transaction sequence. Please try again.';
+        } else if (error.message.includes('1015')) {
+          errorMessage = 'Network connection issue. Please check your internet connection and try again.';
+        } else if (error.message.includes('transaction underpriced')) {
+          errorMessage = 'The gas price is too low. Please try again with a higher gas price.';
+        }
+      }
+      
+      setError(errorMessage);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -220,16 +276,17 @@ const ConfirmTransactionScreen = () => {
   };
 
   const formatEthValue = (value: string) => {
-    return Number(value).toFixed(8);
+    if (!value) return '0.00000000';
+    return parseFloat(value).toFixed(8);
   };
 
   const formatUsdValue = (ethValue: string) => {
-    const ethPrice = 1800;
-    const usdValue = Number(ethValue) * ethPrice;
-    return `$${usdValue.toFixed(2)}`;
+    if (!ethValue) return '$0.00';
+    const amount = parseFloat(ethValue);
+    return `$${(amount * (params.usdValue ? parseFloat(params.usdValue) / parseFloat(params.amount || '1') : 1800)).toFixed(2)}`;
   };
 
-  const SpeedOption = ({ type, label }: { type: 'slow' | 'market' | 'fast', label: string }) => (
+  const SpeedOption = ({ type, label }: { type: SpeedType, label: string }) => (
     <TouchableOpacity 
       style={[
         styles.speedOption,
@@ -263,11 +320,20 @@ const ConfirmTransactionScreen = () => {
           styles.speedTime,
           selectedSpeed === type && styles.speedTimeSelected
         ]}>
-          ~{speedOptions[type].time}
+          ~{speedMultipliers[type] * 60} sec
         </Text>
       </View>
     </TouchableOpacity>
   );
+
+  const sanitizeParams = (params: any) => {
+    return {
+      hash: params.hash?.toString() || '',
+      amount: params.amount?.toString() || '0',
+      token: params.token?.toString() || '',
+      recipient: params.recipient?.toString() || ''
+    };
+  };
 
   return (
     <View style={sharedStyles.container}>
@@ -312,7 +378,7 @@ const ConfirmTransactionScreen = () => {
           ) : (
             <View style={styles.amountContainer}>
               <Text style={styles.amount}>{params.amount} {params.tokenSymbol}</Text>
-              <Text style={styles.amountUsd}>{formatUsdValue(params.total)}</Text>
+              <Text style={styles.amountUsd}>{formatUsdValue(params.amount || '0')}</Text>
             </View>
           )}
 
@@ -320,7 +386,11 @@ const ConfirmTransactionScreen = () => {
             <View style={styles.row}>
               <Text style={styles.label}>To</Text>
               <Text style={styles.value}>
-                {params.type === 'nft' ? formatAddress(params.toAddress) : formatAddress(params.to)}
+                {params.type === 'nft' && params.toAddress 
+                  ? formatAddress(params.toAddress) 
+                  : params.recipient 
+                    ? formatAddress(params.recipient) 
+                    : ''}
               </Text>
             </View>
 
@@ -328,7 +398,7 @@ const ConfirmTransactionScreen = () => {
               <Text style={styles.gasSpeedTitle}>Transaction Speed</Text>
               <View style={styles.speedOptionsContainer}>
                 <SpeedOption type="slow" label="Slow" />
-                <SpeedOption type="market" label="Normal" />
+                <SpeedOption type="normal" label="Normal" />
                 <SpeedOption type="fast" label="Fast" />
               </View>
             </View>
@@ -336,8 +406,12 @@ const ConfirmTransactionScreen = () => {
             <View style={styles.row}>
               <Text style={styles.label}>Network fee</Text>
               <View style={styles.feeContainer}>
-                <Text style={styles.value}>{formatEthValue(getAdjustedNetworkFee())} ETH</Text>
-                <Text style={styles.feeUsd}>{formatUsdValue(getAdjustedNetworkFee())}</Text>
+                <Text style={styles.value}>
+                  {formatEthValue(getAdjustedNetworkFee())} ETH
+                </Text>
+                <Text style={styles.feeUsd}>
+                  ${(parseFloat(params.gasUsd || '0') * speedMultipliers[selectedSpeed]).toFixed(2)}
+                </Text>
               </View>
             </View>
             
@@ -346,8 +420,19 @@ const ConfirmTransactionScreen = () => {
               <View style={[styles.row, styles.totalRow]}>
                 <Text style={styles.totalLabel}>Total</Text>
                 <View style={styles.feeContainer}>
-                  <Text style={styles.totalValue}>{formatEthValue(getTotal())} ETH</Text>
-                  <Text style={styles.totalUsd}>{formatUsdValue(getTotal())}</Text>
+                  <Text style={styles.totalValue}>
+                    {formatEthValue(
+                      params.type === 'nft'
+                        ? getAdjustedNetworkFee()
+                        : (parseFloat(params.amount || '0') + parseFloat(getAdjustedNetworkFee())).toString()
+                    )} ETH
+                  </Text>
+                  <Text style={styles.totalUsd}>
+                    ${(
+                      (params.type === 'nft' ? 0 : parseFloat(params.usdValue || '0')) +
+                      parseFloat(params.gasUsd || '0') * speedMultipliers[selectedSpeed]
+                    ).toFixed(2)}
+                  </Text>
                 </View>
               </View>
             )}
@@ -390,9 +475,14 @@ const ConfirmTransactionScreen = () => {
               onPress={handleConfirm}
               disabled={isLoading}
             >
-              <Text style={styles.confirmButtonText}>
-                {isLoading ? 'Confirming...' : 'Confirm Transaction'}
-              </Text>
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="white" />
+                  <Text style={styles.buttonText}>Confirming...</Text>
+                </View>
+              ) : (
+                <Text style={styles.buttonText}>Confirm Transaction</Text>
+              )}
             </TouchableOpacity>
             
             {error ? (
@@ -401,6 +491,67 @@ const ConfirmTransactionScreen = () => {
           </>
         )}
       </View>
+
+      {/* Success Modal */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Ionicons name="checkmark-circle" size={48} color={COLORS.success} />
+              <Text style={styles.modalTitle}>Transaction Sent</Text>
+              <Text style={styles.modalSubtitle}>Your transfer has been submitted successfully</Text>
+            </View>
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.viewDetailsButton]}
+                onPress={async () => {
+                  setShowSuccessModal(false);
+                  // Get wallet data
+                  const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+                  const walletData = walletDataStr ? JSON.parse(walletDataStr) : null;
+                  // Get current chain info
+                  const chainInfo = getChainById(walletData?.chainId || 1); // Default to Ethereum if no chain ID
+                  const transactionDetails = {
+                    hash: currentTxHash,
+                    type: params.type === 'nft' ? 'NFT_TRANSFER' : 'TOKEN_TRANSFER',
+                    status: 'PENDING',
+                    amount: `${params.amount} ${params.tokenSymbol}`,
+                    from: params.from || '',
+                    to: params.recipient || params.toAddress || '',
+                    date: new Date().toLocaleString(),
+                    network: chainInfo?.name || 'Unknown Network',
+                    fee: `${formatEthValue(getAdjustedNetworkFee())} ${chainInfo?.nativeCurrency.symbol || 'ETH'}`,
+                    explorer: chainInfo ? `${chainInfo.blockExplorerUrl}/tx/${currentTxHash}` : ''
+                  };
+                  router.push({
+                    pathname: '/transaction-details',
+                    params: {
+                      transaction: JSON.stringify(transactionDetails)
+                    }
+                  });
+                }}
+              >
+                <Text style={styles.viewDetailsText}>View Details</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalButton, styles.doneButton]}
+                onPress={() => {
+                  setShowSuccessModal(false);
+                  router.push('/portfolio');
+                }}
+              >
+                <Text style={styles.doneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -575,10 +726,15 @@ const styles = StyleSheet.create({
   confirmButtonDisabled: {
     opacity: 0.5,
   },
-  confirmButtonText: {
+  buttonText: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.white,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   errorText: {
     color: COLORS.error,
@@ -613,6 +769,67 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.white,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  modalContent: {
+    backgroundColor: 'rgba(20, 24, 40, 0.98)',
+    borderRadius: 24,
+    padding: SPACING.xl,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: COLORS.white,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  modalButtons: {
+    gap: SPACING.md,
+  },
+  modalButton: {
+    borderRadius: 16,
+    padding: SPACING.md,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  viewDetailsButton: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  doneButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  viewDetailsText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  doneText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+    opacity: 0.7,
   },
 });
 

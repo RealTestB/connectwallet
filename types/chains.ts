@@ -20,19 +20,38 @@ export interface ChainContextType {
 }
 
 export interface NetworkConfig {
-  chainId: number;
   name: string;
+  chainId: number;
   rpcUrl: string;
   explorerUrl: string;
-  nativeCurrency: {
-    name: string;
-    symbol: string;
-    decimals: number;
-  };
-  blockExplorerUrls: string[];
-  icon?: string;
+  symbol: string;
+  decimals: number;
   isTestnet: boolean;
-  supported: boolean;
+  iconUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  isEnabled: boolean;
+  gasTokenSymbol: string;
+  supportsEIP1559: boolean;
+  // Gas configuration will be fetched dynamically
+  gasConfig?: {
+    lastUpdated: number;
+    basePriorityFee: bigint;
+    baseGasLimit: {
+      nativeTransfer: bigint;
+      tokenTransfer: bigint;
+      tokenApproval: bigint;
+      nftTransfer: bigint;
+      nftApproval: bigint;
+      swap: bigint;
+      contractDeployment: bigint;
+      contractInteraction: bigint;
+    };
+    bufferMultiplier: number;
+    minGasPrice: bigint;
+    maxGasPrice: bigint;
+    defaultGasLimit: bigint;
+  };
 }
 
 export interface ChainState {

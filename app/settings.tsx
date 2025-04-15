@@ -21,6 +21,7 @@ interface SettingItem {
   onChange?: (value: any) => void;
   onClick?: () => void;
   options?: Array<{ value: string; label: string }>;
+  isDestructive?: boolean;
 }
 
 interface SettingGroup {
@@ -94,6 +95,25 @@ export default function SettingsScreen() {
     }
   }, [saveLastUsedNetwork]);
 
+  const handleLogout = async () => {
+    try {
+      // Clear all secure storage
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.IS_AUTHENTICATED);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_DATA);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_ADDRESS);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PRIVATE_KEY);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_SEED_PHRASE);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+      await SecureStore.deleteItemAsync(STORAGE_KEYS.WALLET_PASSWORD_RAW);
+      
+      // Navigate to signin
+      router.replace('/signin');
+    } catch (error) {
+      console.error('[Settings] Error logging out:', error);
+      Alert.alert('Error', 'Failed to log out');
+    }
+  };
+
   const settingsGroups: SettingGroup[] = [
     {
       title: "General",
@@ -142,6 +162,17 @@ export default function SettingsScreen() {
       ]
     },
     {
+      title: "Security",
+      items: [
+        {
+          icon: "key",
+          label: "Change Password",
+          type: "button",
+          onClick: () => router.push('/change-password')
+        }
+      ]
+    },
+    {
       title: "About",
       items: [
         {
@@ -150,16 +181,37 @@ export default function SettingsScreen() {
           type: "button",
           value: "1.0.0",
           onClick: () => {}
+        },
+        {
+          icon: "log-out-outline",
+          label: "Log Out",
+          type: "button",
+          onClick: handleLogout
         }
       ]
     }
   ];
 
   const renderSettingItem = (item: SettingItem) => (
-    <View style={styles.settingItem}>
+    <TouchableOpacity 
+      style={styles.settingItem}
+      onPress={() => {
+        if (item.type === "select") {
+          if (item.label === "Language") setShowLanguagePicker(true);
+          if (item.label === "Currency") setShowCurrencyPicker(true);
+        } else if (item.type === "button" && item.onClick) {
+          item.onClick();
+        }
+      }}
+      disabled={item.type === "toggle"}
+    >
       <View style={styles.settingLeft}>
         <View style={styles.iconContainer}>
-          <Ionicons name={item.icon as any} size={20} color={COLORS.primary} />
+          <Ionicons 
+            name={item.icon as any} 
+            size={20} 
+            color={COLORS.primary}
+          />
         </View>
         <Text style={styles.settingLabel}>{item.label}</Text>
       </View>
@@ -172,29 +224,26 @@ export default function SettingsScreen() {
         />
       )}
       {item.type === "select" && (
-        <TouchableOpacity
-          style={styles.selectButton}
-          onPress={() => {
-            if (item.label === "Language") setShowLanguagePicker(true);
-            if (item.label === "Currency") setShowCurrencyPicker(true);
-          }}
-        >
+        <View style={styles.selectButton}>
           <Text style={styles.selectButtonText}>
             {item.options?.find(opt => opt.value === item.value)?.label}
           </Text>
           <Ionicons name="chevron-forward" size={20} color={COLORS.primary} />
-        </TouchableOpacity>
+        </View>
       )}
       {item.type === "button" && (
-        <TouchableOpacity onPress={item.onClick}>
+        <View style={styles.selectButton}>
+          {item.value && (
+            <Text style={styles.selectButtonText}>{item.value}</Text>
+          )}
           <Ionicons name="chevron-forward" size={20} color={COLORS.primary} />
-        </TouchableOpacity>
+        </View>
       )}
-    </View>
+    </TouchableOpacity>
   );
 
   return (
-    <View style={[sharedStyles.container, { paddingTop: insets.top }]}>
+    <View style={sharedStyles.container}>
       <Image 
         source={require('../assets/background.png')} 
         style={sharedStyles.backgroundImage}
@@ -333,14 +382,13 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   content: {
     flex: 1,
-    paddingHorizontal: SPACING.lg,
   },
   groupsContainer: {
-    paddingTop: SPACING.md,
-    paddingBottom: 100,
+    padding: SPACING.lg,
+    paddingBottom: SPACING.xl + 60, // Add extra padding to avoid bottom nav overlap
   },
   group: {
-    marginBottom: SPACING.xl,
+    marginBottom: SPACING.lg,
   },
   groupTitle: {
     fontSize: 16,
@@ -350,13 +398,13 @@ const styles = StyleSheet.create({
     paddingLeft: SPACING.sm,
   },
   card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(20, 24, 40, 0.15)',
     borderRadius: 16,
     overflow: 'hidden',
   },
   itemContainer: {
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   itemBorder: {
     borderBottomWidth: 1,
@@ -366,6 +414,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
   },
   settingLeft: {
     flexDirection: 'row',
@@ -393,6 +443,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textSecondary,
     marginRight: SPACING.xs,
+  },
+  logoutButton: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    borderRadius: 12,
+    padding: SPACING.md,
+    alignItems: 'center',
+    marginTop: SPACING.xl,
+    marginBottom: SPACING.xl,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+  },
+  logoutIcon: {
+    marginRight: SPACING.xs,
+  },
+  logoutButtonText: {
+    color: COLORS.error,
+    fontSize: 16,
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
@@ -452,5 +521,11 @@ const styles = StyleSheet.create({
   modalOptionTextSelected: {
     color: COLORS.primary,
     fontWeight: '600',
+  },
+  destructiveIcon: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+  },
+  destructiveText: {
+    color: COLORS.error,
   },
 }); 

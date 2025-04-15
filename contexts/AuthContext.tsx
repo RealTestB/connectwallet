@@ -18,6 +18,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   cryptoInitialized: boolean;
+  isInitialized: boolean;
   checkAuth: () => Promise<void>;
   signOut: () => Promise<void>;
   updateLastActive: () => Promise<void>;
@@ -268,6 +269,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         loading,
         error,
         cryptoInitialized,
+        isInitialized: appIsReady && cryptoInitialized,
         checkAuth,
         signOut,
         updateLastActive

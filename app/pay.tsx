@@ -1,6 +1,9 @@
-import { getTokenBalances, getStoredTokenBalances, TokenBalanceResult, estimateTokenTransferGas, makeAlchemyRequest } from "../api/tokensApi";
+import { getTokenBalances, getStoredTokenBalances, estimateTokenTransferGas, transferToken } from "../api/tokensApi";
+import { makeAlchemyRequest } from "../api/alchemyApi";
+import { TokenBalanceResult } from "../types/tokens";
 import { sendTransaction, TransactionRequest } from "../api/transactionsApi";
 import { getProvider } from "../api/provider";
+import { getStoredWallet } from "../api/walletApi";
 import BottomNav from "../components/ui/BottomNav";
 import WalletHeader from "../components/ui/WalletHeader";
 import { validateEthereumAddress } from "../utils/validators";
@@ -20,6 +23,11 @@ import { ethers } from "ethers";
 import { COLORS, SPACING } from '../styles/shared';
 import { STORAGE_KEYS } from '../constants/storageKeys';
 import { useLocalSearchParams } from "expo-router";
+import { makeHttpRequest } from "../utils/httpClient";
+import { CHAIN_TO_PLATFORM, NATIVE_TOKEN_IDS } from "../api/coingeckoApi";
+import { ChainId } from "../constants/chains";
+import { ERC20_ABI } from '../constants/abis';
+import { estimateGas, getCurrentGasPrices, TransactionType } from '../utils/gasUtils';
 
 interface Account {
   address: string;
@@ -54,7 +62,7 @@ interface Token {
   symbol: string;
   decimals: number;
   balance: string;
-  price?: number;
+  price: number;
   name?: string;
   logo?: string;
   balanceUSD?: number;
@@ -104,33 +112,85 @@ export default function PayScreen(): JSX.Element {
     // Refresh portfolio data when screen loads
     const refreshPortfolio = async () => {
       try {
-        const storedPortfolio = await SecureStore.getItemAsync(STORAGE_KEYS.PORTFOLIO_DATA);
-        if (storedPortfolio) {
-          const portfolioData = JSON.parse(storedPortfolio);
-          console.log('[Pay] Refreshed portfolio data:', {
-            tokenCount: portfolioData.tokens.length,
-            tokens: portfolioData.tokens.map((t: Token) => ({
-              symbol: t.symbol,
-              price: t.price
-            }))
-          });
-          setTokens(portfolioData.tokens);
-          
-          // Update price for currently selected token
-          const selectedTokenData = portfolioData.tokens.find((t: Token) => t.symbol === selectedToken?.symbol);
-          if (selectedTokenData?.price) {
-            console.log('[Pay] Updating price from refresh:', selectedTokenData.price);
-            setTokenPrice(selectedTokenData.price);
+        // Get current wallet data
+        const walletData = await getStoredWallet();
+        if (!walletData?.address) {
+          console.error('[Pay] No wallet connected');
+          return;
+        }
+
+        // Get fresh token balances using the current chain ID
+        const tokenBalances = await getTokenBalances(walletData.address, walletData.chainId as ChainId || 1);
+        
+        if (!tokenBalances || tokenBalances.length === 0) {
+          console.log('[Pay] No token balances found');
+          setTokens([]);
+          return;
+        }
+
+        // Get portfolio data for prices
+        const portfolioData = await SecureStore.getItemAsync(STORAGE_KEYS.PORTFOLIO_DATA);
+        const portfolio = portfolioData ? JSON.parse(portfolioData) : null;
+
+        // Process token balances
+        const processedTokens = await Promise.all(tokenBalances.map(async (balance) => {
+          let tokenPrice = 0;
+          try {
+            // Get real-time price from CoinGecko for any token
+            const priceResponse = await makeHttpRequest(
+              `${config.coingecko.baseUrl}/simple/token_price/${CHAIN_TO_PLATFORM[walletData.chainId as ChainId || 1]}?contract_addresses=${balance.contractAddress}&vs_currencies=usd&x_cg_demo_api_key=${config.coingecko.apiKey}`
+            );
+            const priceData = await priceResponse.json();
+            tokenPrice = priceData[balance.contractAddress.toLowerCase()]?.usd || 0;
+
+            // If it's native token and price not found, try getting price directly
+            if (balance.contractAddress === '0x0000000000000000000000000000000000000000' && !tokenPrice) {
+              const nativePriceResponse = await makeHttpRequest(
+                `${config.coingecko.baseUrl}/simple/price?ids=${NATIVE_TOKEN_IDS[walletData.chainId as ChainId || 1]}&vs_currencies=usd&x_cg_demo_api_key=${config.coingecko.apiKey}`
+              );
+              const nativePriceData = await nativePriceResponse.json();
+              tokenPrice = nativePriceData[NATIVE_TOKEN_IDS[walletData.chainId as ChainId || 1]]?.usd || 0;
+            }
+          } catch (error) {
+            console.error('[Pay] Error fetching token price:', error);
           }
+
+          return {
+            address: balance.contractAddress,
+            symbol: balance.metadata?.symbol || 'UNKNOWN',
+            name: balance.metadata?.name || 'Unknown Token',
+            decimals: balance.metadata?.decimals || 18,
+            balance: balance.formattedBalance,
+            price: tokenPrice,
+            logo: balance.metadata?.logo
+          };
+        }));
+
+        console.log('[Pay] Refreshed token balances:', {
+          tokenCount: processedTokens.length,
+          tokens: processedTokens.map(t => ({
+            symbol: t.symbol,
+            balance: t.balance,
+            price: t.price
+          }))
+        });
+
+        setTokens(processedTokens);
+          
+        // Update price for currently selected token if it exists
+        const selectedTokenData = processedTokens.find((t) => t.symbol === selectedToken?.symbol);
+        if (selectedTokenData) {
+          console.log('[Pay] Updating selected token data:', selectedTokenData);
+          setSelectedToken(selectedTokenData);
         }
       } catch (error) {
         console.error('[Pay] Error refreshing portfolio:', error);
       }
     };
 
-    // Refresh immediately and then every 2 minutes
+    // Refresh immediately and then every 30 seconds
     refreshPortfolio();
-    const refreshInterval = setInterval(refreshPortfolio, 120000);
+    const refreshInterval = setInterval(refreshPortfolio, 30000);
 
     return () => clearInterval(refreshInterval);
   }, []);
@@ -198,22 +258,23 @@ export default function PayScreen(): JSX.Element {
       allTokens: tokens.map(t => ({ symbol: t.symbol, price: t.price }))
     });
 
-    if (selectedTokenData?.price) {
-      console.log('[Pay] Updating token price:', selectedTokenData.price);
-      setTokenPrice(selectedTokenData.price);
+    if (selectedTokenData) {
+      // Update price from token data
+      const currentPrice = selectedTokenData.price || 0;
+      setTokenPrice(currentPrice);
       
       // Recalculate the conversion based on current input
       if (isFiatInput) {
         // If user was entering USD, keep USD the same and recalculate token amount
         const numValue = parseFloat(fiatAmount) || 0;
-        const calculatedTokens = selectedTokenData.price > 0 ? numValue / selectedTokenData.price : 0;
-        setTokenAmount(calculatedTokens.toString());
-        setAmount(calculatedTokens.toString());
+        const calculatedTokens = currentPrice > 0 ? numValue / currentPrice : 0;
+        setTokenAmount(calculatedTokens.toFixed(7));
+        setAmount(calculatedTokens.toFixed(7));
       } else {
         // If user was entering tokens, keep token amount the same and recalculate USD
         const numValue = parseFloat(tokenAmount) || 0;
-        const calculatedUsd = numValue * selectedTokenData.price;
-        setFiatAmount(calculatedUsd.toString());
+        const calculatedUsd = numValue * currentPrice;
+        setFiatAmount(calculatedUsd.toFixed(2));
       }
     }
   }, [selectedToken, tokens]);
@@ -227,7 +288,7 @@ export default function PayScreen(): JSX.Element {
 
   // Update effect to estimate gas when page loads or network changes
   useEffect(() => {
-    if (walletAddress && selectedToken) {
+    if (walletAddress && selectedToken && amount && recipient) {
       const now = Date.now();
       // Only update if it's been more than 60 seconds since last update
       if (now - lastGasUpdate > 60000) {
@@ -235,7 +296,17 @@ export default function PayScreen(): JSX.Element {
         setLastGasUpdate(now);
       }
     }
-  }, [walletAddress, selectedToken, networkId]);
+  }, [walletAddress, selectedToken, networkId, amount, recipient]);
+
+  // Remove the effect that triggers on token selection alone
+  // Add effect to clear gas estimates when token changes
+  useEffect(() => {
+    if (selectedToken) {
+      setGasEstimate('0');
+      setGasUsd('0.00000000');
+      setError(null);
+    }
+  }, [selectedToken?.address]);
 
   const handleAmountChange = (value: string, isFromFiat: boolean = false) => {
     // Remove any non-numeric characters except decimal point
@@ -262,7 +333,6 @@ export default function PayScreen(): JSX.Element {
     if (parts[1] && parts[1].length > 7) {
       parts[1] = parts[1].substring(0, 7);
       const limitedValue = parts.join('.');
-      // If we're limiting decimals, update the input value
       if (isFromFiat) {
         setFiatAmount(limitedValue);
       } else {
@@ -274,13 +344,40 @@ export default function PayScreen(): JSX.Element {
     // Convert to number for calculations
     const numValue = parseFloat(formattedValue);
 
-    console.log('[Pay] Amount change:', { 
-      isFromFiat, 
-      value: numValue, 
-      tokenPrice,
-      selectedToken,
-      tokens: tokens.map(t => ({ symbol: t.symbol, price: t.price }))
-    });
+    // Check if we need to limit the amount for native token transfers
+    if (selectedToken?.address === '0x0000000000000000000000000000000000000000') {
+      const currentGasEstimate = gasEstimate || '0';
+      if (currentGasEstimate !== '0' && selectedToken.balance) {
+        // Calculate max amount considering gas buffer
+        const balanceWei = ethers.parseEther(selectedToken.balance);
+        const gasWei = ethers.parseEther(currentGasEstimate);
+        const gasWithBuffer = (gasWei * BigInt(150)) / BigInt(100); // 1.5x buffer
+        const maxAmountWei = balanceWei - gasWithBuffer;
+        const maxAmount = parseFloat(ethers.formatEther(maxAmountWei));
+
+        // Check if amount exceeds max
+        if (isFromFiat) {
+          const tokenAmount = tokenPrice > 0 ? numValue / tokenPrice : 0;
+          if (tokenAmount > maxAmount) {
+            const adjustedFiat = maxAmount * tokenPrice;
+            setFiatAmount(adjustedFiat.toFixed(2));
+            setTokenAmount(maxAmount.toString());
+            setAmount(maxAmount.toString());
+            setUsdValue(adjustedFiat.toFixed(2));
+            return;
+          }
+        } else {
+          if (numValue > maxAmount) {
+            const adjustedFiat = maxAmount * (tokenPrice || 0);
+            setFiatAmount(adjustedFiat.toFixed(2));
+            setTokenAmount(maxAmount.toString());
+            setAmount(maxAmount.toString());
+            setUsdValue(adjustedFiat.toFixed(2));
+            return;
+          }
+        }
+      }
+    }
 
     if (isFromFiat) {
       // User is entering USD amount
@@ -290,125 +387,217 @@ export default function PayScreen(): JSX.Element {
       const limitedTokens = parseFloat(calculatedTokens.toFixed(7));
       setTokenAmount(limitedTokens.toString());
       setAmount(limitedTokens.toString());
+      
+      // Update USD value display
+      setUsdValue(formattedValue);
     } else {
       // User is entering token amount
-      const calculatedUsd = numValue * tokenPrice;
+      const calculatedUsd = numValue * (tokenPrice || 0);
       setTokenAmount(formattedValue);
-      setFiatAmount(calculatedUsd.toString());
       setAmount(formattedValue);
+      
+      // Update both fiat amount and USD value display
+      const formattedUsd = calculatedUsd.toFixed(2);
+      setFiatAmount(formattedUsd);
+      setUsdValue(formattedUsd);
     }
   };
 
-  // New function to estimate base gas cost
+  // Simplified gas estimation function
   const estimateBaseGas = async () => {
     try {
-      if (!selectedToken) return;
-
-      // Get gas estimate and gas price
-      const [gasLimitHex, gasPriceHex] = await Promise.all([
-        estimateTokenTransferGas(
-          selectedToken.address,
-          walletAddress || '',
-          '0x0000000000000000000000000000000000000000', // Zero address for estimation
-          '0' // Zero amount for base estimation
-        ),
-        makeAlchemyRequest('eth_gasPrice', [])
-      ]);
-      
-      console.log('[Pay] Gas estimation responses:', {
-        gasLimitHex,
-        gasPriceHex
+      console.log('[Pay] Starting gas estimation process', {
+        hasSelectedToken: !!selectedToken,
+        hasWalletAddress: !!walletAddress,
+        selectedToken: selectedToken ? {
+          address: selectedToken.address,
+          symbol: selectedToken.symbol,
+          decimals: selectedToken.decimals,
+          balance: selectedToken.balance
+        } : null
       });
       
-      // Validate responses
-      if (!gasLimitHex || typeof gasLimitHex !== 'string') {
-        throw new Error('Invalid gas limit response');
-      }
-      
-      if (!gasPriceHex || typeof gasPriceHex !== 'string') {
-        throw new Error('Invalid gas price response');
+      if (!selectedToken || !walletAddress) {
+        console.log('[Pay] Missing required data:', { 
+          hasSelectedToken: !!selectedToken, 
+          hasWalletAddress: !!walletAddress 
+        });
+        return;
       }
 
-      // Convert hex strings to BigInt
-      const gasLimitBigInt = BigInt(gasLimitHex);
-      const gasPriceBigInt = BigInt(gasPriceHex);
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletDataStr) {
+        console.log('[Pay] No wallet data found in secure storage');
+        return;
+      }
       
-      // Calculate network fee (gas limit * gas price)
-      const networkFee = ethers.formatEther(gasLimitBigInt * gasPriceBigInt);
+      const walletData = JSON.parse(walletDataStr);
+      const chainId = (walletData.chainId || 1) as ChainId;
+
+      // Calculate smallest unit based on token decimals
+      const decimals = selectedToken.decimals || 18;
+      const smallestUnit = ethers.parseUnits('0.000001', decimals);
+
+      // Get gas estimation
+      const gasEstimation = await estimateGas(
+        chainId,
+        TransactionType.NATIVE_TRANSFER,
+        walletAddress as string,
+        walletAddress as string,
+        undefined,
+        ethers.toQuantity(smallestUnit)
+      );
+
+      // Calculate gas costs
+      const gasCostWei = gasEstimation.gasLimit * gasEstimation.gasPrice;
+      const gasCostEth = ethers.formatEther(gasCostWei);
       
-      // Update gas estimate and USD value
-      setGasEstimate(networkFee);
-      setGasUsd((parseFloat(networkFee) * 1800).toFixed(2)); // Using ETH price of $1800 for USD conversion
-      setError(null); // Clear any previous errors
+      // Get native token price for USD conversion
+      const nativePriceResponse = await makeHttpRequest(
+        `${config.coingecko.baseUrl}/simple/price?ids=${NATIVE_TOKEN_IDS[chainId]}&vs_currencies=usd&x_cg_demo_api_key=${config.coingecko.apiKey}`
+      );
+      const nativePriceData = await nativePriceResponse.json();
+      const nativeTokenPrice = nativePriceData[NATIVE_TOKEN_IDS[chainId]]?.usd || 0;
+      
+      const gasUsdValue = (parseFloat(gasCostEth) * nativeTokenPrice).toFixed(8);
+
+      setGasEstimate(gasCostEth);
+      setGasUsd(gasUsdValue);
+
+      console.log('[Pay] Final gas estimation results:', {
+        gasLimit: gasEstimation.gasLimit.toString(),
+        gasPrice: {
+          wei: gasEstimation.gasPrice.toString(),
+          gwei: ethers.formatUnits(gasEstimation.gasPrice, 'gwei')
+        },
+        gasCost: {
+          eth: gasCostEth,
+          usd: gasUsdValue
+        }
+      });
     } catch (error) {
-      console.error('Error estimating base gas:', error);
+      console.error('[Pay] Gas estimation error:', error);
       setGasEstimate('0');
-      setGasUsd('0');
-      setError(error instanceof Error ? error.message : 'Failed to estimate gas');
+      setGasUsd('0.00000000');
+      setError('Failed to estimate gas. Please try again.');
     }
   };
 
   const handleSend = async () => {
     try {
-      if (!recipient || !amount || !selectedToken) {
+      if (!selectedToken || !amount || !recipient || !walletAddress) {
+        setError('Please fill in all required fields before sending.');
         return;
       }
 
-      setIsLoading(true);
+      // Get current balance and amount with gas calculation
+      const currentBalance = parseFloat(selectedToken.balance);
+      const sendAmount = parseFloat(amount);
+      
+      // Get current chain ID
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletDataStr) {
+        throw new Error('No wallet data found');
+      }
+      const walletData = JSON.parse(walletDataStr);
+      const chainId = (walletData.chainId || 1) as ChainId;
+      
+      // Get current gas price using fee history
+      const feeData = await makeAlchemyRequest('eth_feeHistory', [
+        '0x1',
+        'latest',
+        [25, 50, 75]
+      ], chainId);
 
-      // Validate amount is a valid number
-      const numAmount = parseFloat(amount);
-      if (isNaN(numAmount) || numAmount <= 0) {
-        throw new Error('Invalid amount');
+      const baseFeePerGas = feeData.baseFeePerGas ? BigInt(feeData.baseFeePerGas[0]) : BigInt(0);
+      const priorityFeePerGas = feeData.reward ? BigInt(feeData.reward[0][1]) : BigInt(0);
+      const gasPrice = baseFeePerGas + priorityFeePerGas;
+
+      // Estimate gas limit based on token type
+      let gasEstimation;
+      if (selectedToken.address === '0x0000000000000000000000000000000000000000') {
+        gasEstimation = await estimateGas(
+          chainId,
+          TransactionType.NATIVE_TRANSFER,
+          walletAddress as string,
+          walletAddress as string,
+          undefined,
+          '0x0'
+        );
+      } else {
+        const contract = new ethers.Contract(selectedToken.address, ERC20_ABI);
+        const data = contract.interface.encodeFunctionData('transfer', [
+          recipient,
+          ethers.parseUnits(amount, selectedToken.decimals || 18)
+        ]);
+        
+        gasEstimation = await estimateGas(
+          chainId,
+          TransactionType.TOKEN_TRANSFER,
+          walletAddress,
+          selectedToken.address,
+          data,
+          '0x0'
+        );
       }
 
-      // Get gas estimate
-      const gasLimit = await estimateTokenTransferGas(
-        selectedToken.address,
-        walletAddress || '',
-        recipient,
-        amount
-      );
+      console.log('[Pay] Estimated gas:', gasEstimation);
 
-      // Get current gas price
-      const gasPrice = await makeAlchemyRequest('eth_gasPrice', []);
-      
-      // Calculate network fee (gas limit * gas price)
-      const networkFee = ethers.formatEther(BigInt(gasLimit) * BigInt(gasPrice));
-      
-      // Calculate total in ETH (amount + network fee)
-      const amountInEth = isFiatInput ? parseFloat(tokenAmount) : numAmount;
-      const total = amountInEth + parseFloat(networkFee);
-
-      // Check if total cost exceeds balance
-      const tokenBalance = parseFloat(selectedToken.balance);
-      if (total > tokenBalance) {
-        throw new Error(`Insufficient balance to cover amount plus gas fees. You have ${tokenBalance.toFixed(6)} ${selectedToken.symbol}`);
+      if (selectedToken.address === '0x0000000000000000000000000000000000000000') {
+        const gasCostWei = gasEstimation.gasPrice * gasEstimation.gasLimit;
+        const gasCostWithBuffer = gasCostWei * BigInt(130) / BigInt(100); // 30% buffer
+        const amountWei = ethers.parseEther(amount);
+        const balanceWei = ethers.parseEther(selectedToken.balance);
+        
+        if (amountWei + gasCostWithBuffer > balanceWei) {
+          setError("Insufficient balance to cover transfer and gas fees");
+          return;
+        }
       }
 
-      // Navigate to confirmation screen
+      // Clear any existing errors
+      setError(null);
+
+      // Navigate to confirmation screen with transaction details
       router.push({
         pathname: '/confirm-transaction',
         params: {
-          amount: amountInEth.toString(),
-          to: recipient,
-          from: walletAddress || '',
-          tokenSymbol: selectedToken.symbol,
           tokenAddress: selectedToken.address,
-          decimals: selectedToken.decimals.toString(),
-          gasLimit: gasLimit.toString(),
-          gasPrice,
-          networkFee,
-          total: total.toString()
+          tokenSymbol: selectedToken.symbol,
+          tokenDecimals: selectedToken.decimals?.toString() || '18',
+          amount: amount,
+          recipient: recipient,
+          gasPrice: gasEstimation.gasPrice.toString(),
+          gasLimit: gasEstimation.gasLimit.toString(),
+          usdValue: usdValue,
+          tokenLogo: selectedToken.logo,
+          total: amount,  // Add total amount for ETH value
+          networkFee: gasEstimate, // Add network fee
+          gasUsd: gasUsd // Add gas fee in USD
         }
       });
+      
     } catch (error) {
-      console.error('Error preparing transaction:', error);
-      // Show error message
-      Alert.alert(
-        'Error',
-        error instanceof Error ? error.message : 'Failed to prepare transaction'
-      );
+      console.error('[Pay] Error preparing transaction:', error);
+      
+      // Handle specific error cases
+      let errorMessage = 'An error occurred while processing your transaction.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('transaction underpriced')) {
+          errorMessage = 'Gas price too low. Please try again.';
+        } else if (error.message.includes('gas required exceeds allowance')) {
+          errorMessage = 'The transaction requires more gas than expected. Please try again with a smaller amount.';
+        } else if (error.message.includes('nonce')) {
+          errorMessage = 'There was an issue with the transaction sequence. Please try again.';
+        } else if (error.message.includes('1015')) {
+          errorMessage = 'Network connection issue. Please check your internet connection and try again.';
+        } else if (error.message.includes('insufficient funds')) {
+          errorMessage = 'Insufficient balance to cover transfer and gas fees.';
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -425,6 +614,146 @@ export default function PayScreen(): JSX.Element {
         80001: Network.MATIC_MUMBAI,
       };
       setNetworkId(networkMap[account.chainId] || Network.ETH_MAINNET);
+    }
+  };
+
+  // Add function to calculate maximum sendable amount
+  const calculateMaxAmount = async () => {
+    try {
+      if (!selectedToken || !walletAddress) return;
+
+      const tokenBalance = parseFloat(selectedToken.balance);
+      
+      // For native currency (ETH), subtract gas fees
+      if (selectedToken.address === '0x0000000000000000000000000000000000000000') {
+        // Get current gas price
+        const gasPrice = await makeAlchemyRequest('eth_gasPrice', []);
+        
+        // Get gas limit for a standard ETH transfer
+        const gasLimit = '0x5208'; // 21000 gas units for standard ETH transfer
+        
+        // Calculate total gas cost in ETH
+        const gasCostWei = BigInt(gasPrice) * BigInt(gasLimit);
+        const gasCostEth = parseFloat(ethers.formatEther(gasCostWei));
+        
+        // Add 30% buffer for gas price fluctuations
+        const gasCostWithBuffer = gasCostEth * 1.3;
+        
+        // Calculate max amount by subtracting gas cost from balance
+        const maxAmount = tokenBalance - gasCostWithBuffer;
+        
+        console.log('[Pay] Calculating max ETH amount:', {
+          balance: tokenBalance,
+          gasCost: gasCostEth,
+          gasCostWithBuffer,
+          maxAmount
+        });
+        
+        // Format to 6 decimal places to avoid precision issues
+        const formattedMaxAmount = maxAmount > 0 ? maxAmount.toFixed(6) : '0';
+        
+        // Update both token and fiat amounts
+        setAmount(formattedMaxAmount);
+        const usdValue = parseFloat(formattedMaxAmount) * tokenPrice;
+        setFiatAmount(usdValue.toFixed(2));
+        
+        return formattedMaxAmount;
+      }
+      
+      // For ERC20 tokens, return full balance formatted
+      const formattedBalance = tokenBalance.toFixed(6);
+      setAmount(formattedBalance);
+      const usdValue = tokenBalance * tokenPrice;
+      setFiatAmount(usdValue.toFixed(2));
+      return formattedBalance;
+    } catch (error) {
+      console.error('Error calculating max amount:', error);
+      return '0';
+    }
+  };
+
+  // Add function to handle max button click
+  const handleMaxClick = async () => {
+    try {
+      if (!selectedToken) return;
+
+      // Get current chain ID
+      const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+      if (!walletDataStr) {
+        throw new Error('No wallet data found');
+      }
+      const walletData = JSON.parse(walletDataStr);
+      const chainId = (walletData.chainId || 1) as ChainId;
+
+      // For ETH/native token transfers, we need to account for gas
+      if (selectedToken.address === '0x0000000000000000000000000000000000000000') {
+        // Get gas estimation for a basic transfer
+        const gasEstimation = await estimateGas(
+          chainId,
+          TransactionType.NATIVE_TRANSFER,
+          walletAddress as string,
+          walletAddress as string,
+          undefined,
+          '0x0'
+        );
+
+        // Calculate gas cost with 1.8x buffer
+        const gasCostWei = gasEstimation.gasLimit * gasEstimation.gasPrice;
+        const gasCostWithBuffer = (gasCostWei * BigInt(180)) / BigInt(100); // 80% buffer
+        
+        // Calculate max amount in Wei
+        const balanceWei = ethers.parseEther(selectedToken.balance);
+        const maxAmountWei = balanceWei - gasCostWithBuffer;
+        
+        if (maxAmountWei <= 0) {
+          setError("Insufficient balance to cover gas fees");
+          setAmount('0');
+          setTokenAmount('0');
+          setFiatAmount('0');
+          setUsdValue('0');
+          return;
+        }
+
+        // Format amounts with proper precision
+        const formattedMaxAmount = ethers.formatEther(maxAmountWei);
+        const currentPrice = selectedToken.price || 0;
+        const calculatedUsd = (parseFloat(formattedMaxAmount) * currentPrice).toFixed(2);
+        
+        // Update all state values in sequence
+        setError(null);
+        setAmount(formattedMaxAmount);
+        setTokenAmount(formattedMaxAmount);
+        setFiatAmount(calculatedUsd);
+        setUsdValue(calculatedUsd);
+        
+        // Update gas estimates
+        const gasCostFormatted = ethers.formatEther(gasCostWei);
+        setGasEstimate(gasCostFormatted);
+        setGasUsd((parseFloat(gasCostFormatted) * currentPrice).toFixed(2));
+
+        // Also update the base gas estimation for the UI
+        await estimateBaseGas();
+      } else {
+        // For other tokens, use full balance
+        const balance = parseFloat(selectedToken.balance);
+        const formattedBalance = balance.toFixed(6);
+        const currentPrice = selectedToken.price || 0;
+        const calculatedUsd = (balance * currentPrice).toFixed(2);
+        
+        // Update all state values in sequence
+        setError(null);
+        setAmount(formattedBalance);
+        setTokenAmount(formattedBalance);
+        setFiatAmount(calculatedUsd);
+        setUsdValue(calculatedUsd);
+      }
+    } catch (error) {
+      console.error('[Pay] Error in handleMaxClick:', error);
+      setError('Failed to calculate maximum amount');
+      setAmount('0');
+      setTokenAmount('0');
+      setFiatAmount('0');
+      setUsdValue('0');
     }
   };
 
@@ -546,25 +875,33 @@ export default function PayScreen(): JSX.Element {
               <View style={styles.inputGroup}>
                 <View style={styles.amountHeader}>
                   <Text style={styles.label}>Amount</Text>
-                  <TouchableOpacity
-                    style={styles.currencyToggle}
-                    onPress={() => {
-                      setIsFiatInput(!isFiatInput);
-                      // When switching, use the current visible amount for conversion
-                      const currentValue = isFiatInput ? fiatAmount : tokenAmount;
-                      handleAmountChange(currentValue || '0', !isFiatInput);
-                    }}
-                  >
-                    <Text style={styles.currencyToggleText}>
-                      {isFiatInput ? 'USD' : selectedToken?.symbol}
-                    </Text>
-                    <Ionicons 
-                      name="swap-horizontal" 
-                      size={16} 
-                      color={COLORS.white} 
-                      style={{ marginLeft: 4 }}
-                    />
-                  </TouchableOpacity>
+                  <View style={styles.amountHeaderRight}>
+                    <TouchableOpacity
+                      style={styles.maxButton}
+                      onPress={handleMaxClick}
+                    >
+                      <Text style={styles.maxButtonText}>MAX</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.currencyToggle}
+                      onPress={() => {
+                        setIsFiatInput(!isFiatInput);
+                        // When switching, use the current visible amount for conversion
+                        const currentValue = isFiatInput ? fiatAmount : tokenAmount;
+                        handleAmountChange(currentValue || '0', !isFiatInput);
+                      }}
+                    >
+                      <Text style={styles.currencyToggleText}>
+                        {isFiatInput ? 'USD' : selectedToken?.symbol}
+                      </Text>
+                      <Ionicons 
+                        name="swap-horizontal" 
+                        size={16} 
+                        color={COLORS.white} 
+                        style={{ marginLeft: 4 }}
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
                 <View style={styles.amountContainer}>
                   <TextInput
@@ -589,10 +926,10 @@ export default function PayScreen(): JSX.Element {
                   <Text style={styles.gasLabel}>Estimated Gas Fee</Text>
                   <View style={styles.gasValue}>
                     <Text style={styles.gasAmount} numberOfLines={2} adjustsFontSizeToFit>
-                      {gasEstimate} ETH
+                      {parseFloat(gasEstimate).toFixed(8)} ETH
                     </Text>
                     <Text style={styles.gasUsd}>
-                      (≈ ${gasUsd})
+                      (≈ ${parseFloat(gasUsd).toFixed(8)})
                     </Text>
                   </View>
                 </View>
@@ -774,10 +1111,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 59, 48, 0.1)",
     borderRadius: 12,
     padding: SPACING.sm,
+    marginTop: SPACING.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   errorText: {
     color: COLORS.error,
     fontSize: 14,
+    flex: 1,
   },
   sendButton: {
     backgroundColor: COLORS.primary,
@@ -804,6 +1145,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
+  },
+  amountHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  maxButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+  },
+  maxButtonText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '500',
   },
   currencyToggle: {
     flexDirection: 'row',

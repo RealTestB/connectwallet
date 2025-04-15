@@ -21,13 +21,17 @@ export const STORAGE_KEYS = {
     DARK_MODE: 'dark_mode',
     LANGUAGE: 'language',
     CURRENCY: 'currency',
-    LAST_USED_NETWORK: 'last_used_network'
+    LAST_USED_NETWORK: 'last_used_network',
+    THEME: 'theme',
+    NOTIFICATIONS: 'notifications',
   },
 
   // Network
   NETWORK: {
     ID: 'network_id',
-    WALLET_ADDRESS: 'network_wallet_address'
+    WALLET_ADDRESS: 'network_wallet_address',
+    NAME: 'network_name',
+    CHAIN_ID: 'chain_id',
   },
 
   PORTFOLIO_DATA: 'portfolio_data',
@@ -37,4 +41,6 @@ export const STORAGE_KEYS = {
   // New keys
   SELECTED_CHAIN_ID: 'selected_chain_id',
   SELECTED_ACCOUNT_INDEX: 'selected_account_index',
+  APPROVED_TOKENS: 'approved_tokens',
+  REJECTED_TOKENS: 'rejected_tokens',
 } as const; 

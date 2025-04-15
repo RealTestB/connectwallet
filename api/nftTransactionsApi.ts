@@ -3,6 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import { getProvider } from './provider';
 import { STORAGE_KEYS } from '../constants/storageKeys';
 import { makeAlchemyRequest } from './alchemyApi';
+import { estimateGas, TransactionType } from '../utils/gasUtils';
+import { ChainId } from '../types/chains';
 
 export interface NFTTransferParams {
   contractAddress: string;
@@ -95,34 +97,30 @@ const generateERC1155TransferData = (tokenId: string, fromAddress: string, toAdd
 export const estimateNFTTransferGas = async (params: NFTTransferParams): Promise<{ gasLimit: bigint; gasPrice: bigint }> => {
   console.log('[NFTTransactions] Estimating gas for NFT transfer:', params);
   try {
-    // Generate the transfer data based on token type
-    const data = params.tokenType === 'ERC721' 
-      ? generateERC721TransferData(params.tokenId, params.fromAddress, params.toAddress)
-      : generateERC1155TransferData(params.tokenId, params.fromAddress, params.toAddress);
+    // Get wallet data to determine chain ID
+    const walletDataStr = await SecureStore.getItemAsync(STORAGE_KEYS.WALLET_DATA);
+    if (!walletDataStr) {
+      throw new Error('No wallet data found');
+    }
+    const walletData = JSON.parse(walletDataStr);
+    const chainId = (walletData.chainId || 1) as ChainId;
 
-    // Log the exact parameters being sent
-    const estimateParams = {
-      from: params.fromAddress,
-      to: params.contractAddress,
-      data
+    // Use centralized gas estimation
+    const gasEstimation = await estimateGas(
+      chainId,
+      params.tokenType === 'ERC721' ? TransactionType.NFT_TRANSFER : TransactionType.NFT_APPROVAL,
+      params.fromAddress,
+      params.contractAddress,
+      undefined,
+      undefined,
+      params.tokenType,
+      params.tokenId
+    );
+
+    return {
+      gasLimit: gasEstimation.gasLimit,
+      gasPrice: gasEstimation.gasPrice
     };
-    console.log('[NFTTransactions] Sending eth_estimateGas with params:', estimateParams);
-
-    // Make both API calls in parallel
-    const [gasPriceResponse, gasLimitResponse] = await Promise.all([
-      makeAlchemyRequest('eth_gasPrice', []),
-      makeAlchemyRequest('eth_estimateGas', [estimateParams])
-    ]);
-
-    const gasPrice = BigInt(gasPriceResponse);
-    const gasLimit = BigInt(gasLimitResponse);
-
-    console.log('[NFTTransactions] Gas estimation result:', {
-      gasLimit: gasLimit.toString(),
-      gasPrice: gasPrice.toString()
-    });
-
-    return { gasLimit, gasPrice };
   } catch (error) {
     console.error('[NFTTransactions] Error estimating gas:', {
       params,
