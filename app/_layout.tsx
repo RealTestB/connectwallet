@@ -15,6 +15,8 @@ import { COLORS } from '../styles/shared';
 import { TransactionProvider } from '../contexts/TransactionContext';
 import { clearSupabaseStorage } from '../lib/supabase';
 import { ChainProvider } from '../contexts/ChainContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -111,6 +113,35 @@ export default function RootLayout() {
         
         // Clear Supabase storage first
         await clearSupabaseStorage();
+        
+        // Check if AsyncStorage is empty (indicating it was cleared)
+        const asyncStorageKeys = await AsyncStorage.getAllKeys();
+        if (asyncStorageKeys.length === 0) {
+          console.log('[Layout] AsyncStorage is empty, clearing SecureStore for testing...');
+          // Clear all SecureStore data
+          const clearKey = async (key: string) => {
+            try {
+              await SecureStore.deleteItemAsync(key);
+            } catch (error) {
+              console.warn(`[Layout] Failed to clear key ${key}:`, error);
+            }
+          };
+          
+          // Clear all top-level string keys
+          Object.entries(STORAGE_KEYS).forEach(([_, value]) => {
+            if (typeof value === 'string') {
+              clearKey(value);
+            } else if (value && typeof value === 'object') {
+              // Handle nested objects like SETTINGS
+              Object.values(value).forEach(nestedValue => {
+                if (typeof nestedValue === 'string') {
+                  clearKey(nestedValue);
+                }
+              });
+            }
+          });
+          console.log('[Layout] SecureStore cleared for testing');
+        }
         
         // Initialize providers and services
         await Promise.all([

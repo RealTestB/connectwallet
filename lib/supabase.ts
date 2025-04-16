@@ -8,11 +8,11 @@ import config from '../api/config'
 export const clearSupabaseStorage = async () => {
   console.log('🧹 [Supabase] Clearing storage...');
   try {
+    // Clear all AsyncStorage keys
     const keys = await AsyncStorage.getAllKeys();
-    const supabaseKeys = keys.filter(key => key.includes('supabase'));
-    if (supabaseKeys.length > 0) {
-      await AsyncStorage.multiRemove(supabaseKeys);
-      console.log('✅ [Supabase] Cleared storage:', supabaseKeys);
+    if (keys.length > 0) {
+      await AsyncStorage.multiRemove(keys);
+      console.log('✅ [Supabase] Cleared all storage keys:', keys);
     } else {
       console.log('ℹ️ [Supabase] No storage to clear');
     }
