@@ -2,7 +2,7 @@ module.exports = {
   expo: {
     name: "ConnectWallet",
     slug: "connectwallet",
-    version: "1.0.3",
+    version: "1.0.4",
     runtimeVersion: {
       policy: "sdkVersion"
     },
@@ -111,13 +111,7 @@ module.exports = {
               "android.okhttp.timeout.connect": "30000",
               "android.okhttp.timeout.read": "30000",
               "android.okhttp.timeout.write": "30000",
-              "androidx.browser:browser": "1.8.0",
-              "android.gradlePluginVersion": "8.6.0",
-              "android.dependencyResolutionManagement": {
-                "force": [
-                  "androidx.browser:browser:1.8.0"
-                ]
-              }
+              "androidx.browser.version": "1.8.0"
             }
           },
           ios: {
