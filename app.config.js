@@ -117,7 +117,8 @@ module.exports = {
                 "force": [
                   "androidx.browser:browser:1.8.0"
                 ]
-              }
+              },
+              "android.suppressUnsupportedCompileSdk": "36"
             }
           },
           ios: {
