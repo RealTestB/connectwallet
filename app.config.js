@@ -97,11 +97,11 @@ module.exports = {
         "expo-build-properties",
         {
           android: {
-            compileSdkVersion: 36,
-            targetSdkVersion: 36,
+            compileSdkVersion: 35,
+            targetSdkVersion: 35,
             minSdkVersion: 24,
             kotlinVersion: "1.9.25",
-            buildToolsVersion: "36.0.0",
+            buildToolsVersion: "35.0.0",
             extraProperties: {
               "android.suppressKotlinVersionCompatibilityCheck": true,
               "android.defaults.buildfeatures.buildconfig": true,
@@ -112,13 +112,12 @@ module.exports = {
               "android.okhttp.timeout.read": "30000",
               "android.okhttp.timeout.write": "30000",
               "androidx.browser:browser": "1.8.0",
-              "android.gradlePluginVersion": "8.9.1",
+              "android.gradlePluginVersion": "8.6.0",
               "android.dependencyResolutionManagement": {
                 "force": [
                   "androidx.browser:browser:1.8.0"
                 ]
-              },
-              "android.suppressUnsupportedCompileSdk": "36"
+              }
             }
           },
           ios: {
